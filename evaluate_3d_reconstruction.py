@@ -102,7 +102,7 @@ def evaluate(opt):
     
     dataloader = DataLoader(dataset, 1, shuffle=False, num_workers=opt.num_workers,
                             pin_memory=True, drop_last=False)
-    model = networks.DARES()
+    model = networks.Endo_FASt3r_depth()
     
     model_dict = model.state_dict()
     model.load_state_dict({k: v for k, v in weight_dict.items() if k in model_dict})
