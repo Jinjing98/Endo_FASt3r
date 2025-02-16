@@ -12,7 +12,6 @@ from utils import readlines
 from options import MonodepthOptions
 import datasets
 import networks
-from networks.molora import build_molora_model
 
 cv2.setNumThreads(0)  # This speeds up evaluation 5x on our unix systems (OpenCV 3.3.1)
 
