@@ -200,17 +200,48 @@ class DoRAInitializer:
         return self.model
 
 
-def build_reloc3r_model(path: str
-                       ):
-    print("MoDoRA in Pose model")
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    reloc3r_relpose = load_model(ckpt_path=path, img_size=512, device=device)
-    reloc3r_relpose = DoRAInitializer(reloc3r_relpose, [20, 20, 20, 18, 18, 18, 18, 18, 16, 16, 16, 16, 14,14,12,12,10,10,8,8,8,8,8,8], [14, 14, 12, 12, 10, 10, 8, 8, 8, 8, 8, 8]).initialize_dora()
-    reloc3r_relpose = VectorMoRAInitializer(reloc3r_relpose, [20, 20, 20, 18, 18, 18, 18, 18, 16, 16, 16, 16, 14,14,12,12,10,10,8,8,8,8,8,8], [14, 14, 12, 12, 10, 10, 8, 8, 8, 8, 8, 8]).initialize_mora()
-    reloc3r_relpose.pose_head = PoseHead(net=reloc3r_relpose)
-    reloc3r_relpose.head = transpose_to_landscape(reloc3r_relpose.pose_head, activate=True)
-    return reloc3r_relpose
+# def build_reloc3r_model(path: str
+#                        ):
+#     print("MoDoRA in Pose model")
+#     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+#     reloc3r_relpose = load_model(ckpt_path=path, img_size=512, device=device)
+#     reloc3r_relpose = DoRAInitializer(reloc3r_relpose, [20, 20, 20, 18, 18, 18, 18, 18, 16, 16, 16, 16, 14,14,12,12,10,10,8,8,8,8,8,8], [14, 14, 12, 12, 10, 10, 8, 8, 8, 8, 8, 8]).initialize_dora()
+#     reloc3r_relpose = VectorMoRAInitializer(reloc3r_relpose, [20, 20, 20, 18, 18, 18, 18, 18, 16, 16, 16, 16, 14,14,12,12,10,10,8,8,8,8,8,8], [14, 14, 12, 12, 10, 10, 8, 8, 8, 8, 8, 8]).initialize_mora()
+#     reloc3r_relpose.pose_head = PoseHead(net=reloc3r_relpose)
+#     reloc3r_relpose.head = transpose_to_landscape(reloc3r_relpose.pose_head, activate=True)
+#     return reloc3r_relpose
 
+
+class Endo_FASt3r_pose(nn.Module):
+    def __init__(self, path: str):
+        super(Endo_FASt3r_pose, self).__init__()
+        print("MoDoRA in Pose model")
+        
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        
+        # Load the model
+        self.model = load_model(ckpt_path=path, img_size=512, device=self.device)
+        
+        # Apply DoRA initialization
+        self.model = DoRAInitializer(
+            self.model,
+            [20, 20, 20, 18, 18, 18, 18, 18, 16, 16, 16, 16, 14, 14, 12, 12, 10, 10, 8, 8, 8, 8, 8, 8],
+            [14, 14, 12, 12, 10, 10, 8, 8, 8, 8, 8, 8]
+        ).initialize_dora()
+        
+        # Apply VectorMoRA initialization
+        self.model = VectorMoRAInitializer(
+            self.model,
+            [20, 20, 20, 18, 18, 18, 18, 18, 16, 16, 16, 16, 14, 14, 12, 12, 10, 10, 8, 8, 8, 8, 8, 8],
+            [14, 14, 12, 12, 10, 10, 8, 8, 8, 8, 8, 8]
+        ).initialize_mora()
+        
+        # Set up pose head and head
+        self.model.pose_head = PoseHead(net=self.model)
+        self.model.head = transpose_to_landscape(self.model.pose_head, activate=True)
+
+    def forward(self, x):
+        return self.model(x)  # Forward pass through the initialized model
 
 
 # code adapted from 'https://github.com/nianticlabs/marepo/blob/9a45e2bb07e5bb8cb997620088d352b439b13e0e/transformer/transformer.py#L172'
