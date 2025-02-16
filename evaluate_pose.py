@@ -133,8 +133,8 @@ def evaluate(opt):
     pose_model_dict = torch.load(pose_model_path)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
-    reloc3r_ckpt_path = "/cluster/project7/Llava_2024/DARES_v2/DARES_pose_molora/Reloc3r-512.pth"
-    pose_model = networks.Endo_FASt3r_pose(reloc3r_ckpt_path)
+    reloc3r_ckpt_path = "/content/drive/MyDrive/Reloc3r-512.pth"
+    pose_model = networks.build_reloc3r_model(reloc3r_ckpt_path)
     model_dict = pose_model.state_dict()
     pose_model.load_state_dict({k: v for k, v in pose_model_dict.items() if k in model_dict})
     pose_model.cuda()
@@ -153,7 +153,7 @@ def evaluate(opt):
 
             view1 = {'img':prepare_images(inputs[("color", 1, 0)] , device,  size = 512)}
             view0 = {'img':prepare_images(inputs[("color", 0, 0)], device, size = 512)}
-            pose2  = pose_model(view0,view1)
+            pose2,_  = pose_model(view0,view1)
             pred_poses.append(pose2["pose"].cpu().numpy())
 
     pred_poses = np.concatenate(pred_poses)
