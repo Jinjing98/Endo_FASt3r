@@ -134,7 +134,7 @@ def evaluate(opt):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     reloc3r_ckpt_path = "/cluster/project7/Llava_2024/DARES_v2/DARES_pose_molora/Reloc3r-512.pth"
-    pose_model = build_reloc3r_model(reloc3r_ckpt_path)
+    pose_model = networks.Endo_FASt3r_pose(reloc3r_ckpt_path)
     model_dict = pose_model.state_dict()
     pose_model.load_state_dict({k: v for k, v in pose_model_dict.items() if k in model_dict})
     pose_model.cuda()
