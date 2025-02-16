@@ -97,9 +97,7 @@ def evaluate(opt):
         # depth_decoder = networks.DepthDecoder(encoder.num_ch_enc, scales=range(4))
 
         #original
-        # depth_model = networks.Customised_DAM()
-        # depth_model = build_molora_model("/cluster/project7/Llava_2024/DARES_v2/DARES_molora/best_weights/depth_me.pth")
-        depth_model = networks.Customised_MoRA_DAM()
+        depth_model = networks.Endo_FASt3r_depth()
 
         # model_dict = encoder.state_dict()
         model_dict = depth_model.state_dict()
