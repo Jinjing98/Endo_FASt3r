@@ -1,0 +1,210 @@
+from __future__ import absolute_import, division, print_function
+
+import os
+import torch
+import networks
+import numpy as np
+
+from torch.utils.data import DataLoader
+from layers import transformation_from_parameters
+from utils import readlines
+from options import MonodepthOptions
+from datasets import SCAREDRAWDataset
+
+from torchvision.transforms import ToPILImage
+import torchvision.transforms as tvf
+
+from networks import DINOEncoder
+import random
+import ipdb
+from build_reloc3r_modora import build_reloc3r_model
+from torch.cuda.amp import autocast, GradScaler
+import PIL
+import PIL.Image
+from torchvision.transforms import ToPILImage
+import torchvision.transforms as tvf
+from PIL import Image
+
+def prepare_images(x, device, size, square_ok=False):
+  to_pil = ToPILImage()
+  ImgNorm = tvf.Compose([tvf.ToTensor(), tvf.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+  # ImgNorm = tvf.Compose([tvf.ToTensor()])
+  imgs = []
+  for idx in range(x.size(0)):
+      tensor = x[idx].cpu()  # Shape [3, 256, 320]
+      img = to_pil(tensor).convert("RGB")
+      W1, H1 = img.size
+      if size == 224:
+          # resize short side to 224 (then crop)
+          img = resize_pil_image(img, round(size * max(W1/H1, H1/W1)))
+      else:
+          # resize long side to 512
+          img = resize_pil_image(img, size)
+      W, H = img.size
+      cx, cy = W//2, H//2
+      if size == 224:
+          half = min(cx, cy)
+          img = img.crop((cx-half, cy-half, cx+half, cy+half))
+      else:
+          halfw, halfh = ((2*cx)//16)*8, ((2*cy)//16)*8
+          if not (square_ok) and W == H:
+              halfh = 3*halfw/4
+          img = img.crop((cx-halfw, cy-halfh, cx+halfw, cy+halfh))
+      imgs.append(ImgNorm(img)[None].to(device))
+  return torch.stack(imgs, dim=0).squeeze()
+
+def resize_pil_image(img, long_edge_size):
+    S = max(img.size)
+    if S > long_edge_size:
+        interp = PIL.Image.LANCZOS
+    elif S <= long_edge_size:
+        interp = PIL.Image.BICUBIC
+    new_size = tuple(int(round(x*long_edge_size/S)) for x in img.size)
+    return img.resize(new_size, interp)
+
+
+# from https://github.com/tinghuiz/SfMLearner
+def dump_xyz(source_to_target_transformations):
+    xyzs = []
+    cam_to_world = np.eye(4)
+    xyzs.append(cam_to_world[:3, 3])
+    for source_to_target_transformation in source_to_target_transformations:
+        cam_to_world = np.dot(cam_to_world, source_to_target_transformation)
+        # cam_to_world = np.dot(source_to_target_transformation, cam_to_world)
+        xyzs.append(cam_to_world[:3, 3])
+    return xyzs
+
+
+def dump_r(source_to_target_transformations):
+    rs = []
+    cam_to_world = np.eye(4)
+    rs.append(cam_to_world[:3, :3])
+    for source_to_target_transformation in source_to_target_transformations:
+        cam_to_world = np.dot(cam_to_world, source_to_target_transformation)
+        # cam_to_world = np.dot(source_to_target_transformation, cam_to_world)
+        rs.append(cam_to_world[:3, :3])
+    return rs
+
+
+# from https://github.com/tinghuiz/SfMLearner
+def compute_ate(gtruth_xyz, pred_xyz_o):
+
+    # Make sure that the first matched frames align (no need for rotational alignment as
+    # all the predicted/ground-truth snippets have been converted to use the same coordinate
+    # system with the first frame of the snippet being the origin).
+    offset = gtruth_xyz[0] - pred_xyz_o[0]
+    pred_xyz = pred_xyz_o + offset[None, :]
+
+    # Optimize the scaling factor
+    # ipdb.set_trace()
+    scale = np.sum(gtruth_xyz * pred_xyz) / np.sum(pred_xyz ** 2)
+    alignment_error = pred_xyz * scale - gtruth_xyz
+    rmse = np.sqrt(np.sum(alignment_error ** 2)) / gtruth_xyz.shape[0]
+    return rmse
+
+
+def compute_re(gtruth_r, pred_r):
+    RE = 0
+    gt = gtruth_r
+    pred = pred_r
+    for gt_pose, pred_pose in zip(gt, pred):
+        # Residual matrix to which we compute angle's sin and cos
+        R = gt_pose @ np.linalg.inv(pred_pose)
+        s = np.linalg.norm([R[0, 1] - R[1, 0],
+                            R[1, 2] - R[2, 1],
+                            R[0, 2] - R[2, 0]])
+        c = np.trace(R) - 1
+        # Note: we actually compute double of cos and sin, but arctan2 is invariant to scale
+        RE += np.arctan2(s, c)
+
+    return RE / gtruth_r.shape[0]
+
+
+def evaluate(opt):
+    """Evaluate odometry on the SCARED dataset
+    """
+    assert os.path.isdir(opt.load_weights_folder), \
+        "Cannot find a folder at {}".format(opt.load_weights_folder)
+
+    filenames = readlines(
+        os.path.join(os.path.dirname(__file__), "splits", "endovis",
+                     "test_files_sequence1.txt"))
+
+    dataset = SCAREDRAWDataset(opt.data_path, filenames, opt.height, opt.width,
+                               [0, 1], 4, is_train=False)
+    dataloader = DataLoader(dataset, opt.batch_size, shuffle=False,
+                            num_workers=opt.num_workers, pin_memory=True, drop_last=False)
+
+    # pose_encoder_path = os.path.join(opt.load_weights_folder, "pose_encoder.pth")
+    pose_model_path = os.path.join(opt.load_weights_folder, "pose.pth")
+    pose_model_dict = torch.load(pose_model_path)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    # # pose_encoder = networks.ResnetEncoder(opt.num_layers, False, 2)
+    # pose_encoder = networks.DINOEncoder()
+    # pose_encoder.load_state_dict(torch.load(pose_encoder_path))
+
+    # pose_decoder = networks.PoseDecoder(pose_encoder.num_ch_enc, 1, 2)
+    # pose_decoder.load_state_dict(torch.load(pose_decoder_path))
+
+    reloc3r_ckpt_path = "/cluster/project7/Llava_2024/DARES_v2/DARES_pose_molora/Reloc3r-512.pth"
+    pose_model = build_reloc3r_model(reloc3r_ckpt_path)
+    model_dict = pose_model.state_dict()
+    pose_model.load_state_dict({k: v for k, v in pose_model_dict.items() if k in model_dict})
+
+
+
+    pose_model.cuda()
+    pose_model.eval()
+    # pose_decoder.cuda()
+    # pose_decoder.eval()
+
+    pred_poses = []
+
+    print("-> Computing pose predictions")
+
+    opt.frame_ids = [0, 1]  # pose network only takes two frames as input
+
+    with torch.no_grad():
+        for inputs in dataloader:
+            for key, ipt in inputs.items():
+                inputs[key] = ipt.cuda()
+
+            # all_color_aug = torch.cat([inputs[("color", 1, 0)], inputs[("color", 0, 0)]], 1)
+
+            # features = [pose_encoder(all_color_aug)]
+            # axisangle, translation = pose_decoder(features)
+
+            # pred_poses.append(
+            #     transformation_from_parameters(axisangle[:, 0], translation[:, 0]).cpu().numpy())
+            view1 = {'img':prepare_images(inputs[("color", 1, 0)] , device,  size = 512)}
+            view0 = {'img':prepare_images(inputs[("color", 0, 0)], device, size = 512)}
+            pose2  = pose_model(view0,view1)
+            pred_poses.append(pose2["pose"].cpu().numpy())
+
+    # ipdb.set_trace()
+    pred_poses = np.concatenate(pred_poses)
+
+    gt_path = os.path.join(os.path.dirname(__file__), "splits", "endovis", "gt_poses_sq1.npz")
+    gt_local_poses = np.load(gt_path, fix_imports=True, encoding='latin1')["data"]
+
+    ates = []
+    res = []
+    num_frames = gt_local_poses.shape[0]
+    track_length = 5
+    # ipdb.set_trace()
+    for i in range(0, num_frames - 2):
+        local_xyzs = np.array(dump_xyz(pred_poses[i:i + track_length - 1]))
+        gt_local_xyzs = np.array(dump_xyz(gt_local_poses[i:i + track_length - 1]))
+        local_rs = np.array(dump_r(pred_poses[i:i + track_length - 1]))
+        gt_rs = np.array(dump_r(gt_local_poses[i:i + track_length - 1]))
+        ates.append(compute_ate(gt_local_xyzs, local_xyzs))
+        res.append(compute_re(local_rs, gt_rs))
+
+    print("\n   Trajectory error: {:0.4f}, std: {:0.4f}\n".format(np.mean(ates), np.std(ates)))
+    print("\n   Rotation error: {:0.4f}, std: {:0.4f}\n".format(np.mean(res), np.std(res)))
+
+
+if __name__ == "__main__":
+    options = MonodepthOptions()
+    evaluate(options.parse())
