@@ -11,10 +11,54 @@ from utils import readlines
 from options import MonodepthOptions
 from datasets import SCAREDRAWDataset
 import warnings
+
+from torch.cuda.amp import autocast, GradScaler
+import PIL
+import PIL.Image
+from torchvision.transforms import ToPILImage
+import torchvision.transforms as tvf
+from PIL import Image
 warnings.filterwarnings('ignore')
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
+def prepare_images(x, device, size, square_ok=False):
+  to_pil = ToPILImage()
+  ImgNorm = tvf.Compose([tvf.ToTensor(), tvf.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+  # ImgNorm = tvf.Compose([tvf.ToTensor()])
+  imgs = []
+  for idx in range(x.size(0)):
+      tensor = x[idx].cpu()  # Shape [3, 256, 320]
+      img = to_pil(tensor).convert("RGB")
+      W1, H1 = img.size
+      if size == 224:
+          # resize short side to 224 (then crop)
+          img = resize_pil_image(img, round(size * max(W1/H1, H1/W1)))
+      else:
+          # resize long side to 512
+          img = resize_pil_image(img, size)
+      W, H = img.size
+      cx, cy = W//2, H//2
+      if size == 224:
+          half = min(cx, cy)
+          img = img.crop((cx-half, cy-half, cx+half, cy+half))
+      else:
+          halfw, halfh = ((2*cx)//16)*8, ((2*cy)//16)*8
+          if not (square_ok) and W == H:
+              halfh = 3*halfw/4
+          img = img.crop((cx-halfw, cy-halfh, cx+halfw, cy+halfh))
+      imgs.append(ImgNorm(img)[None].to(device))
+  return torch.stack(imgs, dim=0).squeeze()
+
+def resize_pil_image(img, long_edge_size):
+    S = max(img.size)
+    if S > long_edge_size:
+        interp = PIL.Image.LANCZOS
+    elif S <= long_edge_size:
+        interp = PIL.Image.BICUBIC
+    new_size = tuple(int(round(x*long_edge_size/S)) for x in img.size)
+    return img.resize(new_size, interp)
+    
 # from https://github.com/tinghuiz/SfMLearner
 def dump_xyz(source_to_target_transformations):
     xyzs = []
@@ -85,20 +129,16 @@ def evaluate(opt):
                                [0, 1], 4, is_train=False)
     dataloader = DataLoader(dataset, opt.batch_size, shuffle=False,
                             num_workers=opt.num_workers, pin_memory=True, drop_last=False)
-
-    pose_encoder_path = os.path.join(opt.load_weights_folder, "pose_encoder.pth")
-    pose_decoder_path = os.path.join(opt.load_weights_folder, "pose.pth")
-
-    pose_encoder = networks.ResnetEncoder(opt.num_layers, False, 2)
-    pose_encoder.load_state_dict(torch.load(pose_encoder_path, map_location=device.type))
-
-    pose_decoder = networks.PoseDecoder(pose_encoder.num_ch_enc, 1, 2)
-    pose_decoder.load_state_dict(torch.load(pose_decoder_path, map_location=device.type))
-
-    pose_encoder.to(device)
-    pose_encoder.eval()
-    pose_decoder.to(device)
-    pose_decoder.eval()
+    pose_model_path = os.path.join(opt.load_weights_folder, "pose.pth")
+    pose_model_dict = torch.load(pose_model_path)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
+    reloc3r_ckpt_path = "/cluster/project7/Llava_2024/DARES_v2/DARES_pose_molora/Reloc3r-512.pth"
+    pose_model = build_reloc3r_model(reloc3r_ckpt_path)
+    model_dict = pose_model.state_dict()
+    pose_model.load_state_dict({k: v for k, v in pose_model_dict.items() if k in model_dict})
+    pose_model.cuda()
+    pose_model.eval()
 
     pred_poses = []
 
@@ -111,13 +151,10 @@ def evaluate(opt):
             for key, ipt in inputs.items():
                 inputs[key] = ipt.to(device)
 
-            all_color_aug = torch.cat([inputs[("color", 1, 0)], inputs[("color", 0, 0)]], 1)
-
-            features = [pose_encoder(all_color_aug)]
-            axisangle, translation = pose_decoder(features)
-
-            pred_poses.append(
-                transformation_from_parameters(axisangle[:, 0], translation[:, 0]).cpu().numpy())
+            view1 = {'img':prepare_images(inputs[("color", 1, 0)] , device,  size = 512)}
+            view0 = {'img':prepare_images(inputs[("color", 0, 0)], device, size = 512)}
+            pose2  = pose_model(view0,view1)
+            pred_poses.append(pose2["pose"].cpu().numpy())
 
     pred_poses = np.concatenate(pred_poses)
     # np.savez_compressed(os.path.join(os.path.dirname(__file__), "splits", "endovis", "curve", "pose_our.npz"), data=np.array(pred_poses))
