@@ -233,6 +233,12 @@ class MonodepthOptions:
         self.parser.add_argument("--learn_intrinsics",
                                  help="learn the camera intrinsics with a seperate decoder",
                                  default=True)
+        self.parser.add_argument("--visualize_depth",
+                                 help="if set saves visualized depth map",
+                                 action="store_true")
+        self.parser.add_argument("--save_recon",
+                                 help="if set saves reconstruction files",
+                                 action="store_true")
         self.parser.add_argument("--scared_pose_seq",
                                  type=str,
                                  help="pose sequence in scared",
