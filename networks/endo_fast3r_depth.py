@@ -345,7 +345,7 @@ class VectorMoRAInitializer:
 
 
 
-class Customised_MoRA_DAM(nn.Module):
+class Endo_FASt3r_depth(nn.Module):
     def __init__(self, mora_ranks=None, mora_dropout=0.01):
         """
         Create a new 'MoRA-ized' model by:
