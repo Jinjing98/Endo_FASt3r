@@ -233,6 +233,10 @@ class MonodepthOptions:
         self.parser.add_argument("--learn_intrinsics",
                                  help="learn the camera intrinsics with a seperate decoder",
                                  default=True)
+        self.parser.add_argument("--scared_pose_seq",
+                                 type=str,
+                                 help="pose sequence in scared",
+                                 default=1)
 
     def parse(self):
         self.options = self.parser.parse_args()
