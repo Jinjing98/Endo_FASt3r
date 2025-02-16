@@ -9,7 +9,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from warnings import warn
-import ipdb
 
 def disp_to_depth(disp, min_depth, max_depth):
     """Convert network's sigmoid output into depth prediction
