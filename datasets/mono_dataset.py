@@ -137,6 +137,10 @@ class MonoDataset(data.Dataset):
 
         line = self.filenames[index].split()
         folder = line[0]
+        sequence = folder[7]
+        keyframe = folder[-1]
+        inputs["sequence"] = torch.from_numpy(np.array(int(sequence)))
+        inputs["keyframe"] = torch.from_numpy(np.array(int(keyframe)))
 
         if len(line) == 3:
             frame_index = int(line[1])
@@ -147,7 +151,8 @@ class MonoDataset(data.Dataset):
             side = line[2]
         else:
             side = None
-
+            
+        inputs["frame_id"] = torch.from_numpy(np.array(frame_index))
         for i in self.frame_idxs:
             if i == "s":
                 other_side = {"r": "l", "l": "r"}[side]
