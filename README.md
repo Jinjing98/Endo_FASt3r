@@ -1,5 +1,26 @@
-# Endo-FASt3r
-Endoscopic Foundation model Adaptation for Structure from motion
+
+
+[comment]: <> (# Endo-FASt3r: Endoscopic Foundation model Adaptation for Structure from motion)
+
+
+
+  <p align="center">
+  <h1 align="center">Endo-FASt3r: Endoscopic Foundation model Adaptation for Structure from motion</h1>
+  <p align="center">
+    <strong>Mona Sheikh Zeinoddin</strong>
+    ·
+    <strong>Mobarak I. Hoque</strong>
+    ·
+    <strong>Zafer Tandogdu</strong>
+    ·
+    <strong>Greg L. Shaw</strong>
+    ·
+    <strong>Matthew J. Clarkson</strong>
+    ·
+    <strong>Evangelos B. Mazomenos</strong>
+    ·
+    <strong>Danail Stoyanov</strong>
+  </p>
 
 ## SCARED training
 
