@@ -25,6 +25,12 @@
 [comment]: <> (  <h2 align="center">PAPER</h2>)
   <h3 align="center"><a href="https://arxiv.org/pdf/2503.07204v1">Paper</a></h3>
   <div align="center"></div>
+  
+<p align="center">
+    <img src="./miccai.gif" alt="teaser" width="100%">
+</p>
+<br>
+
 
 ## SCARED training
 
