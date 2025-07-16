@@ -112,26 +112,26 @@ Pose evaluation:
 python evaluate_pose.py --data_path <your_data_path>  --load_weights_folder <path_to_weights_i_folder> --scared_pose_seq <trajectory_1_or_2>
 ```   
 
-#### Depth Estimation
+#### Depth Estimation on SCARED & Hamlyn
 
 <p align="center">
 <img src='endo_depth.png' width=800/> 
 </p>
 
-#### Visual Odometry
+#### Visual Odometry on SCARED Trajectory2
 
 <p align="center">
 <img src='endo_pose.png' width=800/> 
 </p>
 
-#### 3D Reconstruction
+#### 3D Reconstruction on SCARED & Visual Odometry on StereoMIS
 
 <p align="center">
 <img src='endo_3d.png' width=800/> 
 </p>
 
 
-## Model zoo
+## Our Model
 
 | Model        | Abs Rel | Sq Rel | RMSE | ATE-Trajectory 1 | ATE-Trajectory 2 |Link |
 | ------------ | ---------- | ------ | --------- | ---- | ---- | ---- |
