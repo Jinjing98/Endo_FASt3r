@@ -14,21 +14,17 @@ from layers import *
 from torch.utils.data import DataLoader
 from tensorboardX import SummaryWriter
 from torchmetrics.image import MultiScaleStructuralSimilarityIndexMeasure
-from networks.molora import build_molora_model
 
 from networks import DINOEncoder
 import random
 import ipdb
-from build_reloc3r import build_reloc3r_model
+from networks import RelocerX
 # from torch.cuda.amp import autocast, GradScaler
 import PIL
 import PIL.Image
 from torchvision.transforms import ToPILImage
 import torchvision.transforms as tvf
 from PIL import Image
-
-print("trainer_end_to_end_reloc3r_no_amp_from_scratch")
-
 
 def clamp_pose(pose, min_value=-1.0, max_value=1.0):
     return torch.clamp(pose, min=min_value, max=max_value)
@@ -118,26 +114,13 @@ class Trainer:
         if self.opt.use_stereo:
             self.opt.frame_ids.append("s")
 
-        # self.models["depth_model"] = Customised_DAM()
 
-        # depth_model_path = "/cluster/project7/Llava_2024/DARES_v2/DARES_molora/logs_lfrozen_lm/mdp/models/weights_6/depth_model.pth"
-
-        # print(depth_model_path)
-
-        # depth_model_dict = torch.load(depth_model_path)
-        # self.models["depth_model"] = build_molora_model("/cluster/project7/Llava_2024/DARES_v2/DARES_molora/best_weights/depth_me.pth")
-        print("MoDoRA")
-        self.models["depth_model"] = networks.Customised_MoRA_DAM()
-        ### load best depth model
-        # model_dict = self.models["depth_model"].state_dict()
-        # self.models["depth_model"].load_state_dict({k: v for k, v in depth_model_dict.items() if k in model_dict})
-        print("didn't load best depth model!!!!")
+        print("Using DoMoRA")
+        self.models["depth_model"] = networks.Endo_FASt3r_depth()
+        
 
 
         self.models["depth_model"].to(self.device)
-        # for p in self.models["depth_model"].parameters():
-        #     p._original_requires_grad = p.requires_grad
-        ###TODOadd sth for unfreezing LoRA or change the build_molora_model function
 
         self.parameters_to_train += list(filter(lambda p: p.requires_grad, self.models["depth_model"].parameters()))
 
@@ -171,36 +154,8 @@ class Trainer:
         if self.use_pose_net:
 
             if self.opt.pose_model_type == "separate_resnet":
-                # pose_encoder_path = os.path.join("/cluster/project7/Llava_2024/DARES_Medicss/DARES_MedICSS2024/AF_Sfm_weights/Model_trained_end_to_end", "pose_encoder.pth")
-                # pose_decoder_path = os.path.join("/cluster/project7/Llava_2024/DARES_Medicss/DARES_MedICSS2024/AF_Sfm_weights/Model_trained_end_to_end", "pose.pth")
-                # self.models["pose_encoder"] = networks.ResnetEncoder(
-                #     self.opt.num_layers,
-                #     self.opt.weights_init == "pretrained",
-                #     num_input_images=self.num_pose_frames)
-                # self.models["pose_encoder"].load_state_dict(torch.load(pose_encoder_path))
-                # self.models["pose_encoder"].to(self.device)
-                # self.parameters_to_train_phase1 += list(self.models["pose_encoder"].parameters())
-                # self.parameters_to_train_phase2 += list(self.models["pose_encoder"].parameters())
-
-                # self.models["pose"] = networks.PoseDecoder(
-                #     self.models["pose_encoder"].num_ch_enc,
-                #     num_input_features=1,
-                #     num_frames_to_predict_for=2)
-                
-                # self.models["pose"].load_state_dict(torch.load(pose_decoder_path))
-
-
-                ####DinoPose
-                # self.models["pose_encoder"] = DINOEncoder()
-                # self.models["pose_encoder"].to(self.device)
-                # self.parameters_to_train += list(filter(lambda p: p.requires_grad, self.models["pose_encoder"].parameters()))
-                # self.models["pose"] = networks.PoseDecoder(
-                #     self.models["pose_encoder"].num_ch_enc,
-                #     num_input_features=1,
-                #     num_frames_to_predict_for=2)
-
                 reloc3r_ckpt_path = "/cluster/project7/Llava_2024/DARES_v2/DARES_pose_molora/Reloc3r-512.pth"
-                self.models["pose"] = build_reloc3r_model(reloc3r_ckpt_path)
+                self.models["pose"] = Reloc3rX(reloc3r_ckpt_path)
                 
 
             elif self.opt.pose_model_type == "shared":
@@ -214,7 +169,6 @@ class Trainer:
                 self.models["pose"].load_state_dict(torch.load(pose_decoder_path))
 
             self.models["pose"].to(self.device)
-            # self.parameters_to_train += list(self.models["pose"].parameters())
             self.parameters_to_train += list(filter(lambda p: p.requires_grad, self.models["pose"].parameters()))
 
         if self.opt.predictive_mask:
@@ -412,47 +366,12 @@ class Trainer:
             losses_0["loss"].backward()#
             torch.nn.utils.clip_grad_norm_(self.parameters_to_train_0, max_norm=1.0)
             self.model_optimizer_0.step()
-
-            # self.set_train_0()
-            # self.model_optimizer_0.zero_grad()
-            # with autocast():
-            #     _, losses_0 = self.process_batch_0(inputs)
-            # self.scaler.scale(losses_0["loss"]).backward()
-            # self.scaler.step(self.model_optimizer_0)
-            # self.scaler.update()
-
-
-            # self.set_train()
-            # if self.opt.dual:
-            #     if epoch < 3:
-            #         model_optimizer = self.model_optimizer_phase1
-            #         model_lr_scheduler = self.model_lr_scheduler_phase1
-            #     else:
-            #         model_optimizer = self.model_optimizer_phase2
-            #         model_lr_scheduler = self.model_lr_scheduler_phase2
-            # else:
-            #     model_optimizer = self.model_optimizer_phase2
-            #     model_lr_scheduler = self.model_lr_scheduler_phase2
-            # if self.opt.dual:
-            #     if epoch == 10:
-            #         new_lr = self.model_optimizer.param_groups[0]["lr"]
-            #         self.model_optimizer.param_groups[1]["lr"] = new_lr
-            #         print(f"\n>>> Unfreezing depth params at epoch {epoch}, setting group1 lr={new_lr}\n")
-
             self.set_train()
             outputs, losses = self.process_batch(inputs)
             self.model_optimizer.zero_grad()
             losses["loss"].backward()
             torch.nn.utils.clip_grad_norm_(self.parameters_to_train, max_norm=1.0)
             self.model_optimizer.step()
-
-            # model_optimizer.zero_grad()
-            # with autocast():
-            #     outputs, losses = self.process_batch(inputs)
-            # self.scaler.scale(losses["loss"]).backward()
-            # self.scaler.step(model_optimizer)
-            # self.scaler.update()
-
             duration = time.time() - before_op_time
 
             phase = batch_idx % self.opt.log_frequency == 0
@@ -461,7 +380,6 @@ class Trainer:
 
                 self.log_time(batch_idx, duration, losses["loss"].cpu().data)
                 self.log("train", inputs, outputs, losses)
-                # self.val()
 
             self.step += 1
             
@@ -631,18 +549,6 @@ class Trainer:
                             outputs[("transform", scale, f_i)], [self.opt.height, self.opt.width], mode="bilinear", align_corners=True)
                         outputs[("refined", scale, f_i)] = (outputs[("transform", "high", scale, f_i)] * outputs[("occu_mask_backward", 0, f_i)].detach()  + inputs[("color", 0, 0)])
                         outputs[("refined", scale, f_i)] = torch.clamp(outputs[("refined", scale, f_i)], min=0.0, max=1.0)
-                        # outputs[("grad_refined", scale, f_i)] = get_gradmap(outputs[("refined", scale, f_i)])
-                                                                                            
-
-                    # pose
-                    # pose_inputs = [self.models["pose_encoder"](torch.cat(inputs_all, 1))]
-                    # axisangle, translation = self.models["pose"](pose_inputs)
-
-                    # outputs[("axisangle", 0, f_i)] = axisangle
-                    # outputs[("translation", 0, f_i)] = translation
-                    # outputs[("cam_T_cam", 0, f_i)] = transformation_from_parameters(
-                    #     axisangle[:, 0], translation[:, 0])
-                    # print("pose",outputs[("cam_T_cam", 0, f_i)])
 
 
 
@@ -650,8 +556,6 @@ class Trainer:
                     view1 = {'img':prepare_images(pose_feats[0], self.device, size = 512)}
                     view0 = {'img':prepare_images(pose_feats[f_i],self.device, size = 512)}
                     pose2 = self.models["pose"](view0,view1)
-                    # print("pose2",pose2["pose"])
-                    # outputs[("cam_T_cam", 0, f_i)] = clamp_pose(pose2["pose"])
                     outputs[("cam_T_cam", 0, f_i)] = pose2["pose"]
                     
         return outputs
@@ -681,7 +585,6 @@ class Trainer:
                 else:
                     T = outputs[("cam_T_cam", 0, frame_id)]
 
-                # from the authors of https://arxiv.org/abs/1712.00175
                 if self.opt.pose_model_type == "posecnn":
 
                     axisangle = outputs[("axisangle", 0, frame_id)]
@@ -721,9 +624,7 @@ class Trainer:
             reprojection_loss = l1_loss
         else:
             ms_ssim_loss = 1 - self.ms_ssim(pred, target)
-            # reprojection_loss = 0.85 * ms_ssim_loss + 0.15 * l1_loss
             reprojection_loss = 0.9 * ms_ssim_loss + 0.1 * l1_loss
-            #reprojection_loss = ms_ssim_loss
 
         return reprojection_loss
 
