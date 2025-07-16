@@ -224,6 +224,10 @@ class MonodepthOptions:
                                  help="if set will perform the flipping post processing "
                                       "from the original monodepth paper",
                                  action="store_true")
+        self.parser.add_argument("--scared_pose_seq",
+                                 type=str,
+                                 help="pose sequence in scared",
+                                 default=1)
 
 
     def parse(self):
