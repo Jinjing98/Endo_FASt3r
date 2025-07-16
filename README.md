@@ -134,7 +134,7 @@ python evaluate_pose.py --data_path <your_data_path>  --load_weights_folder <pat
 ## Model zoo
 
 | Model        | Abs Rel | Sq Rel | RMSE | ATE-Trajectory 1 | ATE-Trajectory 2 |Link |
-| ------------ | ---------- | ------ | --------- | ---- | ---- |
+| ------------ | ---------- | ------ | --------- | ---- | ---- | ---- |
 | End-to-end best model weights | 0.051 | 0.354 | 4.480 | 0.0702 | 0.0438 |[google](https://drive.google.com/file/d/11C0sw396TcH2hMM7u6uMr-uBsCP4l2Kd/view?usp=sharing)|
 
 
