@@ -114,20 +114,14 @@ class MonodepthOptions:
                                  type=int,
                                  help="number of epochs",
                                  default=20)
-        self.parser.add_argument("--scheduler_step_size",
-                                 type=int,
-                                 help="step size of the scheduler",
-                                 default=10)
         self.parser.add_argument("--seed",
                                  type=int,
                                  help="random seed",
                                  default=1234)
-        self.parser.add_argument(
-                              "--dual",
-                              action="store_true",
-                              default=False,
-                              help="Enable dual stage training mode"
-                              )
+        self.parser.add_argument("--scheduler_step_size",
+                                 type=int,
+                                 help="step size of the scheduler",
+                                 default=10)
 
         # ABLATION options
         self.parser.add_argument("--v1_multiscale",
@@ -230,19 +224,7 @@ class MonodepthOptions:
                                  help="if set will perform the flipping post processing "
                                       "from the original monodepth paper",
                                  action="store_true")
-        self.parser.add_argument("--learn_intrinsics",
-                                 help="learn the camera intrinsics with a seperate decoder",
-                                 default=True)
-        self.parser.add_argument("--visualize_depth",
-                                 help="if set saves visualized depth map",
-                                 action="store_true")
-        self.parser.add_argument("--save_recon",
-                                 help="if set saves reconstruction files",
-                                 action="store_true")
-        self.parser.add_argument("--scared_pose_seq",
-                                 type=str,
-                                 help="pose sequence in scared",
-                                 default=1)
+
 
     def parse(self):
         self.options = self.parser.parse_args()
