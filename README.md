@@ -27,7 +27,7 @@
   <div align="center"></div>
   
 <p align="center">
-    <img src="./miccai.gif" alt="teaser" width="100%">
+    <img src="./mygif.gif" alt="teaser" width="100%">
 </p>
 <br>
 
