@@ -199,9 +199,9 @@ class DoRAInitializer:
         return self.model
 
 
-def build_reloc3r_model(path: str
+def Reloc3rX(path: str
                        ):
-    print("MoDoRA in Pose model")
+    print("DoMoRA in Reloc3rX")
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     reloc3r_relpose = load_model(ckpt_path=path, img_size=512, device=device)
     reloc3r_relpose = DoRAInitializer(reloc3r_relpose, [20, 20, 20, 18, 18, 18, 18, 18, 16, 16, 16, 16, 14,14,12,12,10,10,8,8,8,8,8,8], [14, 14, 12, 12, 10, 10, 8, 8, 8, 8, 8, 8]).initialize_dora()
