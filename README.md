@@ -115,19 +115,19 @@ python evaluate_pose.py --data_path <your_data_path>  --load_weights_folder <pat
 #### Depth Estimation
 
 <p align="center">
-<img src='imgs/endo_depth.png' width=800/> 
+<img src='endo_depth.png' width=800/> 
 </p>
 
 #### Visual Odometry
 
 <p align="center">
-<img src='imgs/endo_pose.png' width=800/> 
+<img src='endo_pose.png' width=800/> 
 </p>
 
 #### 3D Reconstruction
 
 <p align="center">
-<img src='imgs/endo_3d.png' width=800/> 
+<img src='endo_3d.png' width=800/> 
 </p>
 
 
