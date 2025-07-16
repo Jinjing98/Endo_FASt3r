@@ -134,7 +134,7 @@ def evaluate(opt):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     reloc3r_ckpt_path = "/content/drive/MyDrive/Reloc3r-512.pth"
-    pose_model = networks.build_reloc3r_model(reloc3r_ckpt_path)
+    pose_model = networks.Reloc3rX(reloc3r_ckpt_path)
     model_dict = pose_model.state_dict()
     pose_model.load_state_dict({k: v for k, v in pose_model_dict.items() if k in model_dict})
     pose_model.cuda()
@@ -157,7 +157,6 @@ def evaluate(opt):
             pred_poses.append(pose2["pose"].cpu().numpy())
 
     pred_poses = np.concatenate(pred_poses)
-    # np.savez_compressed(os.path.join(os.path.dirname(__file__), "splits", "endovis", "curve", "pose_our.npz"), data=np.array(pred_poses))
     np.savez_compressed(os.path.join(os.path.dirname(__file__), "splits", "endovis", "pred_pose_sq{}.npz".format(opt.scared_pose_seq)), data=np.array(pred_poses))
 
     gt_path = os.path.join(os.path.dirname(__file__), "splits", "endovis", "gt_poses_sq{}.npz".format(opt.scared_pose_seq))
