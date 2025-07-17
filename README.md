@@ -112,23 +112,23 @@ Pose evaluation:
 python evaluate_pose.py --data_path <your_data_path>  --load_weights_folder <path_to_weights_i_folder> --scared_pose_seq <trajectory_1_or_2>
 ```   
 
-#### Want to see our project in action? ✨ Dive into our interactive Colab demo: [Launch in Colab](https://colab.research.google.com/github/Mona-ShZeinoddin/Endo_FASt3r/blob/main/Endo_FASt3r_Demo.ipynb)
+## Want to see our project in action? ✨ Dive into our interactive Colab demo: [Launch in Colab](https://colab.research.google.com/github/Mona-ShZeinoddin/Endo_FASt3r/blob/main/Endo_FASt3r_Demo.ipynb)
 
 
 
-#### Depth Estimation on SCARED & Hamlyn
+### Depth Estimation on SCARED & Hamlyn
 
 <p align="center">
 <img src='endo_depth.png' width=800/> 
 </p>
 
-#### Visual Odometry on SCARED Trajectory2
+### Visual Odometry on SCARED Trajectory2
 
 <p align="center">
 <img src='endo_pose.png' width=800/> 
 </p>
 
-#### 3D Reconstruction on SCARED & Visual Odometry on StereoMIS
+### 3D Reconstruction on SCARED & Visual Odometry on StereoMIS
 
 <p align="center">
 <img src='endo_3d.png' width=800/> 
