@@ -112,6 +112,10 @@ Pose evaluation:
 python evaluate_pose.py --data_path <your_data_path>  --load_weights_folder <path_to_weights_i_folder> --scared_pose_seq <trajectory_1_or_2>
 ```   
 
+Want to see our project in action? ✨ Dive into our interactive Colab demo: [Launch in Colab](https://colab.research.google.com/github/Mona-ShZeinoddin/Endo_FASt3r/blob/main/Endo_FASt3r_Demo.ipynb)
+
+
+
 #### Depth Estimation on SCARED & Hamlyn
 
 <p align="center">
