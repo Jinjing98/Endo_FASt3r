@@ -1,6 +1,6 @@
 
 
-[comment]: <> (# Endo-FASt3r: Endoscopic Foundation model Adaptation for Structure from motion)
+[comment]: <> (# [MICCAI2025] Endo-FASt3r: Endoscopic Foundation model Adaptation for Structure from motion)
 
 
 
@@ -114,6 +114,7 @@ python evaluate_pose.py --data_path <your_data_path>  --load_weights_folder <pat
 
 ## Want to see our project in action? ✨ Dive into our interactive Colab demo: [Launch in Colab](https://colab.research.google.com/github/Mona-ShZeinoddin/Endo_FASt3r/blob/main/Endo_FASt3r_Demo.ipynb)
 
+The **StereoMIS** sequence we used to evaluate our model is available [here](https://zenodo.org/records/16050206).
 
 
 ### Depth Estimation on SCARED & Hamlyn
@@ -142,6 +143,18 @@ python evaluate_pose.py --data_path <your_data_path>  --load_weights_folder <pat
 | End-to-end best model weights | 0.051 | 0.354 | 4.480 | 0.0702 | 0.0438 |[google](https://drive.google.com/file/d/18OWwl7nptKwdYSGIYV-nOGwrv-aPsO6o/view?usp=sharing)|
 
 
+# Citation
+If you found this code/work to be useful in your own research, please considering citing the following:
+
+```bibtex
+  @article{zeinoddin2025endo,
+  title={Endo-FASt3r: Endoscopic Foundation model Adaptation for Structure from motion},
+  author={Zeinoddin, Mona Sheikh and Islam, Mobarakol and Tandogdu, Zafer and Shaw, Greg and Clarkson, Mathew J and Mazomenos, Evangelos and Stoyanov, Danail},
+  booktitle={International Conference on Medical Image Computing and Computer-Assisted Intervention},
+  year={2025},
+  organization={Springer}
+} 
+```
 
 ## Contact
 
