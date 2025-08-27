@@ -59,7 +59,11 @@ def prepare_images(x, device, size, square_ok=False):
               halfh = 3*halfw/4
           img = img.crop((cx-halfw, cy-halfh, cx+halfw, cy+halfh))
       imgs.append(ImgNorm(img)[None].to(device))
-  return torch.stack(imgs, dim=0).squeeze()
+#   print('img dim',imgs[0].shape)
+#   print('stack dim',torch.stack(imgs, dim=0).squeeze(1).shape)
+#   print('cat dim',torch.cat(imgs, dim=0).shape)
+  return torch.cat(imgs, dim=0)
+#   return torch.stack(imgs, dim=0).squeeze(1)# redundant: .squeeze(1) safer when batch_size = 1
 
 def resize_pil_image(img, long_edge_size):
     S = max(img.size)
@@ -159,8 +163,8 @@ class Trainer:
 
             if self.opt.pose_model_type == "separate_resnet":
                 reloc3r_ckpt_path = f"{RELOC3R_PRETRAINED_ROOT}/Reloc3r-512.pth"
+                from networks import Reloc3rX
                 self.models["pose"] = Reloc3rX(reloc3r_ckpt_path)
-                
 
             elif self.opt.pose_model_type == "shared":
                 self.models["pose"] = networks.PoseDecoder(
@@ -302,6 +306,16 @@ class Trainer:
         self.models["transform_encoder"].eval()
         self.models["transform"].eval()
 
+    def freeze_params(self,keys = []):
+        # no grad compuation: debug only
+        # for all keys in self.models, set requires_grad to False
+        pass
+        for key in keys:
+            if key not in self.models:
+                continue
+            for param in self.models[key].parameters():
+                param.requires_grad = False
+
     def set_train(self):
         """Convert all models to training mode
         """
@@ -365,17 +379,21 @@ class Trainer:
 
             # position
             self.set_train_0()
+            # self.freeze_params(keys = ['position_encoder'])#debug only
             _, losses_0 = self.process_batch_0(inputs)
             self.model_optimizer_0.zero_grad()
             losses_0["loss"].backward()#
             torch.nn.utils.clip_grad_norm_(self.parameters_to_train_0, max_norm=1.0)
             self.model_optimizer_0.step()
+
             self.set_train()
+            # self.freeze_params(keys = ['depth_model', 'pose', 'transform_encoder'])#debug only
             outputs, losses = self.process_batch(inputs)
             self.model_optimizer.zero_grad()
             losses["loss"].backward()
             torch.nn.utils.clip_grad_norm_(self.parameters_to_train, max_norm=1.0)
             self.model_optimizer.step()
+
             duration = time.time() - before_op_time
 
             phase = batch_idx % self.opt.log_frequency == 0
@@ -559,7 +577,8 @@ class Trainer:
 
                     view1 = {'img':prepare_images(pose_feats[0], self.device, size = 512)}
                     view0 = {'img':prepare_images(pose_feats[f_i],self.device, size = 512)}
-                    pose2 = self.models["pose"](view0,view1)
+                    # pose2 = self.models["pose"](view0,view1)
+                    pose2, _ = self.models["pose"](view0,view1)
                     outputs[("cam_T_cam", 0, f_i)] = pose2["pose"]
                     
         return outputs
