@@ -61,3 +61,24 @@ class SCAREDRAWDataset(SCAREDDataset):
             depth_gt = np.fliplr(depth_gt)
 
         return depth_gt
+    
+# run unit test
+if __name__ == "__main__":
+
+    fpath = '/mnt/cluster/workspaces/jinjingxu/proj/UniSfMLearner/submodule/Endo_FASt3r/splits/endovis/train_files.txt'
+    from utils import readlines
+    filenames = readlines(fpath)
+
+    dataset = SCAREDRAWDataset(
+        data_path="/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/",
+        filenames=filenames,
+        height=256,
+        width=320,
+        frame_ids=[0, -1, 1],# control which nbr frames to load: [0, -1, 1] / [0, 1]
+        num_scales=4,
+        is_train=True, # control aug or not
+        img_ext=".png",
+    )
+    
+    print(dataset[0])
+
