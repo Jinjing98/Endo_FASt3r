@@ -433,8 +433,8 @@ class Trainer:
         if self.num_pose_frames == 2:
             pose_feats = {f_i: inputs["color_aug", f_i, 0] for f_i in self.opt.frame_ids}
 
+            assert self.opt.frame_ids == [0, -1, 1], "only support [0, -1, 1] so that below pose make sense"
             for f_i in self.opt.frame_ids[1:]:
-
                 if f_i != "s":
                     # ipdb.set_trace()
 
@@ -537,7 +537,8 @@ class Trainer:
         outputs = {}
         if self.num_pose_frames == 2:
             pose_feats = {f_i: inputs["color_aug", f_i, 0] for f_i in self.opt.frame_ids}
-                
+
+            assert self.opt.frame_ids == [0, -1, 1], "only support [0, -1, 1] so that below pose make sense"
             for f_i in self.opt.frame_ids[1:]:
 
                 if f_i != "s":
