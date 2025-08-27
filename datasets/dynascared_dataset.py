@@ -9,14 +9,17 @@ import cv2
 from .mono_dataset import MonoDataset
 
 
-class SCAREDDataset(MonoDataset):
+class DynaSCAREDDataset(MonoDataset):
     def __init__(self, *args, **kwargs):
-        super(SCAREDDataset, self).__init__(*args, **kwargs)
+        super(DynaSCAREDDataset, self).__init__(*args, **kwargs)
 
         self.K = np.array([[0.82, 0, 0.5, 0],
                            [0, 1.02, 0.5, 0],
                            [0, 0, 1, 0],
                            [0, 0, 0, 1]], dtype=np.float32)
+        
+        # norm x_in_K: 0.5
+        # norm y_in_K: 0.5
 
         # self.full_res_shape = (1280, 1024)
         self.side_map = {"2": 2, "3": 3, "l": 2, "r": 3}
@@ -34,9 +37,9 @@ class SCAREDDataset(MonoDataset):
         return color
 
 
-class SCAREDRAWDataset(SCAREDDataset):
+class DynaSCAREDRAWDataset(DynaSCAREDDataset):
     def __init__(self, *args, **kwargs):
-        super(SCAREDRAWDataset, self).__init__(*args, **kwargs)
+        super(DynaSCAREDRAWDataset, self).__init__(*args, **kwargs)
 
     def get_image_path(self, folder, frame_index, side):
         f_str = "{:010d}{}".format(frame_index, self.img_ext)
@@ -69,7 +72,7 @@ if __name__ == "__main__":
     from utils import readlines
     filenames = readlines(fpath)
 
-    dataset = SCAREDRAWDataset(
+    dataset = DynaSCAREDRAWDataset(
         data_path="/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/",
         filenames=filenames,
         height=256,
@@ -80,5 +83,6 @@ if __name__ == "__main__":
         img_ext=".png",
     )
     
-    print(dataset[0])
+    dataset[0]
+    # print(dataset[0])
 
