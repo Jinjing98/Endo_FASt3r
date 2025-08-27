@@ -29,7 +29,7 @@ class MonoDataset(data.Dataset):
         filenames
         height
         width
-        frame_idxs
+        frame_ids
         num_scales
         is_train
         img_ext
@@ -39,7 +39,7 @@ class MonoDataset(data.Dataset):
                  filenames,
                  height,
                  width,
-                 frame_idxs,
+                 frame_ids,
                  num_scales,
                  is_train=False,
                  img_ext='.png'):
@@ -53,7 +53,7 @@ class MonoDataset(data.Dataset):
         # self.interp = Image.ANTIALIAS
         self.interp = Image.LANCZOS
 
-        self.frame_idxs = frame_idxs
+        self.frame_ids = frame_ids
 
         self.is_train = is_train
         self.img_ext = img_ext
@@ -153,7 +153,7 @@ class MonoDataset(data.Dataset):
             side = None
             
         inputs["frame_id"] = torch.from_numpy(np.array(frame_index))
-        for i in self.frame_idxs:
+        for i in self.frame_ids:
             if i == "s":
                 other_side = {"r": "l", "l": "r"}[side]
                 inputs[("color", i, -1)] = self.get_color(folder, frame_index, other_side, do_flip)
@@ -178,7 +178,7 @@ class MonoDataset(data.Dataset):
             color_aug = (lambda x: x)
 
         self.preprocess(inputs, color_aug)
-        for i in self.frame_idxs:
+        for i in self.frame_ids:
             del inputs[("color", i, -1)]
             del inputs[("color_aug", i, -1)]
 
@@ -187,7 +187,7 @@ class MonoDataset(data.Dataset):
             inputs["depth_gt"] = np.expand_dims(depth_gt, 0)
             inputs["depth_gt"] = torch.from_numpy(inputs["depth_gt"].astype(np.float32))
 
-        if "s" in self.frame_idxs:
+        if "s" in self.frame_ids:
             stereo_T = np.eye(4, dtype=np.float32)
             baseline_sign = -1 if do_flip else 1
             side_sign = -1 if side == "l" else 1
