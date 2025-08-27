@@ -180,7 +180,27 @@ def load_model(ckpt_path, img_size, device):
     model = Reloc3rRelpose(img_size=img_size)
     model.to(device)
     ckpt = torch.load(ckpt_path, map_location=device)
-    model.load_state_dict(ckpt['model'], strict=False)
+    # model.load_state_dict(ckpt['model'], strict=False)
+    # model.load_state_dict(ckpt['model'], strict=False)
+    # /////////
+    if 'state_dict' in ckpt:
+        state_dict = ckpt['state_dict']
+    elif 'model' in ckpt:
+        state_dict = ckpt['model']
+    else:
+        state_dict = ckpt  # Assume the checkpoint is directly the state dict
+        
+    # report keys not exist in the state_dict or not matching
+    missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
+    # reloc3r_relpose.load_state_dict(state_dict)  # or adjust key if needed
+    if missing_keys:
+        missing_keys_sim = {k.split('.')[0].split('[')[0] for k in missing_keys}
+        print(f'Warning: Missing keys in the checkpoint: {missing_keys_sim}')
+    if unexpected_keys:
+        unexpected_keys_sim = {k.split('.')[0].split('[')[0] for k in unexpected_keys}
+        print(f'Warning: Unexpected keys in the checkpoint: {unexpected_keys_sim}')
+    #/////////
+    
     print('Model loaded from ', ckpt_path)
     del ckpt  # in case it occupies memory.
     model.eval()
