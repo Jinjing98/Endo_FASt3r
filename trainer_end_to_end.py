@@ -15,16 +15,20 @@ from torch.utils.data import DataLoader
 from tensorboardX import SummaryWriter
 from torchmetrics.image import MultiScaleStructuralSimilarityIndexMeasure
 
-from networks import DINOEncoder
+# from networks import DINOEncoder
 import random
-import ipdb
-from networks import RelocerX
+# import ipdb
+# from networks import RelocerX
 # from torch.cuda.amp import autocast, GradScaler
 import PIL
 import PIL.Image
 from torchvision.transforms import ToPILImage
 import torchvision.transforms as tvf
 from PIL import Image
+
+AF_PRETRAINED_ROOT = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/DARES/af_sfmlearner_weights"
+RELOC3R_PRETRAINED_ROOT = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/reloc3r/checkpoints/reloc3r-512"
+
 
 def clamp_pose(pose, min_value=-1.0, max_value=1.0):
     return torch.clamp(pose, min=min_value, max=max_value)
@@ -127,34 +131,34 @@ class Trainer:
         self.models["position_encoder"] = networks.ResnetEncoder(
             self.opt.num_layers, self.opt.weights_init == "pretrained", num_input_images=2)  # 18
         
-        self.models["position_encoder"].load_state_dict(torch.load("/cluster/project7/Llava_2024/DARES_Medicss/DARES_MedICSS2024/AF_Sfm_weights/Model_trained_end_to_end/position_encoder.pth"))
+        self.models["position_encoder"].load_state_dict(torch.load(f"{AF_PRETRAINED_ROOT}/position_encoder.pth"))
         self.models["position_encoder"].to(self.device)
         self.parameters_to_train_0 += list(self.models["position_encoder"].parameters())
 
         self.models["position"] = networks.PositionDecoder(
             self.models["position_encoder"].num_ch_enc, self.opt.scales)
-        self.models["position"].load_state_dict(torch.load("/cluster/project7/Llava_2024/DARES_Medicss/DARES_MedICSS2024/AF_Sfm_weights/Model_trained_end_to_end/position.pth"))
+        self.models["position"].load_state_dict(torch.load(f"{AF_PRETRAINED_ROOT}/position.pth"))
         
         self.models["position"].to(self.device)
         self.parameters_to_train_0 += list(self.models["position"].parameters())
 
         self.models["transform_encoder"] = networks.ResnetEncoder(
             self.opt.num_layers, self.opt.weights_init == "pretrained", num_input_images=2)  # 18
-        self.models["transform_encoder"].load_state_dict(torch.load("/cluster/project7/Llava_2024/DARES_Medicss/DARES_MedICSS2024/AF_Sfm_weights/Model_trained_end_to_end/transform_encoder.pth"))
+        self.models["transform_encoder"].load_state_dict(torch.load(f"{AF_PRETRAINED_ROOT}/transform_encoder.pth"))
         self.models["transform_encoder"].to(self.device)
         self.parameters_to_train += list(self.models["transform_encoder"].parameters())
 
 
         self.models["transform"] = networks.TransformDecoder(
             self.models["transform_encoder"].num_ch_enc, self.opt.scales)
-        self.models["transform"].load_state_dict(torch.load("/cluster/project7/Llava_2024/DARES_Medicss/DARES_MedICSS2024/AF_Sfm_weights/Model_trained_end_to_end/transform.pth"))
+        self.models["transform"].load_state_dict(torch.load(f"{AF_PRETRAINED_ROOT}/transform.pth"))
         self.models["transform"].to(self.device)
         self.parameters_to_train += list(self.models["transform"].parameters())
 
         if self.use_pose_net:
 
             if self.opt.pose_model_type == "separate_resnet":
-                reloc3r_ckpt_path = "/cluster/project7/Llava_2024/DARES_v2/DARES_pose_molora/Reloc3r-512.pth"
+                reloc3r_ckpt_path = f"{RELOC3R_PRETRAINED_ROOT}/Reloc3r-512.pth"
                 self.models["pose"] = Reloc3rX(reloc3r_ckpt_path)
                 
 

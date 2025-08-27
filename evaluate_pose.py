@@ -129,13 +129,23 @@ def evaluate(opt):
                                [0, 1], 4, is_train=False)
     dataloader = DataLoader(dataset, opt.batch_size, shuffle=False,
                             num_workers=opt.num_workers, pin_memory=True, drop_last=False)
+    
+    # load reloc3r pose model, then overwrite if saved in pose.pth
     pose_model_path = os.path.join(opt.load_weights_folder, "pose.pth")
     pose_model_dict = torch.load(pose_model_path)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
-    reloc3r_ckpt_path = "/content/drive/MyDrive/Reloc3r-512.pth"
+    reloc3r_ckpt_path = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/reloc3r/checkpoints/reloc3r-512/Reloc3r-512.pth"
     pose_model = networks.Reloc3rX(reloc3r_ckpt_path)
     model_dict = pose_model.state_dict()
+    
+    # log in the layers that are overwritten or remain
+    # only the 1st level name should be fine
+    overwritten_layers = [k for k in pose_model_dict.keys() if k in model_dict]
+    remain_layers = [k for k in pose_model_dict.keys() if k not in model_dict]
+    print("Overwritten layers:", set([k.split(".")[0] for k in overwritten_layers]))
+    print("Remaining layers:", set([k.split(".")[0] for k in remain_layers]))
+
     pose_model.load_state_dict({k: v for k, v in pose_model_dict.items() if k in model_dict})
     pose_model.cuda()
     pose_model.eval()
