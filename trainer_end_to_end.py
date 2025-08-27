@@ -89,7 +89,13 @@ def set_seed(seed=42):
 class Trainer:
     def __init__(self, options):
         self.opt = options
-        self.log_path = os.path.join(self.opt.log_dir, self.opt.model_name)
+        
+        from datetime import datetime
+        # Current timestamp without year: month-day-hour-minute-second
+        timestamp = datetime.now().strftime("%m%d-%H%M%S")
+        
+        self.log_path = os.path.join(self.opt.log_dir, self.opt.model_name, timestamp)
+        os.makedirs(self.log_path, exist_ok=True)
 
         # checking height and width are multiples of 32
         assert self.opt.height % 32 == 0, "'height' must be a multiple of 32"
@@ -699,6 +705,8 @@ class Trainer:
         return losses
     
     def val(self):
+        print('Do val....')
+
         """Validate the model on a single minibatch
         """
         self.set_eval()
