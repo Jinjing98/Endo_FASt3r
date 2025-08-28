@@ -99,6 +99,7 @@ class Trainer:
             options.model_name = "debug"
             options.log_dir = "/mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/debug_reloc3r_backbone/relocxr"
             options.of_samples = True
+            options.frame_ids = [0, -4, 4]
 
         self.opt = options
         
@@ -462,8 +463,8 @@ class Trainer:
         outputs = {}
         if self.num_pose_frames == 2:
             pose_feats = {f_i: inputs["color_aug", f_i, 0] for f_i in self.opt.frame_ids}
-
-            assert self.opt.frame_ids == [0, -1, 1], "only support [0, -1, 1] so that below pose make sense"
+            assert len(self.opt.frame_ids) == 3, "frame_ids must be have 3 frames"
+            assert self.opt.frame_ids[0] == 0, "frame_id 0 must be the first frame"
             for f_i in self.opt.frame_ids[1:]:
                 if f_i != "s":
                     # ipdb.set_trace()
@@ -567,8 +568,8 @@ class Trainer:
         outputs = {}
         if self.num_pose_frames == 2:
             pose_feats = {f_i: inputs["color_aug", f_i, 0] for f_i in self.opt.frame_ids}
-
-            assert self.opt.frame_ids == [0, -1, 1], "only support [0, -1, 1] so that below pose make sense"
+            assert len(self.opt.frame_ids) == 3, "frame_ids must be have 3 frames"
+            assert self.opt.frame_ids[0] == 0, "frame_id 0 must be the first frame"
             for f_i in self.opt.frame_ids[1:]:
 
                 if f_i != "s":
@@ -608,7 +609,6 @@ class Trainer:
                             outputs[("transform", scale, f_i)], [self.opt.height, self.opt.width], mode="bilinear", align_corners=True)
                         outputs[("refined", scale, f_i)] = (outputs[("transform", "high", scale, f_i)] * outputs[("occu_mask_backward", 0, f_i)].detach()  + inputs[("color", 0, 0)])
                         outputs[("refined", scale, f_i)] = torch.clamp(outputs[("refined", scale, f_i)], min=0.0, max=1.0)
-
 
 
 
@@ -708,9 +708,17 @@ class Trainer:
             disp = outputs[("disp", scale)]
             color = inputs[("color", 0, scale)]
 
+            consider_motion_mask = False
+            # consider_motion_mask = True
+
             for frame_id in self.opt.frame_ids[1:]:
                 
                 occu_mask_backward = outputs[("occu_mask_backward", 0, frame_id)].detach()
+                if consider_motion_mask:
+                    pass
+                    # non_rigid_flow = outputs[("registration", 0, frame_id)] - outputs[("registration", 0, 0)].detach()
+                    # rigid_cam_flow = outputs[("registration", 0, frame_id)] - outputs[("registration", 0, frame_id)].detach()
+                    # motion_mask = get_texu_mask(non_rigid_flow, rigid_cam_flow)
                 
                 loss_reprojection += (
                     self.compute_reprojection_loss(outputs[("color", frame_id, scale)], outputs[("refined", scale, frame_id)]) * occu_mask_backward).sum() / occu_mask_backward.sum()  
@@ -890,7 +898,7 @@ class Trainer:
             tgt_concat_img = np.concatenate(tgt_imgs, axis=1)
             registered_tgt_concat_img = np.concatenate(registered_tgt_imgs, axis=1)
             concat_img = np.concatenate([src_concat_img, tgt_concat_img, registered_tgt_concat_img], axis=0)
-            cv2.imshow(f'online_vis: src, tgt, registered_tgt: {self.opt.frame_ids}', concat_img)
+            cv2.imshow(f'per_row is : src, tgt, registered_tgt: {self.opt.frame_ids}', concat_img)
             cv2.waitKey(1)
 
 

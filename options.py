@@ -16,7 +16,7 @@ class MonodepthOptions:
         self.parser.add_argument("--of_samples_num",                                 
                                  help="alwasy choose seveal samples for used for of",
                                  type=int,
-                                 default=10)
+                                 default=1)
         # PATHS
         self.parser.add_argument("--data_path",
                                  type=str,
