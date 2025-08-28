@@ -21,6 +21,9 @@ class MonodepthOptions:
                                  default=os.path.join(os.path.expanduser("~"), "tmp"))
 
         # TRAINING options
+        self.parser.add_argument("--debug",
+                                 help="0. frezze a lot param to save mem,1.adjust num_epochs, model_name, batch_size, log_frequency, log_dir for debug purposes",
+                                 action="store_true")
         self.parser.add_argument("--model_name",
                                  type=str,
                                  help="the name of the folder to save the model in",

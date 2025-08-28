@@ -88,6 +88,17 @@ def set_seed(seed=42):
 
 class Trainer:
     def __init__(self, options):
+
+        # update options for debug purposes
+        if options.debug:
+            print("DEBUG MODE")
+            print('update options for debug purposes...')
+            options.num_epochs = 50000
+            options.batch_size = 1
+            options.log_frequency = 2
+            options.model_name = "debug"
+            options.log_dir = "/mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/debug_reloc3r_backbone/relocxr"
+
         self.opt = options
         
         from datetime import datetime
@@ -399,7 +410,8 @@ class Trainer:
 
             # position
             self.set_train_0()
-            # self.freeze_params(keys = ['position_encoder'])#debug only
+            if self.opt.debug:
+                self.freeze_params(keys = ['position_encoder'])#debug only for save mem
             _, losses_0 = self.process_batch_0(inputs)
             self.model_optimizer_0.zero_grad()
             losses_0["loss"].backward()#
@@ -407,7 +419,8 @@ class Trainer:
             self.model_optimizer_0.step()
 
             self.set_train()
-            # self.freeze_params(keys = ['depth_model', 'pose', 'transform_encoder'])#debug only
+            if self.opt.debug:
+                self.freeze_params(keys = ['depth_model', 'pose', 'transform_encoder'])#debug only
             outputs, losses = self.process_batch(inputs)
             self.model_optimizer.zero_grad()
             losses["loss"].backward()
