@@ -98,7 +98,8 @@ class Trainer:
             options.log_frequency = 2
             options.model_name = "debug"
             options.log_dir = "/mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/debug_reloc3r_backbone/relocxr"
-
+            options.of_samples = True
+            
         self.opt = options
         
         from datetime import datetime

@@ -9,7 +9,14 @@ file_dir = os.path.dirname(__file__)  # the directory that options.py resides in
 class MonodepthOptions:
     def __init__(self):
         self.parser = argparse.ArgumentParser(description="Monodepthv2 options")
-
+        # dataset options
+        self.parser.add_argument("--of_samples",
+                                 help="alwasy choose seveal samples for used for of",
+                                 action="store_true")
+        self.parser.add_argument("--of_samples_num",                                 
+                                 help="alwasy choose seveal samples for used for of",
+                                 type=int,
+                                 default=10)
         # PATHS
         self.parser.add_argument("--data_path",
                                  type=str,

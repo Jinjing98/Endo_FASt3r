@@ -42,11 +42,17 @@ class MonoDataset(data.Dataset):
                  frame_ids,
                  num_scales,
                  is_train=False,
-                 img_ext='.png'):
+                 img_ext='.png',
+                 of_samples=False,
+                 of_samples_num=10,):
         super(MonoDataset, self).__init__()
 
         self.data_path = data_path
         self.filenames = filenames
+        if of_samples:
+            print('use only of_samples_num samples for OF, for OF training...')
+            self.filenames = self.filenames[:of_samples_num]
+            print(f"using {len(self.filenames)} samples for OF, for speed up training..")
         self.height = height
         self.width = width
         self.num_scales = num_scales
