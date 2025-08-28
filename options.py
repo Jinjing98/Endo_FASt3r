@@ -25,11 +25,12 @@ class MonodepthOptions:
                                  type=str,
                                  help="the name of the folder to save the model in",
                                  default="mdp")
-        self.parser.add_argument("--split",
-                                 type=str,
-                                 help="which training split to use: various datasets",
-                                 choices=["endovis", "eigen_zhou", "eigen_full", "odom", "benchmark", "DynaSCARED"],
-                                 default="endovis")
+        # replce with --dataset
+        # self.parser.add_argument("--split",
+        #                          type=str,
+        #                          help="which training split to use: various datasets",
+        #                          choices=["endovis", "eigen_zhou", "eigen_full", "odom", "benchmark", "DynaSCARED"],
+        #                          default="endovis")
         self.parser.add_argument("--split_appendix",
                                  type=str,
                                  help="appendix to the split: DynaSCARED",
@@ -44,7 +45,7 @@ class MonodepthOptions:
                                  type=str,
                                  help="dataset to train on",
                                  default="endovis",
-                                 choices=["endovis", "kitti", "kitti_odom", "kitti_depth", "kitti_test"])
+                                 choices=["endovis","DynaSCARED","Hamlyn","StereoMIS", "kitti", "kitti_odom", "kitti_depth", "kitti_test"])
         self.parser.add_argument("--png",
                                  help="if set, trains from raw KITTI png files (instead of jpgs)",
                                  action="store_true")
@@ -206,18 +207,29 @@ class MonodepthOptions:
         self.parser.add_argument("--ext_disp_to_eval",
                                  type=str,
                                  help="optional path to a .npy disparities file to evaluate")
-        self.parser.add_argument("--eval_split",
-                                 type=str,
-                                 default="endovis",
-                                 choices=[
-                                    "eigen", "eigen_benchmark", "benchmark", "odom_9", "odom_10", "endovis", "DynaSCARED"],
-                                 help="which split to run eval on")
-        self.parser.add_argument("--eval_split_appendix",
-                                 type=str,
-                                 help="use for offline evaluation: appendix to the split: DynaSCARED",
-                                 default="",
-                                 choices=["", "_CaToTi000", "_CaToTi011"],
-                                 help="appendix to the eval split: DynaSCARED")
+        # replce with --dataset
+        # self.parser.add_argument("--eval_split",
+        #                          type=str,
+        #                          default="endovis",
+        #                          choices=[
+        #                             "eigen", "eigen_benchmark", "benchmark", "odom_9", "odom_10", "endovis", "DynaSCARED"],
+        #                          help="which split to run eval on")
+        self.parser.add_argument(
+            "--eval_split_appendix",
+            type=str,
+            default="",
+            choices=["", "_CaToTi000", "_CaToTi011", "1", "2", "000_00597"],
+            help=(
+                "Appendix to the eval split. Options:\n"
+                "  Endovis pose: 1, 2, (scared_pose_seq)\n"
+                "  StereoMIS pose: 1\n"
+                "  Dynascared pose: 000_00597\n"
+                "  Endovis depth: ''\n"
+                "  Hamlyn_depth: ''\n"
+                "  DynaSCARED_depth: '', '_CaToTi000', '_CaToTi011'\n"
+            )
+        )
+
         self.parser.add_argument("--save_pred_disps",
                                  help="if set saves predicted disparities",
                                  action="store_true")
@@ -235,10 +247,10 @@ class MonodepthOptions:
                                  help="if set will perform the flipping post processing "
                                       "from the original monodepth paper",
                                  action="store_true")
-        self.parser.add_argument("--scared_pose_seq",
-                                 type=str,
-                                 help="pose sequence in scared",
-                                 default=1)
+        # self.parser.add_argument("--scared_pose_seq",
+        #                          type=str,
+        #                          help="pose sequence in scared",
+        #                          default=1)
 
 
     def parse(self):
