@@ -831,15 +831,22 @@ class Trainer:
         print(print_string.format(self.epoch, batch_idx, samples_per_sec, loss,
                                   sec_to_hm_str(time_sofar), sec_to_hm_str(training_time_left)))
 
-    def log(self, mode, inputs, outputs, losses):
+    def log(self, mode, inputs, outputs, losses, online_vis=True):
         """Write an event to the tensorboard events file
         """
         writer = self.writers[mode]
         for l, v in losses.items():
             writer.add_scalar("{}".format(l), v, self.step)
 
+        src_imgs = []
+        tgt_imgs = []
+        registered_tgt_imgs = []
         for j in range(min(4, self.opt.batch_size)):  # write a maxmimum of four images
-            for s in self.opt.scales:
+            # for s in self.opt.scales:
+            for s in [0]:
+                # frames_ids = [0,-1,1]
+                assert self.opt.frame_ids[0] == 0, "frame_id 0 must be the first frame"
+                assert len(self.opt.frame_ids) == 3, "frame_ids must be have 3 frames"
                 for frame_id in self.opt.frame_ids[1:]:
 
                     writer.add_image(
@@ -855,10 +862,38 @@ class Trainer:
                         writer.add_image(
                             "occu_mask_backward_{}_{}/{}".format(frame_id, s, j),
                             outputs[("occu_mask_backward", s, frame_id)][j].data, self.step)
-            
+                    if online_vis and s == 0:
+                        '''
+                        only vis scale 0
+                        '''
+                        assert self.opt.frame_ids[0] == 0, "frame_id 0 must be the first frame"
+                        src_imgs.append(inputs[("color", frame_id, s)][j].data)
+                        tgt_imgs.append(inputs[("color", self.opt.frame_ids[0], s)][j].data)
+                        registered_tgt_imgs.append(outputs[("registration", s, frame_id)][j].data)
+
                 writer.add_image(
                     "disp_{}/{}".format(s, j),
                     normalize_image(outputs[("disp", s)][j]), self.step)
+
+        if online_vis:
+            # convert torch tensor to numpy img: [H, W, 3]
+            src_imgs = [img.cpu().numpy().transpose(1, 2, 0) for img in src_imgs]
+            tgt_imgs = [img.cpu().numpy().transpose(1, 2, 0) for img in tgt_imgs]
+            registered_tgt_imgs = [img.cpu().numpy().transpose(1, 2, 0) for img in registered_tgt_imgs]
+
+            # conver to cv image and use imshow to online vis in one single images
+            src_imgs = [cv2.cvtColor(img, cv2.COLOR_RGB2BGR) for img in src_imgs]
+            tgt_imgs = [cv2.cvtColor(img, cv2.COLOR_RGB2BGR) for img in tgt_imgs]
+            registered_tgt_imgs = [cv2.cvtColor(img, cv2.COLOR_RGB2BGR) for img in registered_tgt_imgs]
+            # concat src_imgs and tgt_imgs horizontally
+            src_concat_img = np.concatenate(src_imgs, axis=1)
+            tgt_concat_img = np.concatenate(tgt_imgs, axis=1)
+            registered_tgt_concat_img = np.concatenate(registered_tgt_imgs, axis=1)
+            concat_img = np.concatenate([src_concat_img, tgt_concat_img, registered_tgt_concat_img], axis=0)
+            cv2.imshow(f'online_vis: src, tgt, registered_tgt: {self.opt.frame_ids}', concat_img)
+            cv2.waitKey(1)
+
+
 
     def save_opts(self):
         """Save options to disk so we know what we ran this experiment with
