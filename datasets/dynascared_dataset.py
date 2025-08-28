@@ -31,8 +31,8 @@ class DynaSCAREDDataset(MonoDataset):
         return False
 
     def get_color(self, folder, frame_index, side, do_flip):
-        print('Folder: ', folder)
-        print('Frame index: ', frame_index)
+        # print('Folder: ', folder)
+        # print('Frame index: ', frame_index)
         
         color = self.loader(self.get_image_path(folder, frame_index, side))
         
@@ -69,7 +69,7 @@ class DynaSCAREDRAWDataset(DynaSCAREDDataset):
             if folder not in self.K_dict_registered:
                 import glob
                 K_path = glob.glob(os.path.join(self.data_path, folder, "vid",  "*.yaml"))
-                assert len(K_path) == 1, f'K_path {K_path} not found'
+                assert len(K_path) == 1, f'K_path {K_path} not found: {os.path.join(self.data_path, folder, "vid",  "*.yaml")}'
                 assert os.path.exists(K_path[0]), f'K_path {K_path[0]} not found'
                 K_raw = self.read_yaml_calib(K_path[0]) 
                 # adjust K
@@ -118,14 +118,13 @@ class DynaSCAREDRAWDataset(DynaSCAREDDataset):
 # run unit test
 if __name__ == "__main__":
 
-    fpath = '/mnt/cluster/workspaces/jinjingxu/proj/UniSfMLearner/submodule/Endo_FASt3r/splits/endovis/train_files.txt'
-    fpath = '/mnt/cluster/workspaces/jinjingxu/proj/UniSfMLearner/unisfm/splits/DynaSCARED/val_CaToTi011.txt'
+    data_path="/mnt/cluster/datasets/Surg_oclr_stereo/"
+    fpath = '/mnt/cluster/workspaces/jinjingxu/proj/UniSfMLearner/submodule/Endo_FASt3r/splits/DynaSCARED/val_CaToTi011.txt'
     from utils import readlines
     filenames = readlines(fpath)
 
     dataset = DynaSCAREDRAWDataset(
-        # data_path="/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/",
-        data_path="/mnt/cluster/datasets/Surg_oclr_stereo/",
+        data_path=data_path,
         filenames=filenames,
         height=256,
         width=320,
