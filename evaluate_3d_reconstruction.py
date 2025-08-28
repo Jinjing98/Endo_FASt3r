@@ -91,13 +91,16 @@ def evaluate(opt):
 
     weight_dict = torch.load(model_path)
 
-    if opt.eval_split == 'endovis':
-        filenames = readlines(os.path.join(splits_dir, opt.eval_split, "3d_reconstruction.txt"))
+    # if opt.eval_split == 'endovis':
+    if opt.dataset == 'endovis':
+        filenames = readlines(os.path.join(splits_dir, opt.dataset, "3d_reconstruction.txt"))
         dataset = datasets.SCAREDRAWDataset(opt.data_path, filenames,
                                         256, 320,
                                         [0], 4, is_train=False)
+    else:
+        assert 0, f'to be implemented'
 
-    save_dir = os.path.join(splits_dir, opt.eval_split, "reconstruction")
+    save_dir = os.path.join(splits_dir, opt.dataset, "reconstruction")
     os.makedirs(save_dir, exist_ok=True)
     
     dataloader = DataLoader(dataset, 1, shuffle=False, num_workers=opt.num_workers,
@@ -147,11 +150,13 @@ def evaluate(opt):
 
     if opt.save_pred_disps:
         output_path = os.path.join(
-            opt.load_weights_folder, "disps_{}_split.npy".format(opt.eval_split))
+            opt.load_weights_folder, "disps_{}_split.npy".format(opt.dataset))
+            # opt.load_weights_folder, "disps_{}_split.npy".format(opt.eval_split))
         print("-> Saving predicted disparities to ", output_path)
         np.save(output_path, pred_disps)
 
-    elif opt.eval_split == 'benchmark':
+    # elif opt.eval_split == 'benchmark':
+    elif opt.dataset == 'benchmark':
         save_dir = os.path.join(opt.load_weights_folder, "benchmark_predictions")
         print("-> Saving out benchmark predictions to {}".format(save_dir))
         if not os.path.exists(save_dir):
@@ -167,8 +172,9 @@ def evaluate(opt):
 
         print("-> No ground truth is available for the KITTI benchmark, so not evaluating. Done.")
         quit()
-    elif opt.eval_split == 'endovis':
-        gt_path = os.path.join(splits_dir, opt.eval_split, "gt_depths.npz")
+    # elif opt.eval_split == 'endovis':
+    elif opt.dataset == 'endovis':
+        gt_path = os.path.join(splits_dir, opt.dataset, "gt_depths.npz")
         gt_depths = np.load(gt_path, fix_imports=True, encoding='latin1')["data"]
 
 

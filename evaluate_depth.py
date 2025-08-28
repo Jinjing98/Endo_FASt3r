@@ -73,11 +73,26 @@ def evaluate(opt):
             "Cannot find a folder at {}".format(opt.load_weights_folder)
 
         print("-> Loading weights from {}".format(opt.load_weights_folder))
+        if opt.dataset == 'endovis':
+            assert opt.eval_split_appendix == '', "eval_split_appendix should be empty for endovis"
+            assert opt.data_path == '/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/', f"data_path {opt.data_path} is not correct"
+            fpath = os.path.join(os.path.dirname(__file__), "splits", opt.dataset, "{}_files.txt").format(f"test{opt.eval_split_appendix}")
+        elif opt.dataset == 'hamlyn':
+            assert 0, f'to be implemented'
+        elif opt.dataset == 'DynaSCARED':
+            import warnings
+            warnings.warn(f'Maybe improper to eval depth for the synthetic DynaSCARED, but should do as our pose branch need the estimated depth...')
+            assert opt.eval_split_appendix in ['','_CaToTi000', '_CaToTi011'], f"eval_split_appendix {opt.eval_split_appendix} is not correct"
+            assert opt.data_path == '/mnt/cluster/datasets/Surg_oclr_stereo/', f"data_path {opt.data_path} is not correct"
+            fpath = os.path.join(os.path.dirname(__file__), "splits", opt.dataset, "{}.txt").format(f"test{opt.eval_split_appendix}")
+        else:
+            raise ValueError(f"Unknown dataset: {opt.dataset}")
 
-        filenames = readlines(os.path.join(splits_dir, opt.eval_split, "test_files.txt"))
+        eval_filenames = readlines(fpath)
+
         depth_model_path = os.path.join(opt.load_weights_folder, "depth_model.pth")
         depth_model_dict = torch.load(depth_model_path)
-        dataset = datasets.SCAREDRAWDataset(opt.data_path, filenames,
+        dataset = datasets.SCAREDRAWDataset(opt.data_path, eval_filenames,
                                            256,320,
                                            [0], 4, is_train=False)
         dataloader = DataLoader(dataset, 16, shuffle=False, num_workers=opt.num_workers,
@@ -128,7 +143,8 @@ def evaluate(opt):
 
     if opt.save_pred_disps:
         output_path = os.path.join(
-            opt.load_weights_folder, "disps_{}_split.npy".format(opt.eval_split))
+            opt.load_weights_folder, "disps_{}_split.npy".format(opt.dataset))
+            # opt.load_weights_folder, "disps_{}_split.npy".format(opt.eval_split))
         print("-> Saving predicted disparities to ", output_path)
         np.save(output_path, pred_disps)
 
@@ -136,7 +152,8 @@ def evaluate(opt):
         print("-> Evaluation disabled. Done.")
         quit()
 
-    elif opt.eval_split == 'benchmark':
+    # elif opt.eval_split == 'benchmark':
+    elif opt.dataset == 'benchmark':
         save_dir = os.path.join(opt.load_weights_folder, "benchmark_predictions")
         print("-> Saving out benchmark predictions to {}".format(save_dir))
         if not os.path.exists(save_dir):
@@ -153,7 +170,8 @@ def evaluate(opt):
         print("-> No ground truth is available for the KITTI benchmark, so not evaluating. Done.")
         quit()
 
-    gt_path = os.path.join(splits_dir, opt.eval_split, "gt_depths.npz")
+    # gt_path = os.path.join(splits_dir, opt.eval_split, "gt_depths.npz")
+    gt_path = os.path.join(splits_dir, opt.dataset, "gt_depths.npz")
     gt_depths = np.load(gt_path, fix_imports=True, encoding='latin1')["data"]
 
     print("-> Evaluating")
@@ -178,7 +196,8 @@ def evaluate(opt):
         pred_disp = cv2.resize(pred_disp, (gt_width, gt_height))
         pred_depth = 1/pred_disp
 
-        if opt.eval_split == "eigen":
+        # if opt.eval_split == "eigen":
+        if opt.dataset == "eigen":
             mask = np.logical_and(gt_depth > MIN_DEPTH, gt_depth < MAX_DEPTH)
 
             crop = np.array([0.40810811 * gt_height, 0.99189189 * gt_height,

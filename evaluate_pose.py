@@ -121,9 +121,24 @@ def evaluate(opt):
     assert os.path.isdir(opt.load_weights_folder), \
         "Cannot find a folder at {}".format(opt.load_weights_folder)
 
-    filenames = readlines(
-        os.path.join(os.path.dirname(__file__), "splits", "endovis",
-                     "test_files_sequence{}.txt".format(opt.scared_pose_seq)))
+    if opt.dataset == 'endovis':
+        assert opt.eval_split_appendix in ['1','2'], "eval_split_appendix should be empty for endovis"
+        assert opt.data_path == '/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/', f"data_path {opt.data_path} is not correct"
+    elif opt.dataset == 'StereoMIS':
+        # /mnt/nct-zfs/TCO-All/SharedDatasets/StereoMIS_DARES_test/
+        assert opt.eval_split_appendix == '', "eval_split_appendix should be empty for StereoMIS"
+        assert opt.data_path == '/mnt/nct-zfs/TCO-All/SharedDatasets/StereoMIS_DARES_test/', f"data_path {opt.data_path} is not correct"
+        assert NotImplementedError("StereoMIS is not supported for pose evaluation yet")
+    elif opt.dataset == 'DynaSCARED':
+        # use the 100_300 test traj!
+        assert opt.eval_split_appendix in ['000_00597'], "eval_split_appendix can be case_scene format when eval pose for DynaSCARED"
+        assert NotImplementedError("DynaSCARED is not supported for pose evaluation yet")
+        assert opt.data_path == '/mnt/cluster/datasets/Surg_oclr_stereo/', f"data_path {opt.data_path} is not correct"
+    else:
+        raise ValueError(f"Unknown dataset: {opt.dataset}")
+
+    fpath = os.path.join(os.path.dirname(__file__), "splits", opt.dataset, "test_files_sequence{}.txt".format(opt.eval_split_appendix))
+    filenames = readlines(fpath)
 
     dataset = SCAREDRAWDataset(opt.data_path, filenames, opt.height, opt.width,
                                [0, 1], 4, is_train=False)
@@ -167,9 +182,9 @@ def evaluate(opt):
             pred_poses.append(pose2["pose"].cpu().numpy())
 
     pred_poses = np.concatenate(pred_poses)
-    np.savez_compressed(os.path.join(os.path.dirname(__file__), "splits", "endovis", "pred_pose_sq{}.npz".format(opt.scared_pose_seq)), data=np.array(pred_poses))
+    np.savez_compressed(os.path.join(os.path.dirname(__file__), "splits", opt.dataset, "pred_pose_sq{}.npz".format(opt.eval_split_appendix)), data=np.array(pred_poses))
 
-    gt_path = os.path.join(os.path.dirname(__file__), "splits", "endovis", "gt_poses_sq{}.npz".format(opt.scared_pose_seq))
+    gt_path = os.path.join(os.path.dirname(__file__), "splits", opt.dataset, "gt_poses_sq{}.npz".format(opt.eval_split_appendix))
     gt_local_poses = np.load(gt_path, fix_imports=True, encoding='latin1')["data"]
 
     ates = []

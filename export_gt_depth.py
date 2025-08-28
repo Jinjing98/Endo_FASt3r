@@ -24,9 +24,11 @@ def export_gt_depths_SCARED():
                         choices=["endovis"])
     opt = parser.parse_args()
 
-    split_folder = os.path.join(os.path.dirname(__file__), "splits", opt.split)
+    # split_folder = os.path.join(os.path.dirname(__file__), "splits", opt.split)
+    split_folder = os.path.join(os.path.dirname(__file__), "splits", opt.dataset)
     lines = readlines(os.path.join(split_folder, "test_files.txt"))
-    print("Exporting ground truth depths for {}".format(opt.split))
+    # print("Exporting ground truth depths for {}".format(opt.split))
+    print("Exporting ground truth depths for {}".format(opt.dataset))
     i=0
     gt_depths = []
     for line in lines:
@@ -36,7 +38,7 @@ def export_gt_depths_SCARED():
         print(i)
         print(folder)
 
-        if opt.split == "endovis":
+        if opt.dataset == "endovis":
             f_str = "scene_points{:06d}.tiff".format(frame_id - 1)
             gt_depth_path = os.path.join(
                 opt.data_path,
@@ -46,12 +48,15 @@ def export_gt_depths_SCARED():
             depth_gt = cv2.imread(gt_depth_path, 3)
             depth_gt = depth_gt[:, :, 0]
             gt_depth = depth_gt[0:1024, :]
+        else:
+            assert 0, f'to be implemented'
 
         gt_depths.append(gt_depth.astype(np.float32))
 
     output_path = os.path.join(split_folder, "gt_depths.npz")
 
-    print("Saving to {}".format(opt.split))
+    # print("Saving to {}".format(opt.split))
+    print("Saving to {}".format(opt.dataset))
 
     np.savez_compressed(output_path, data=np.array(gt_depths))
 
