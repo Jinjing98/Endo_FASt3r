@@ -137,10 +137,19 @@ class MonoDataset(data.Dataset):
 
         line = self.filenames[index].split()
         folder = line[0]
-        sequence = folder[7]
-        keyframe = folder[-1]
+        if self.dataset_name == 'DynaSCARED':
+            folder_components = folder.split('/')
+            sequence = folder_components[-2]
+            sequence = ''.join(filter(str.isdigit, sequence))
+            keyframe = folder_components[-1]
+        elif self.dataset_name == 'SCARED':
+            sequence = folder[7]
+            keyframe = folder[-1]
+        else:
+            raise ValueError(f'Unknown dataset name: {self.dataset_name}')
         inputs["sequence"] = torch.from_numpy(np.array(int(sequence)))
-        inputs["keyframe"] = torch.from_numpy(np.array(int(keyframe)))
+        inputs["keyframe"] = torch.from_numpy(np.array(int(keyframe)))  
+
 
         if len(line) == 3:
             frame_index = int(line[1])
@@ -162,10 +171,15 @@ class MonoDataset(data.Dataset):
 
         # adjusting intrinsics to match each scale in the pyramid
         for scale in range(self.num_scales):
-            K = self.K.copy()
+            if self.dataset_name == 'SCARED':
+                K = self.K.copy()
+            elif self.dataset_name == 'DynaSCARED':
+                K = self.K_dict_registered[folder].copy()
+
             K[0, :] *= self.width // (2 ** scale)
             K[1, :] *= self.height // (2 ** scale)
-
+            # print(f'K for scale {scale} with img size : {self.width // (2 ** scale)}x{self.height // (2 ** scale)}:')
+            # print(K)
 
             inv_K = np.linalg.pinv(K)
 
