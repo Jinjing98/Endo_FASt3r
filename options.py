@@ -214,6 +214,7 @@ class MonodepthOptions:
                                  help="which split to run eval on")
         self.parser.add_argument("--eval_split_appendix",
                                  type=str,
+                                 help="use for offline evaluation: appendix to the split: DynaSCARED",
                                  default="",
                                  choices=["", "_CaToTi000", "_CaToTi011"],
                                  help="appendix to the eval split: DynaSCARED")
