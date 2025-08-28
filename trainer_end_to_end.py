@@ -215,12 +215,24 @@ class Trainer:
         print("Training is using:\n  ", self.device)
 
         # data
-        datasets_dict = {"endovis": datasets.SCAREDRAWDataset}
+        if self.opt.split == 'DynaSCARED':
+            assert self.opt.data_path == '/mnt/cluster/datasets/Surg_oclr_stereo/', f"data_path {self.opt.data_path} is not correct"
+            datasets_dict = {"endovis": datasets.DynaSCAREDRAWDataset}
+            fpath = os.path.join(os.path.dirname(__file__), "splits", self.opt.split, "{}.txt")
+            assert self.opt.split_appendix in ['','_CaToTi000', '_CaToTi011'], f"split_appendix {self.opt.split_appendix} is not correct"
+            assert self.opt.eval_split_appendix in ['','_CaToTi000', '_CaToTi011'], f"eval_split_appendix {self.opt.eval_split_appendix} is not correct"
+        elif self.opt.split == 'endovis':
+            assert self.opt.data_path == '/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/', f"data_path {self.opt.data_path} is not correct"
+            datasets_dict = {"endovis": datasets.SCAREDRAWDataset}
+            fpath = os.path.join(os.path.dirname(__file__), "splits", self.opt.split, "{}_files.txt")
+            assert self.opt.split_appendix == '', "split_appendix should be empty for endovis"
+            assert self.opt.eval_split_appendix == '', "eval_split_appendix should be empty for endovis"
+        else:
+            raise ValueError(f"Unknown dataset: {self.opt.data_path}")
         self.dataset = datasets_dict[self.opt.dataset]
 
-        fpath = os.path.join(os.path.dirname(__file__), "splits", self.opt.split, "{}_files.txt")
-        train_filenames = readlines(fpath.format("train"))
-        val_filenames = readlines(fpath.format("val"))
+        train_filenames = readlines(fpath.format(f"train{self.opt.split_appendix}"))
+        val_filenames = readlines(fpath.format(f"val{self.opt.eval_split_appendix}"))
         img_ext = '.png'  
 
         num_train_samples = len(train_filenames)

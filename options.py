@@ -27,9 +27,14 @@ class MonodepthOptions:
                                  default="mdp")
         self.parser.add_argument("--split",
                                  type=str,
-                                 help="which training split to use",
-                                 choices=["endovis", "eigen_zhou", "eigen_full", "odom", "benchmark"],
+                                 help="which training split to use: various datasets",
+                                 choices=["endovis", "eigen_zhou", "eigen_full", "odom", "benchmark", "DynaSCARED"],
                                  default="endovis")
+        self.parser.add_argument("--split_appendix",
+                                 type=str,
+                                 help="appendix to the split: DynaSCARED",
+                                 default="",
+                                 choices=["", "_CaToTi000", "_CaToTi011"])
         self.parser.add_argument("--num_layers",
                                  type=int,
                                  help="number of resnet layers",
@@ -205,8 +210,13 @@ class MonodepthOptions:
                                  type=str,
                                  default="endovis",
                                  choices=[
-                                    "eigen", "eigen_benchmark", "benchmark", "odom_9", "odom_10", "endovis"],
+                                    "eigen", "eigen_benchmark", "benchmark", "odom_9", "odom_10", "endovis", "DynaSCARED"],
                                  help="which split to run eval on")
+        self.parser.add_argument("--eval_split_appendix",
+                                 type=str,
+                                 default="",
+                                 choices=["", "_CaToTi000", "_CaToTi011"],
+                                 help="appendix to the eval split: DynaSCARED")
         self.parser.add_argument("--save_pred_disps",
                                  help="if set saves predicted disparities",
                                  action="store_true")
