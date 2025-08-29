@@ -1,0 +1,33 @@
+30.Aug 
+
+Motion_EXPx: need good OF
+Motion_EXP1: 
+/////colored_MotionCorrected_woAF_dynascared_000: 92403  batch_size 1 rtxa5000
+    options.enable_motion_computation = True
+    options.reproj_supervised_which = "color_MotionCorrected"
+    options.reproj_supervised_with_which = "raw_tgt_gt"
+    options.flow_reproj_supervised_with_which = "raw_tgt_gt"
+    options.transform_constraint = 0.0
+    options.transform_smoothness = 0.0
+-expect solved the motion properly for the first time by using 'color_MotionCorrected'
+-do not consider AF yet
+/////colored_MotionCorrected_dynascared_000: 92405  batch_size 1 rtxa5000
+    options.enable_motion_computation = True
+    options.reproj_supervised_which = "color_MotionCorrected"
+-better than the above baseline in term of AF
+
+////TODO:
+DUST3R with pts3d + diffposer/Marepo_head
+DUST3R with shared opticflow?
+Video_depth
+video depth injection to DPT
+
+////TODO:
+eval_code on traj.
+
+
+90487 fast3r_retrained: /mnt/ceph/tco/TCO-Staff/Homes/jinjing/slurm_out --num_epochs 10 --batch_size 4 --log_frequency 200 
+90584 fast3r_dynascared_000: /mnt/ceph/tco/TCO-Staff/Homes/jinjing/slurm_out --num_epochs 10 --batch_size 4 --log_frequency 200 
+
+# help motion mask gen
+get_texu_mask
