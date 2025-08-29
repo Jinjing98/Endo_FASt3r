@@ -82,7 +82,7 @@ def evaluate(opt):
         elif opt.dataset == 'DynaSCARED':
             import warnings
             warnings.warn(f'Maybe improper to eval depth for the synthetic DynaSCARED, but should do as our pose branch need the estimated depth...')
-            assert opt.eval_split_appendix in ['','_CaToTi000', '_CaToTi011'], f"eval_split_appendix {opt.eval_split_appendix} is not correct"
+            assert opt.eval_split_appendix in ['',] or '_CaToTi' in opt.eval_split_appendix, f"eval_split_appendix {opt.eval_split_appendix} is not correct"
             assert opt.data_path == '/mnt/cluster/datasets/Surg_oclr_stereo/', f"data_path {opt.data_path} is not correct"
             fpath = os.path.join(os.path.dirname(__file__), "splits", opt.dataset, "{}.txt").format(f"test{opt.eval_split_appendix}")
         else:

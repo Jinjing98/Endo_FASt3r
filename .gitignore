@@ -3,6 +3,8 @@ __pycache__/*
 *.pyo
 *.ipynb
 *.npz
+*.png
+splits/*
 
 
 fast3r_ckpts/*
