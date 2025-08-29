@@ -3,7 +3,29 @@ import os
 import hashlib
 import zipfile
 from six.moves import urllib
+import cv2
+import torch
+from torchvision.utils import flow_to_image
 
+# Convert standard RGB torch tensors to OpenCV BGR
+def color_to_cv_img(img_tensor):
+    img = img_tensor.cpu().numpy().transpose(1, 2, 0)*255   # CHW -> HWC
+    img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+    return img
+
+def gray_to_cv_img(img_tensor):
+    img = img_tensor.cpu().numpy().transpose(1, 2, 0)*255   # CHW -> HWC
+    img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    return img
+# Convert flow tensor (2,H,W or (3,H,W) normalized) to OpenCV BGR
+def flow_to_cv_img(flow_tensor):
+    # print('flow_tensor shape:', flow_tensor.shape)
+    # print('flow max and min:', flow_tensor.max(), flow_tensor.min())
+
+    img = flow_to_image(flow_tensor)                    # (3,H,W), uint8 RGB
+    img = img.permute(1, 2, 0).cpu().numpy()            # HWC
+    img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)          # to BGR
+    return img
 
 def readlines(filename):
     """Read all the lines in a text file and return as a list

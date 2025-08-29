@@ -97,9 +97,35 @@ class Trainer:
             options.batch_size = 1
             options.log_frequency = 2
             options.model_name = "debug"
-            options.log_dir = "/mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/debug_reloc3r_backbone/relocxr"
+            options.log_dir = "/mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm_debug"
+
+            options.enable_motion_computation = False
+            # options.enable_motion_computation = True
+
+            options.freeze_as_much_debug = True #save mem:
+            # options.freeze_as_much_debug = False # need to be on for OF exp
+
             options.of_samples = True
+            options.of_samples_num = 10
+            options.of_samples_num = 1
+            options.is_train = True
+            options.is_train = False # no augmentation
+
             options.frame_ids = [0, -4, 4]
+            options.frame_ids = [0, -1, 1]
+
+            options.height = 192
+            options.width = 224
+
+            options.dataset = "endovis"
+            options.data_path = "/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/"
+            options.split_appendix = ""
+
+            options.dataset = "DynaSCARED"
+            options.data_path = "/mnt/cluster/datasets/Surg_oclr_stereo/"
+            options.split_appendix = "_CaToTi000"
+            # options.split_appendix = "_CaToTi110"
+            options.split_appendix = "_CaToTi101"
 
         self.opt = options
         
@@ -234,7 +260,7 @@ class Trainer:
             fpath = os.path.join(os.path.dirname(__file__), "splits", self.opt.dataset, "{}.txt")
             fpath_train = fpath.format(f"train{self.opt.split_appendix}")
             fpath_val = fpath.format(f"val{self.opt.split_appendix}")
-            assert self.opt.split_appendix in ['','_CaToTi000', '_CaToTi011'], f"split_appendix {self.opt.split_appendix} is not correct"
+            assert self.opt.split_appendix in ['',] or '_CaToTi' in self.opt.split_appendix, f"split_appendix {self.opt.split_appendix} is not correct"
         elif self.opt.dataset == 'endovis':
             assert self.opt.data_path == '/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/', f"data_path {self.opt.data_path} is not correct"
             datasets_dict = {self.opt.dataset: datasets.SCAREDRAWDataset}
@@ -312,6 +338,8 @@ class Trainer:
 
         self.save_opts()
         # ipdb.set_trace()
+        self.train_dataset = train_dataset
+        self.val_dataset = val_dataset
 
     def set_train_0(self):
         """Convert all models to training mode
@@ -414,18 +442,18 @@ class Trainer:
 
             # position
             self.set_train_0()
-            if self.opt.debug:
-                self.freeze_params(keys = ['position_encoder'])#debug only for save mem
-            _, losses_0 = self.process_batch_0(inputs)
+            if self.opt.freeze_as_much_debug:
+                self.freeze_params(keys = ['position_encoder',])#debug only for save mem
+            _, losses_0 = self.process_batch_0(inputs) 
             self.model_optimizer_0.zero_grad()
             losses_0["loss"].backward()#
             torch.nn.utils.clip_grad_norm_(self.parameters_to_train_0, max_norm=1.0)
             self.model_optimizer_0.step()
 
             self.set_train()
-            if self.opt.debug:
+            if self.opt.freeze_as_much_debug:
                 self.freeze_params(keys = ['depth_model', 'pose', 'transform_encoder'])#debug only
-            outputs, losses = self.process_batch(inputs)
+            outputs, losses = self.process_batch(inputs) # img_warped_from_pose_flow saved as "color"; img_warped_from_optic_flow saved as "registration"
             self.model_optimizer.zero_grad()
             losses["loss"].backward()
             torch.nn.utils.clip_grad_norm_(self.parameters_to_train, max_norm=1.0)
@@ -438,7 +466,8 @@ class Trainer:
             if phase:
 
                 self.log_time(batch_idx, duration, losses["loss"].cpu().data)
-                self.log("train", inputs, outputs, losses)
+                # self.log("train", inputs, outputs, losses, compute_vis=True)
+                self.log("train", inputs, outputs, losses, compute_vis=True, online_vis=True)
 
             self.step += 1
             
@@ -483,6 +512,7 @@ class Trainer:
                         outputs[("position", "high", scale, f_i)] = F.interpolate(
                             outputs[("position", scale, f_i)], [self.opt.height, self.opt.width], mode="bilinear",
                             align_corners=True)
+
                         outputs[("registration", scale, f_i)] = self.spatial_transform(inputs[("color", f_i, 0)],
                                                                                        outputs[(
                                                                                        "position", "high", scale, f_i)])
@@ -555,9 +585,9 @@ class Trainer:
         outputs = self.models["depth_model"](inputs["color_aug", 0, 0])
 
         if self.use_pose_net:
-            outputs.update(self.predict_poses(inputs, outputs))
+            outputs.update(self.predict_poses(inputs, outputs))# img is warp from optic_flow, save as "registration" 
 
-        self.generate_images_pred(inputs, outputs)
+        outputs = self.generate_images_pred(inputs, outputs)# img is warp from pose_flow('sample'), save as "color"
         losses = self.compute_losses(inputs, outputs)
 
         return outputs, losses
@@ -620,6 +650,26 @@ class Trainer:
                     
         return outputs
 
+    #compute and regisered the masks: can be used to masked out loss 
+    def get_motion_mask(self, outputs, frame_id, detach):
+        # obtain motion mask from motion_flow:
+        if detach:
+            # motion_mask = get_texu_mask(outputs[("position", 0, frame_id)].detach(), 
+                                        # outputs[("pose_flow", frame_id, 0)].detach())
+            motion_mask = (outputs[("motion_flow", frame_id, 0)].norm(dim=1, keepdim=True) > 3).detach()
+            
+        else:
+            # motion_mask = get_texu_mask(outputs[("position", 0, frame_id)], 
+                                        # outputs[("pose_flow", frame_id, 0)])
+            motion_mask = (outputs[("motion_flow", frame_id, 0)].norm(dim=1, keepdim=True) > 3).detach()
+
+        # convert to float
+        motion_mask = motion_mask.float()
+        # use hard code thershoulding of motion_flow:
+        # l2 norm of flow_vector is longer than 3 px
+        # motion_mask_v2 = (outputs[("motion_flow", frame_id, 0)].norm(dim=1, keepdim=True) > 3).detach()
+        return motion_mask
+
     def generate_images_pred(self, inputs, outputs):
         """Generate the warped (reprojected) color images for a minibatch.
         Generated images are saved into the `outputs` dictionary.
@@ -661,16 +711,48 @@ class Trainer:
                 pix_coords = self.project_3d[source_scale](
                     cam_points, inputs[("K", source_scale)], T)
 
-                outputs[("sample", frame_id, scale)] = pix_coords
+                # will always be the high resolution across scales!--it computed from depth_scale0
+                outputs[("sample", frame_id, scale)] = pix_coords 
+                
+                # # Create sampling grid
+                # use pose_flow(sample-img_grid) and optic_flow(position)
+                # implement mem effecient mesh_gird_high_res 
+                x = torch.linspace(0, self.opt.width - 1, self.opt.width, device=self.device)
+                y = torch.linspace(0, self.opt.height - 1, self.opt.height, device=self.device)
+                grid_y, grid_x = torch.meshgrid(y, x, indexing='ij')  # (H, W)
+                mesh_gird_high_res = torch.stack((grid_x, grid_y), dim=-1)  # (H, W, 2)
+                mesh_gird_high_res = mesh_gird_high_res.unsqueeze(0)  # (1, H, W, 2)
+                mesh_gird_high_res = mesh_gird_high_res.permute(0, 3, 1, 2)  # (B, 2, H, W)
 
+                # !!!always be flow with max size: pose, optic, motion flow
+                # reduce 'sample' with mesh_gird_high_res
+                pose_flow = outputs[("sample", frame_id, scale)].permute(0, 3, 1, 2) - mesh_gird_high_res
+                # pose_flow = torch.zeros_like(pose_flow)
+                outputs[("pose_flow", frame_id, scale)] = pose_flow 
+                
+                if self.opt.enable_motion_computation:
+                    motion_flow = -pose_flow + outputs[("position", 0, frame_id)].detach() # 
+                    outputs[("motion_flow", frame_id, scale)] = motion_flow
+                    if scale == 0:
+                        outputs[("motion_mask_backward", 0, frame_id)] = self.get_motion_mask(outputs, frame_id, detach=True)
+
+                # pose_flow
                 outputs[("color", frame_id, scale)] = F.grid_sample(
                     inputs[("color", frame_id, source_scale)],
                     outputs[("sample", frame_id, scale)],
                     padding_mode="border",
                     align_corners=True)
+                
+                if self.opt.enable_motion_computation:
+                    outputs[("color_MotionCorrected", frame_id, scale)] = F.grid_sample(
+                        inputs[("color", frame_id, source_scale)],
+                        (mesh_gird_high_res + outputs[("motion_flow", frame_id, scale)]).permute(0, 2, 3, 1),
+                        padding_mode="border",
+                        align_corners=True)
 
                 outputs[("position_depth", scale, frame_id)] = self.position_depth[source_scale](
                         cam_points, inputs[("K", source_scale)], T)
+        return outputs
 
                         
 
@@ -708,24 +790,23 @@ class Trainer:
             disp = outputs[("disp", scale)]
             color = inputs[("color", 0, scale)]
 
-            consider_motion_mask = False
-            # consider_motion_mask = True
 
             for frame_id in self.opt.frame_ids[1:]:
                 
                 occu_mask_backward = outputs[("occu_mask_backward", 0, frame_id)].detach()
-                if consider_motion_mask:
-                    pass
-                    # non_rigid_flow = outputs[("registration", 0, frame_id)] - outputs[("registration", 0, 0)].detach()
-                    # rigid_cam_flow = outputs[("registration", 0, frame_id)] - outputs[("registration", 0, frame_id)].detach()
-                    # motion_mask = get_texu_mask(non_rigid_flow, rigid_cam_flow)
-                
+                valid_mask = occu_mask_backward
+                # valid_mask = occu_mask_backward * ~outputs[("motion_mask_backward", 0, frame_id)].detach()
+
+                # img warped from pose_flow is saved as "color"; img warped from optic_flow is saved as "registration"
+                # register for debug monitoring
+                reproj_loss_supervised_tgt_color = outputs[("refined", scale, frame_id)] # can be other
+
                 loss_reprojection += (
-                    self.compute_reprojection_loss(outputs[("color", frame_id, scale)], outputs[("refined", scale, frame_id)]) * occu_mask_backward).sum() / occu_mask_backward.sum()  
+                    self.compute_reprojection_loss(outputs[("color", frame_id, scale)], reproj_loss_supervised_tgt_color) * valid_mask).sum() / valid_mask.sum()  
                 loss_transform += (
-                    torch.abs(outputs[("refined", scale, frame_id)] - outputs[("registration", 0, frame_id)].detach()).mean(1, True) * occu_mask_backward).sum() / occu_mask_backward.sum()
+                    torch.abs(outputs[("refined", scale, frame_id)] - outputs[("registration", 0, frame_id)].detach()).mean(1, True) * valid_mask).sum() / valid_mask.sum()
                 loss_cvt += get_smooth_bright(
-                    outputs[("transform", "high", scale, frame_id)], inputs[("color", 0, 0)], outputs[("registration", scale, frame_id)].detach(), occu_mask_backward)
+                    outputs[("transform", "high", scale, frame_id)], inputs[("color", 0, 0)], outputs[("registration", scale, frame_id)].detach(), valid_mask)
 
             mean_disp = disp.mean(2, True).mean(3, True)
             norm_disp = disp / (mean_disp + 1e-7)
@@ -757,7 +838,7 @@ class Trainer:
 
         with torch.no_grad():
             outputs, losses = self.process_batch_val(inputs)
-            self.log("val", inputs, outputs, losses)
+            self.log("val", inputs, outputs, losses, compute_vis=False, online_vis=False)
             del inputs, outputs, losses
 
         self.set_train()
@@ -793,7 +874,7 @@ class Trainer:
         if self.use_pose_net:
             outputs.update(self.predict_poses(inputs, features, outputs))
 
-        self.generate_images_pred(inputs, outputs)
+        outputs = self.generate_images_pred(inputs, outputs)
         losses = self.compute_losses_val(inputs, outputs)
 
         return outputs, losses
@@ -839,7 +920,7 @@ class Trainer:
         print(print_string.format(self.epoch, batch_idx, samples_per_sec, loss,
                                   sec_to_hm_str(time_sofar), sec_to_hm_str(training_time_left)))
 
-    def log(self, mode, inputs, outputs, losses, online_vis=True):
+    def log(self, mode, inputs, outputs, losses, compute_vis=True, online_vis=False):
         """Write an event to the tensorboard events file
         """
         writer = self.writers[mode]
@@ -849,28 +930,86 @@ class Trainer:
         src_imgs = []
         tgt_imgs = []
         registered_tgt_imgs = []
+        colored_tgt_imgs = []
+        colored_motion_tgt_imgs = []
+        optic_flow_imgs = []
+        pose_flow_imgs = []
+        motion_flow_imgs = []
+        occlursion_mask_imgs = []
+        img_order_strs = []
+        concat_img = None
+
         for j in range(min(4, self.opt.batch_size)):  # write a maxmimum of four images
             # for s in self.opt.scales:
             for s in [0]:
                 # frames_ids = [0,-1,1]
                 assert self.opt.frame_ids[0] == 0, "frame_id 0 must be the first frame"
                 assert len(self.opt.frame_ids) == 3, "frame_ids must be have 3 frames"
-                for frame_id in self.opt.frame_ids[1:]:
+                # for frame_id in self.opt.frame_ids[1:]:
+                for frame_id in self.opt.frame_ids[1:2]:  # only for one is enough for debug
 
                     writer.add_image(
-                        "brightness_{}_{}/{}".format(frame_id, s, j),
+                        "IMG/tgt_refined_{}_{}/{}".format(frame_id, s, j),
+                        outputs[("refined", s, frame_id)][j].data, self.step)
+                    writer.add_image(
+                        "Other/brightness_{}_{}/{}".format(frame_id, s, j),
                         outputs[("transform", "high", s, frame_id)][j].data, self.step)
                     writer.add_image(
-                        "registration_{}_{}/{}".format(frame_id, s, j),
+                        "IMG/registration_{}_{}/{}".format(frame_id, s, j),
                         outputs[("registration", s, frame_id)][j].data, self.step)
-                    writer.add_image(
-                        "refined_{}_{}/{}".format(frame_id, s, j),
-                        outputs[("refined", s, frame_id)][j].data, self.step)
+
                     if s == 0:
                         writer.add_image(
-                            "occu_mask_backward_{}_{}/{}".format(frame_id, s, j),
+                            "Other/occu_mask_backward_{}_{}/{}".format(frame_id, s, j),
                             outputs[("occu_mask_backward", s, frame_id)][j].data, self.step)
-                    if online_vis and s == 0:
+                        #/////////////EXTEND////////////////////////
+                        if self.opt.enable_motion_computation:
+                            writer.add_image(
+                                "Other/motion_mask_backward_{}_{}/{}".format(frame_id, s, j),
+                                outputs[("motion_mask_backward", s, frame_id)][j].data, self.step)
+                        
+                        # add src and tgt
+                        writer.add_image(
+                            "GT/tgt_{}_{}/{}".format(frame_id, s, j),
+                            inputs[("color", frame_id, s)][j].data, self.step) 
+                       # add gt_source
+                        writer.add_image(
+                            "GT/source_{}_{}/{}".format(frame_id, s, j),
+                            inputs[("color", 0, s)][j].data, self.step)  
+                         
+                        # add vis of other warped img
+                        # add color image as well
+                        writer.add_image(
+                            "IMG/color_{}_{}/{}".format(frame_id, s, j),
+                            outputs[("color", frame_id, s)][j].data, self.step)
+                        
+                        if self.opt.enable_motion_computation:
+                            writer.add_image(
+                                "IMG/color_MotionCorrected_{}_{}/{}".format(frame_id, s, j),
+                                outputs[("color_MotionCorrected", frame_id, s)][j].data, self.step)
+
+                        # write various flow; define conver function
+                        from torchvision.utils import flow_to_image
+                        def convert_flow_tensor_for_login(flow_tensor):
+                            flow_img = flow_to_image(flow_tensor)    # returns (3,H,W) uint8
+                            flow_img = flow_img.float() / 255.0
+                            return flow_img
+                        
+                        # add optic flow
+                        writer.add_image(
+                            "FLOW/optic_flow_{}_{}/{}".format(frame_id, s, j),
+                            convert_flow_tensor_for_login(outputs[("position", s, frame_id)][j].data), self.step)
+                        # add pose_flow
+                        writer.add_image(
+                            "FLOW/pose_flow_{}_{}/{}".format(frame_id, s, j),
+                            convert_flow_tensor_for_login(outputs[("pose_flow", frame_id, s)][j].data), self.step)
+                        # add motion_flow
+                        if self.opt.enable_motion_computation:
+                            writer.add_image(
+                                "FLOW/motion_flow_{}_{}/{}".format(frame_id, s, j),
+                                convert_flow_tensor_for_login(outputs[("motion_flow", frame_id, s)][j].data), self.step)
+                    
+                    if compute_vis and s == 0:
                         '''
                         only vis scale 0
                         '''
@@ -879,29 +1018,66 @@ class Trainer:
                         tgt_imgs.append(inputs[("color", self.opt.frame_ids[0], s)][j].data)
                         registered_tgt_imgs.append(outputs[("registration", s, frame_id)][j].data)
 
+                        colored_tgt_imgs.append(outputs[("color", frame_id, s)][j].data)
+                        optic_flow_imgs.append(outputs[("position", "high", s, frame_id)][j].data)
+                        occlursion_mask_imgs.append(outputs[("occu_mask_backward", s, frame_id)][j].data)
+                        pose_flow_imgs.append(outputs[("pose_flow", frame_id, s)][j].data)
+                        if self.opt.enable_motion_computation:
+                            colored_motion_tgt_imgs.append(outputs[("color_MotionCorrected", frame_id, s)][j].data)
+                            motion_flow_imgs.append(outputs[("motion_flow", frame_id, s)][j].data)
+
                 writer.add_image(
                     "disp_{}/{}".format(s, j),
                     normalize_image(outputs[("disp", s)][j]), self.step)
 
-        if online_vis:
-            # convert torch tensor to numpy img: [H, W, 3]
-            src_imgs = [img.cpu().numpy().transpose(1, 2, 0) for img in src_imgs]
-            tgt_imgs = [img.cpu().numpy().transpose(1, 2, 0) for img in tgt_imgs]
-            registered_tgt_imgs = [img.cpu().numpy().transpose(1, 2, 0) for img in registered_tgt_imgs]
+        if compute_vis:
+            from utils import color_to_cv_img, gray_to_cv_img, flow_to_cv_img
+            # Now apply
+            src_imgs = [color_to_cv_img(img) for img in src_imgs]
+            tgt_imgs = [color_to_cv_img(img) for img in tgt_imgs]
+            registered_tgt_imgs = [color_to_cv_img(img) for img in registered_tgt_imgs]
+            colored_tgt_imgs = [color_to_cv_img(img) for img in colored_tgt_imgs]
+            print('Optic flow:')
+            optic_flow_imgs = [flow_to_cv_img(img) for img in optic_flow_imgs]
+            print('Pose flow:')
+            pose_flow_imgs = [flow_to_cv_img(img) for img in pose_flow_imgs]
+            if self.opt.enable_motion_computation:
+                colored_motion_tgt_imgs = [color_to_cv_img(img) for img in colored_motion_tgt_imgs]
+                print('Motion flow:')
+                motion_flow_imgs = [flow_to_cv_img(img) for img in motion_flow_imgs]
 
-            # conver to cv image and use imshow to online vis in one single images
-            src_imgs = [cv2.cvtColor(img, cv2.COLOR_RGB2BGR) for img in src_imgs]
-            tgt_imgs = [cv2.cvtColor(img, cv2.COLOR_RGB2BGR) for img in tgt_imgs]
-            registered_tgt_imgs = [cv2.cvtColor(img, cv2.COLOR_RGB2BGR) for img in registered_tgt_imgs]
-            # concat src_imgs and tgt_imgs horizontally
-            src_concat_img = np.concatenate(src_imgs, axis=1)
-            tgt_concat_img = np.concatenate(tgt_imgs, axis=1)
-            registered_tgt_concat_img = np.concatenate(registered_tgt_imgs, axis=1)
-            concat_img = np.concatenate([src_concat_img, tgt_concat_img, registered_tgt_concat_img], axis=0)
-            cv2.imshow(f'per_row is : src, tgt, registered_tgt: {self.opt.frame_ids}', concat_img)
-            cv2.waitKey(1)
+            occlursion_mask_imgs = [gray_to_cv_img(img) for img in occlursion_mask_imgs]
 
+            # concat src_imgs and tgt_imgs vertically
+            src_concat_img = np.concatenate(src_imgs, axis=0)
+            img_order_strs.append('Src-')
+            tgt_concat_img = np.concatenate(tgt_imgs, axis=0)
+            img_order_strs.append('Tgt-')
+            registered_tgt_concat_img = np.concatenate(registered_tgt_imgs, axis=0)
+            img_order_strs.append('Registered_Tgt-')
+            colored_tgt_concat_img = np.concatenate(colored_tgt_imgs, axis=0)
+            img_order_strs.append('Colored_Tgt-')
+            optic_flow_concat_img = np.concatenate(optic_flow_imgs, axis=0)
+            img_order_strs.append('Optic_Flow-')
+            pose_flow_concat_img = np.concatenate(pose_flow_imgs, axis=0)
+            img_order_strs.append('Pose_Flow-')
+            occlursion_mask_concat_img = np.concatenate(occlursion_mask_imgs, axis=0)
+            img_order_strs.append('Occlursion_Mask')
+            concat_img = np.concatenate([src_concat_img, tgt_concat_img, registered_tgt_concat_img, colored_tgt_concat_img, optic_flow_concat_img, pose_flow_concat_img, occlursion_mask_concat_img], axis=1)
+            if self.opt.enable_motion_computation:
+                colored_motion_tgt_concat_img = np.concatenate(colored_motion_tgt_imgs, axis=0)
+                img_order_strs.append('Colored_Motion_Tgt-')
+                motion_flow_concat_img = np.concatenate(motion_flow_imgs, axis=0)
+                img_order_strs.append('Motion_Flow-')
+                concat_img = np.concatenate([concat_img, colored_motion_tgt_concat_img, motion_flow_concat_img], axis=1)
+            img_order_strs = ''.join(img_order_strs)
+            
+            if online_vis:
+                title = f'{img_order_strs}'
+                cv2.imshow(title, concat_img/255)
+                cv2.waitKey(1)
 
+        return concat_img, img_order_strs
 
     def save_opts(self):
         """Save options to disk so we know what we ran this experiment with

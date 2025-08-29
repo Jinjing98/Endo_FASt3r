@@ -27,9 +27,17 @@ class MonodepthOptions:
                                  help="log directory",
                                  default=os.path.join(os.path.expanduser("~"), "tmp"))
 
+        # Arch/Loss options
+        self.parser.add_argument("--enable_motion_computation",
+                                 help="it will compute: motion_flow, pose_flow, motion_mask, color_motion_warped",
+                                 action="store_true")
+
         # TRAINING options
         self.parser.add_argument("--debug",
-                                 help="0. frezze a lot param to save mem,1.adjust num_epochs, model_name, batch_size, log_frequency, log_dir for debug purposes",
+                                 help="1.adjust num_epochs, model_name, batch_size, log_frequency, log_dir for debug purposes",
+                                 action="store_true")
+        self.parser.add_argument("--freeze_as_much_debug",
+                                 help="0. frezze a lot param to save mem, local debug only to save mem",
                                  action="store_true")
         self.parser.add_argument("--model_name",
                                  type=str,
