@@ -466,8 +466,8 @@ class Trainer:
             if phase:
 
                 self.log_time(batch_idx, duration, losses["loss"].cpu().data)
-                # self.log("train", inputs, outputs, losses, compute_vis=True)
-                self.log("train", inputs, outputs, losses, compute_vis=True, online_vis=True)
+                self.log("train", inputs, outputs, losses, compute_vis=True)
+                # self.log("train", inputs, outputs, losses, compute_vis=True, online_vis=True)
 
             self.step += 1
             
@@ -1076,6 +1076,13 @@ class Trainer:
                 title = f'{img_order_strs}'
                 cv2.imshow(title, concat_img/255)
                 cv2.waitKey(1)
+            else:
+                import os, cv2
+                save_path = os.path.join(self.log_path, f"imgs")
+                os.makedirs(save_path, exist_ok=True)
+                save_path = os.path.join(save_path, f"{img_order_strs}.png")
+                cv2.imwrite(save_path, concat_img)
+                print(f"saved {img_order_strs}.png in {save_path}")
 
         return concat_img, img_order_strs
 
