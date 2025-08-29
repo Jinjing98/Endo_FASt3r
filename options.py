@@ -31,6 +31,30 @@ class MonodepthOptions:
         self.parser.add_argument("--enable_motion_computation",
                                  help="it will compute: motion_flow, pose_flow, motion_mask, color_motion_warped",
                                  action="store_true")
+        self.parser.add_argument("--reproj_supervised_with_which",
+                                 type=str,
+                                 help="which GT image to supervise with",
+                                 default="refined",
+                                 choices=["refined", "raw_tgt_gt"])
+        self.parser.add_argument("--reproj_supervised_which",
+                                 type=str,
+                                 help="which image to supervise",
+                                 default="color",
+                                 choices=["color",'color_MotionCorrected'])
+        self.parser.add_argument("--flow_reproj_supervised_with_which",
+                                 type=str,
+                                 help="which image to supervise",
+                                 default="detached_refined",
+                                 choices=["detached_refined",'raw_tgt_gt'])
+        # self.parser.add_argument("--disable_refine",
+        #                          help="it will compute: motion_flow, pose_flow, motion_mask, color_motion_warped",
+        #                          action="store_true")
+        self.parser.add_argument("--zero_pose_flow_debug",
+                                 help="it will compute: motion_flow, pose_flow, motion_mask, color_motion_warped",
+                                 action="store_true")
+        self.parser.add_argument("--zero_pose_debug",
+                                 help="it will set T as eye",
+                                 action="store_true")
 
         # TRAINING options
         self.parser.add_argument("--debug",

@@ -95,27 +95,38 @@ class Trainer:
             print('update options for debug purposes...')
             options.num_epochs = 50000
             options.batch_size = 1
-            options.log_frequency = 2
+            options.log_frequency = 10
             options.model_name = "debug"
             options.log_dir = "/mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm_debug"
 
-            options.enable_motion_computation = False
-            # options.enable_motion_computation = True
+            options.enable_motion_computation = True
 
-            options.freeze_as_much_debug = True #save mem:
-            # options.freeze_as_much_debug = False # need to be on for OF exp
+            # options.zero_pose_debug = True
+
+            # options.zero_pose_flow_debug = True
+            # options.reproj_supervised_with_which = "raw_tgt_gt"
+            options.reproj_supervised_which = "color_MotionCorrected"
+
+            options.flow_reproj_supervised_with_which = "raw_tgt_gt"
+
+            options.transform_constraint = 0.0
+            options.transform_smoothness = 0.0
+            # options.disparity_smoothness = 0.0
+
+            options.freeze_as_much_debug = True #save mem # need to be on for OF exp
 
             options.of_samples = True
             options.of_samples_num = 10
-            options.of_samples_num = 1
+            options.of_samples_num = 3
             options.is_train = True
             options.is_train = False # no augmentation
 
-            options.frame_ids = [0, -4, 4]
+            options.frame_ids = [0, -8, 8]
             options.frame_ids = [0, -1, 1]
 
-            options.height = 192
-            options.width = 224
+            # not okay to use: we did not adjust the init_K accordingly yet
+            # options.height = 192
+            # options.width = 224
 
             options.dataset = "endovis"
             options.data_path = "/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/"
@@ -124,8 +135,9 @@ class Trainer:
             options.dataset = "DynaSCARED"
             options.data_path = "/mnt/cluster/datasets/Surg_oclr_stereo/"
             options.split_appendix = "_CaToTi000"
+            options.split_appendix = "_CaToTi001"
             # options.split_appendix = "_CaToTi110"
-            options.split_appendix = "_CaToTi101"
+            # options.split_appendix = "_CaToTi101"
 
         self.opt = options
         
@@ -314,6 +326,7 @@ class Trainer:
 
         self.backproject_depth = {}
         self.project_3d = {}
+        # self.project_3d_raw = {}
         self.position_depth = {}
         
         for scale in self.opt.scales:
@@ -325,6 +338,8 @@ class Trainer:
 
             self.project_3d[scale] = Project3D(self.opt.batch_size, h, w)
             self.project_3d[scale].to(self.device)
+            # self.project_3d_raw[scale] = Project3D_Raw(self.opt.batch_size, h, w)
+            # self.project_3d_raw[scale].to(self.device)
 
             self.position_depth[scale] = optical_flow((h, w), self.opt.batch_size, h, w)
             self.position_depth[scale].to(self.device)
@@ -564,8 +579,16 @@ class Trainer:
             for frame_id in self.opt.frame_ids[1:]:
                 occu_mask_backward = outputs[("occu_mask_backward", 0, frame_id)].detach()
                 loss_smooth_registration += (get_smooth_loss(outputs[("position", scale, frame_id)], color))
-                loss_registration += (
-                    self.compute_reprojection_loss(outputs[("registration", scale, frame_id)], outputs[("refined", scale, frame_id)].detach()) * occu_mask_backward).sum() / occu_mask_backward.sum()
+
+                if self.opt.flow_reproj_supervised_with_which == "raw_tgt_gt":
+                    reproj_loss_supervised_signal_color = inputs[("color", 0, 0)].detach()
+                elif self.opt.flow_reproj_supervised_with_which == "detached_refined":
+                    reproj_loss_supervised_signal_color = outputs[("refined", scale, frame_id)].detach()
+                else:
+                    raise ValueError(f"Invalid flow_reproj_supervised_with_which: {self.opt.flow_reproj_supervised_with_which}")
+
+                loss_registration += (self.compute_reprojection_loss(outputs[("registration", scale, frame_id)], 
+                                                                     reproj_loss_supervised_signal_color) * occu_mask_backward).sum() / occu_mask_backward.sum()
 
             loss += loss_registration / 2.0
             loss += self.opt.position_smoothness * (loss_smooth_registration / 2.0) / (2 ** scale)
@@ -651,17 +674,17 @@ class Trainer:
         return outputs
 
     #compute and regisered the masks: can be used to masked out loss 
-    def get_motion_mask(self, outputs, frame_id, detach):
+    def get_motion_mask(self, outputs, frame_id, detach, thre_px = 3):
         # obtain motion mask from motion_flow:
         if detach:
             # motion_mask = get_texu_mask(outputs[("position", 0, frame_id)].detach(), 
                                         # outputs[("pose_flow", frame_id, 0)].detach())
-            motion_mask = (outputs[("motion_flow", frame_id, 0)].norm(dim=1, keepdim=True) > 3).detach()
+            motion_mask = (outputs[("motion_flow", frame_id, 0)].norm(dim=1, keepdim=True) > thre_px).detach()
             
         else:
             # motion_mask = get_texu_mask(outputs[("position", 0, frame_id)], 
                                         # outputs[("pose_flow", frame_id, 0)])
-            motion_mask = (outputs[("motion_flow", frame_id, 0)].norm(dim=1, keepdim=True) > 3).detach()
+            motion_mask = (outputs[("motion_flow", frame_id, 0)].norm(dim=1, keepdim=True) > thre_px).detach()
 
         # convert to float
         motion_mask = motion_mask.float()
@@ -695,6 +718,9 @@ class Trainer:
                 else:
                     T = outputs[("cam_T_cam", 0, frame_id)]
 
+                if self.opt.zero_pose_debug:
+                    T = torch.eye(4).to(self.device).repeat(T.shape[0], 1, 1)
+
                 if self.opt.pose_model_type == "posecnn":
 
                     axisangle = outputs[("axisangle", 0, frame_id)]
@@ -706,14 +732,6 @@ class Trainer:
                     T = transformation_from_parameters(
                         axisangle[:, 0], translation[:, 0] * mean_inv_depth[:, 0], frame_id < 0)
 
-                cam_points = self.backproject_depth[source_scale](
-                    depth, inputs[("inv_K", source_scale)])
-                pix_coords = self.project_3d[source_scale](
-                    cam_points, inputs[("K", source_scale)], T)
-
-                # will always be the high resolution across scales!--it computed from depth_scale0
-                outputs[("sample", frame_id, scale)] = pix_coords 
-                
                 # # Create sampling grid
                 # use pose_flow(sample-img_grid) and optic_flow(position)
                 # implement mem effecient mesh_gird_high_res 
@@ -724,19 +742,60 @@ class Trainer:
                 mesh_gird_high_res = mesh_gird_high_res.unsqueeze(0)  # (1, H, W, 2)
                 mesh_gird_high_res = mesh_gird_high_res.permute(0, 3, 1, 2)  # (B, 2, H, W)
 
-                # !!!always be flow with max size: pose, optic, motion flow
-                # reduce 'sample' with mesh_gird_high_res
-                pose_flow = outputs[("sample", frame_id, scale)].permute(0, 3, 1, 2) - mesh_gird_high_res
-                # pose_flow = torch.zeros_like(pose_flow)
-                outputs[("pose_flow", frame_id, scale)] = pose_flow 
+                cam_points = self.backproject_depth[source_scale](
+                    depth, inputs[("inv_K", source_scale)])# 3D pts
+                # Project3D: it saves values in range [-1,1] for direct sampling
+                # pix_coords saves values in range [-1,1]
+                pix_coords = self.project_3d[source_scale](
+                    cam_points, inputs[("K", source_scale)], T)# 2D pxs; T: f0 -> f1  f0->f-1
+                
+                # print('pix_coords normed:')
+                # pix_coords_dbg = pix_coords.view(self.opt.batch_size, -1, 2).permute(0, 2, 1)
+                # print(pix_coords_dbg.shape)
+                # print(pix_coords_dbg[0,:,:10])  
+
+                # will always be the high resolution across scales!--it computed from depth_scale0
+                outputs[("sample", frame_id, scale)] = pix_coords # b h w 2
+
+                # generate pose_flow from pix_coords
+                norm_width_source_scale = self.project_3d[scale].width
+                norm_height_source_scale = self.project_3d[scale].height
+                # compute the raw_unit value pix_coords_raw from pix_coords, leveraging the fact that pix_coords saves values in range [-1,1]
+                pix_coords_raw = pix_coords.clone()#.detach()
+                pix_coords_raw = pix_coords_raw * 0.5 + 0.5 # convert to range [0,1]
+                # at high resolution
+                pix_coords_raw[..., 0] = pix_coords_raw[..., 0] * (norm_width_source_scale - 1)
+                pix_coords_raw[..., 1] = pix_coords_raw[..., 1] * (norm_height_source_scale - 1)
+                # print('pix_coords after 3d 2 2D raw:')
+                # pix_coords_raw_dbg = pix_coords_raw.view(self.opt.batch_size, -1, 2).permute(0, 2, 1)
+                # print(pix_coords_raw_dbg.shape)
+                # print(pix_coords_raw_dbg[0,:,:10])  
+                outputs[("pose_flow", frame_id, scale)] = pix_coords_raw.permute(0, 3, 1, 2) - mesh_gird_high_res # there is grad; B 2 H W 
+                # print('pose_flow max min')
+                # print(outputs[("pose_flow", frame_id, scale)].max())
+                # print(outputs[("pose_flow", frame_id, scale)].min())
+                # print(outputs[("pose_flow", frame_id, scale)][0,:,0,:10])
                 
                 if self.opt.enable_motion_computation:
-                    motion_flow = -pose_flow + outputs[("position", 0, frame_id)].detach() # 
-                    outputs[("motion_flow", frame_id, scale)] = motion_flow
+                    # generate motion_flow from pose_flow and position
+                    # outputs[("motion_flow", frame_id, scale)] = - outputs[("pose_flow", frame_id, scale)].detach() + outputs[("position", scale, frame_id)]#.detach() # 
+                    # print('outputs[("position", 0, frame_id)].shape:')
+                    # print(outputs[("position", 0, frame_id)].shape)
+                    # print('outputs[("pose_flow", frame_id, scale)].shape:')
+                    # print(outputs[("pose_flow", frame_id, scale)].shape)
+                    outputs[("motion_flow", frame_id, scale)] = - outputs[("pose_flow", frame_id, scale)].detach() + outputs[("position", "high", 0, frame_id)]#.detach() # 
+                    # print('motion_flow max min')
+                    # print(outputs[("motion_flow", frame_id, scale)].max())
+                    # print(outputs[("motion_flow", frame_id, scale)].min())
+                    # print(outputs[("motion_flow", frame_id, scale)][0,:,0,:10])
                     if scale == 0:
                         outputs[("motion_mask_backward", 0, frame_id)] = self.get_motion_mask(outputs, frame_id, detach=True)
 
                 # pose_flow
+                # assert outputs[("sample", frame_id, scale)].max() <= 1.0 and outputs[("sample", frame_id, scale)].min() >= -1.0
+                # print('max min outputs[("sample", frame_id, scale)]:')
+                # print(outputs[("sample", frame_id, scale)].max())
+                # print(outputs[("sample", frame_id, scale)].min())
                 outputs[("color", frame_id, scale)] = F.grid_sample(
                     inputs[("color", frame_id, source_scale)],
                     outputs[("sample", frame_id, scale)],
@@ -744,11 +803,43 @@ class Trainer:
                     align_corners=True)
                 
                 if self.opt.enable_motion_computation:
-                    outputs[("color_MotionCorrected", frame_id, scale)] = F.grid_sample(
-                        inputs[("color", frame_id, source_scale)],
-                        (mesh_gird_high_res + outputs[("motion_flow", frame_id, scale)]).permute(0, 2, 3, 1),
-                        padding_mode="border",
-                        align_corners=True)
+                    # gen sample_motion_corrected from pose_flow and motion_flow, then sample image with sample_motion_corrected
+                    # sample_motion_corrected = (outputs[("sample", frame_id, scale)] + outputs[("motion_flow", frame_id, scale)].permute(0, 2, 3, 1))
+                    sample_motion_corrected = (outputs[("pose_flow", frame_id, scale)] + outputs[("motion_flow", frame_id, scale)])#.permute(0, 2, 3, 1)
+                    #use self.spatial_transform to sample
+
+                    outputs[("color_MotionCorrected", frame_id, scale)] = self.spatial_transform(inputs[("color", frame_id, 0)],sample_motion_corrected)
+
+
+
+                    # print('sample_motion_corrected.shape:')
+                    # print('raw max min')
+                    # print(sample_motion_corrected.max())
+                    # print(sample_motion_corrected.min())
+                    # print(sample_motion_corrected[0,0,:10,:])
+                    # # norm to [0,1]
+                    # # norm to [-1,1]
+                    # sample_motion_corrected[..., 0] = sample_motion_corrected[..., 0] / (norm_width_source_scale - 1)
+                    # sample_motion_corrected[..., 1] = sample_motion_corrected[..., 1] / (norm_height_source_scale - 1)
+                    # # sample_motion_corrected = (sample_motion_corrected - 0.5) * 2
+
+                    # print('sample_motion_corrected.shape:')
+                    # print('normed max min')
+                    # print(sample_motion_corrected.max())
+                    # print(sample_motion_corrected.min())
+                    # print(sample_motion_corrected[0,0,:10,:])
+                    
+                    # # # assert sample_motion_corrected.max() <= 1.0 and sample_motion_corrected.min() >= -1.0
+                    # # print('max min sample_motion_corrected:')
+                    # # print(sample_motion_corrected.max())
+                    # # print(sample_motion_corrected.min())
+
+                    # outputs[("color_MotionCorrected", frame_id, scale)] = F.grid_sample(
+                    #     inputs[("color", frame_id, source_scale)],
+                    #     sample_motion_corrected,
+                    #     # outputs[("sample", frame_id, scale)],
+                    #     padding_mode="border",
+                    #     align_corners=True)
 
                 outputs[("position_depth", scale, frame_id)] = self.position_depth[source_scale](
                         cam_points, inputs[("K", source_scale)], T)
@@ -799,14 +890,32 @@ class Trainer:
 
                 # img warped from pose_flow is saved as "color"; img warped from optic_flow is saved as "registration"
                 # register for debug monitoring
-                reproj_loss_supervised_tgt_color = outputs[("refined", scale, frame_id)] # can be other
+                
+                if self.opt.reproj_supervised_which == "color_MotionCorrected" and self.opt.enable_motion_computation:
+                    reproj_loss_supervised_tgt_color = outputs[("color_MotionCorrected", frame_id, scale)]
+                elif self.opt.reproj_supervised_which == "color":
+                    reproj_loss_supervised_tgt_color = outputs[("color", frame_id, scale)] 
+                else:
+                    raise ValueError(f"Invalid reproj_supervised_which: {self.opt.reproj_supervised_which}")
+
+                #phedo gt
+                if self.opt.reproj_supervised_with_which == "refined":
+                    reproj_loss_supervised_signal_color = outputs[("refined", scale, frame_id)]
+                elif self.opt.reproj_supervised_with_which == "raw_tgt_gt":
+                    reproj_loss_supervised_signal_color = inputs[("color", 0, 0)]
+                else:
+                    raise ValueError(f"Invalid reproj_supervised_with_which: {self.opt.reproj_supervised_with_which}")
 
                 loss_reprojection += (
-                    self.compute_reprojection_loss(outputs[("color", frame_id, scale)], reproj_loss_supervised_tgt_color) * valid_mask).sum() / valid_mask.sum()  
+                    self.compute_reprojection_loss(reproj_loss_supervised_tgt_color, reproj_loss_supervised_signal_color) * valid_mask).sum() / valid_mask.sum()  
                 loss_transform += (
                     torch.abs(outputs[("refined", scale, frame_id)] - outputs[("registration", 0, frame_id)].detach()).mean(1, True) * valid_mask).sum() / valid_mask.sum()
                 loss_cvt += get_smooth_bright(
                     outputs[("transform", "high", scale, frame_id)], inputs[("color", 0, 0)], outputs[("registration", scale, frame_id)].detach(), valid_mask)
+
+                #register reproj_loss_supervised_tgt_color for debugging
+                outputs[("reproj_supervised_tgt_color_debug", scale, frame_id)] = reproj_loss_supervised_tgt_color.detach() #reproj_loss_supervised_tgt_color.detach()
+                outputs[("reproj_supervised_signal_color_debug", scale, frame_id)] = reproj_loss_supervised_signal_color.detach() #reproj_loss_supervised_tgt_color.detach()
 
             mean_disp = disp.mean(2, True).mean(3, True)
             norm_disp = disp / (mean_disp + 1e-7)
@@ -935,7 +1044,12 @@ class Trainer:
         optic_flow_imgs = []
         pose_flow_imgs = []
         motion_flow_imgs = []
+        depth_imgs = []
+
         occlursion_mask_imgs = []
+        motion_mask_imgs = []
+
+        reproj_supervised_tgt_color_debug_imgs = []
         img_order_strs = []
         concat_img = None
 
@@ -976,7 +1090,10 @@ class Trainer:
                         writer.add_image(
                             "GT/source_{}_{}/{}".format(frame_id, s, j),
                             inputs[("color", 0, s)][j].data, self.step)  
-                         
+                        # add supervised_img
+                        writer.add_image(
+                            "IMG/reproj_supervised_tgt_color_debug_{}_{}/{}".format(frame_id, s, j),
+                            outputs[("reproj_supervised_tgt_color_debug", 0, frame_id)][j].data, self.step)
                         # add vis of other warped img
                         # add color image as well
                         writer.add_image(
@@ -1017,42 +1134,58 @@ class Trainer:
                         src_imgs.append(inputs[("color", frame_id, s)][j].data)
                         tgt_imgs.append(inputs[("color", self.opt.frame_ids[0], s)][j].data)
                         registered_tgt_imgs.append(outputs[("registration", s, frame_id)][j].data)
+                        depth_imgs.append(outputs[("depth", self.opt.frame_ids[0], s)][j].data)
 
                         colored_tgt_imgs.append(outputs[("color", frame_id, s)][j].data)
                         optic_flow_imgs.append(outputs[("position", "high", s, frame_id)][j].data)
                         occlursion_mask_imgs.append(outputs[("occu_mask_backward", s, frame_id)][j].data)
                         pose_flow_imgs.append(outputs[("pose_flow", frame_id, s)][j].data)
+                        reproj_supervised_tgt_color_debug_imgs.append(outputs[("reproj_supervised_tgt_color_debug", 0, frame_id)][j].data)
                         if self.opt.enable_motion_computation:
                             colored_motion_tgt_imgs.append(outputs[("color_MotionCorrected", frame_id, s)][j].data)
                             motion_flow_imgs.append(outputs[("motion_flow", frame_id, s)][j].data)
+                            motion_mask_imgs.append(outputs[("motion_mask_backward", s, frame_id)][j].data)
 
+                # only predicted depth from the center image (frame_id == 0)
                 writer.add_image(
-                    "disp_{}/{}".format(s, j),
+                    "Depth/disp_{}/{}".format(s, j),
                     normalize_image(outputs[("disp", s)][j]), self.step)
+                writer.add_image(
+                    'Depth/depth_{}/{}'.format(s, j),
+                    normalize_image(outputs[("depth", 0, s)][j]), self.step)
 
         if compute_vis:
             from utils import color_to_cv_img, gray_to_cv_img, flow_to_cv_img
             # Now apply
             src_imgs = [color_to_cv_img(img) for img in src_imgs]
             tgt_imgs = [color_to_cv_img(img) for img in tgt_imgs]
+            reproj_supervised_tgt_color_debug_imgs = [color_to_cv_img(img) for img in reproj_supervised_tgt_color_debug_imgs]
             registered_tgt_imgs = [color_to_cv_img(img) for img in registered_tgt_imgs]
+            depth_imgs = [gray_to_cv_img(normalize_image(img)) for img in depth_imgs]
             colored_tgt_imgs = [color_to_cv_img(img) for img in colored_tgt_imgs]
-            print('Optic flow:')
+            # print('Optic flow:')
             optic_flow_imgs = [flow_to_cv_img(img) for img in optic_flow_imgs]
-            print('Pose flow:')
+            # print('Pose flow:')
             pose_flow_imgs = [flow_to_cv_img(img) for img in pose_flow_imgs]
             if self.opt.enable_motion_computation:
                 colored_motion_tgt_imgs = [color_to_cv_img(img) for img in colored_motion_tgt_imgs]
-                print('Motion flow:')
+                # print('Motion flow:')
                 motion_flow_imgs = [flow_to_cv_img(img) for img in motion_flow_imgs]
+                motion_mask_imgs = [gray_to_cv_img(img) for img in motion_mask_imgs]
 
             occlursion_mask_imgs = [gray_to_cv_img(img) for img in occlursion_mask_imgs]
+
 
             # concat src_imgs and tgt_imgs vertically
             src_concat_img = np.concatenate(src_imgs, axis=0)
             img_order_strs.append('Src-')
             tgt_concat_img = np.concatenate(tgt_imgs, axis=0)
             img_order_strs.append('Tgt-')
+
+            # add reproj_supervised_tgt_color_debug
+            reproj_supervised_tgt_color_debug_concat_img = np.concatenate(reproj_supervised_tgt_color_debug_imgs, axis=0)
+            img_order_strs.append('Reproj_Sup-')
+            
             registered_tgt_concat_img = np.concatenate(registered_tgt_imgs, axis=0)
             img_order_strs.append('Registered_Tgt-')
             colored_tgt_concat_img = np.concatenate(colored_tgt_imgs, axis=0)
@@ -1062,14 +1195,21 @@ class Trainer:
             pose_flow_concat_img = np.concatenate(pose_flow_imgs, axis=0)
             img_order_strs.append('Pose_Flow-')
             occlursion_mask_concat_img = np.concatenate(occlursion_mask_imgs, axis=0)
-            img_order_strs.append('Occlursion_Mask')
-            concat_img = np.concatenate([src_concat_img, tgt_concat_img, registered_tgt_concat_img, colored_tgt_concat_img, optic_flow_concat_img, pose_flow_concat_img, occlursion_mask_concat_img], axis=1)
+            img_order_strs.append('Occlursion_Mask-')
+            depth_concat_img = np.concatenate(depth_imgs, axis=0)
+            img_order_strs.append('Depth-')
+            concat_img = np.concatenate([src_concat_img, tgt_concat_img, reproj_supervised_tgt_color_debug_concat_img, \
+                                         registered_tgt_concat_img, colored_tgt_concat_img, optic_flow_concat_img, \
+                                            pose_flow_concat_img, occlursion_mask_concat_img, depth_concat_img], axis=1)
             if self.opt.enable_motion_computation:
                 colored_motion_tgt_concat_img = np.concatenate(colored_motion_tgt_imgs, axis=0)
                 img_order_strs.append('Colored_Motion_Tgt-')
                 motion_flow_concat_img = np.concatenate(motion_flow_imgs, axis=0)
                 img_order_strs.append('Motion_Flow-')
-                concat_img = np.concatenate([concat_img, colored_motion_tgt_concat_img, motion_flow_concat_img], axis=1)
+                motion_mask_concat_img = np.concatenate(motion_mask_imgs, axis=0)
+                img_order_strs.append('Motion_Mask-')
+                concat_img = np.concatenate([concat_img, colored_motion_tgt_concat_img, motion_flow_concat_img, motion_mask_concat_img], axis=1)
+
             img_order_strs = ''.join(img_order_strs)
             
             if online_vis:
@@ -1085,6 +1225,7 @@ class Trainer:
                 print(f"saved {img_order_strs}.png in {save_path}")
 
         return concat_img, img_order_strs
+
 
     def save_opts(self):
         """Save options to disk so we know what we ran this experiment with
@@ -1143,3 +1284,29 @@ class Trainer:
             # self.model_optimizer.load_state_dict(optimizer_dict)
         # else:
         print("Adam is randomly initialized")
+
+
+
+if __name__ == "__main__":
+    import torch
+    from layers import BackprojectDepth
+    batch_size = 1
+    height = 480
+    width = 640
+    backproject_depth = BackprojectDepth(batch_size, height, width)
+    # project3d = Project3D(batch_size, height, width)
+    project3d = Project3D_Raw(batch_size, height, width)
+    depth = torch.randn(batch_size, 1, height, width)
+    fx, fy, cx, cy = 1000, 1000, 320, 240
+    K = torch.tensor([[fx, 0, cx, 0], [0, fy, cy, 0], [0, 0, 1, 0], [0, 0, 0, 1]], dtype=torch.float32).unsqueeze(0)
+    inv_K = torch.inverse(K)
+    T = torch.eye(4)
+
+    cam_points = backproject_depth(depth, inv_K)
+    pix_coords = project3d(cam_points, K, T)
+    print(pix_coords.shape)
+    pix_coords_dbg = pix_coords.view(batch_size, -1, 2).permute(0, 2, 1)
+    print(pix_coords_dbg[0,:,:600])
+    print(pix_coords_dbg[0,:,::640])
+
+
