@@ -1080,7 +1080,7 @@ class Trainer:
                 import os, cv2
                 save_path = os.path.join(self.log_path, f"imgs")
                 os.makedirs(save_path, exist_ok=True)
-                save_path = os.path.join(save_path, f"{img_order_strs}.png")
+                save_path = os.path.join(save_path, f"{self.step}_{img_order_strs}.png")
                 cv2.imwrite(save_path, concat_img)
                 print(f"saved {img_order_strs}.png in {save_path}")
 
