@@ -808,7 +808,10 @@ class Trainer:
                     sample_motion_corrected = (outputs[("pose_flow", frame_id, scale)] + outputs[("motion_flow", frame_id, scale)])#.permute(0, 2, 3, 1)
                     #use self.spatial_transform to sample
 
-                    outputs[("color_MotionCorrected", frame_id, scale)] = self.spatial_transform(inputs[("color", frame_id, 0)],sample_motion_corrected)
+                    outputs[("color_MotionCorrected", frame_id, scale)] = self.spatial_transform(
+                        inputs[("color", frame_id, 0)],
+                        # inputs[("color", 0, source_scale)],
+                        sample_motion_corrected)
 
 
 

@@ -31,6 +31,7 @@ class MonodepthOptions:
         self.parser.add_argument("--enable_motion_computation",
                                  help="it will compute: motion_flow, pose_flow, motion_mask, color_motion_warped",
                                  action="store_true")
+        
         self.parser.add_argument("--reproj_supervised_with_which",
                                  type=str,
                                  help="which GT image to supervise with",
@@ -40,7 +41,25 @@ class MonodepthOptions:
                                  type=str,
                                  help="which image to supervise",
                                  default="color",
-                                 choices=["color",'color_MotionCorrected'])
+                                 choices=["color",'color_MotionCorrected','motion_masked_color', 'gt_motion_masked_color_debug'])
+
+        #/////////
+        self.parser.add_argument("--use_loss_reproj2_nomotion_only",
+                                 help="used to addtionally supervise the pose flow to be effective---imporant to get good pose when eval!",
+                                 action="store_true")
+        self.parser.add_argument("--reproj2_supervised_with_which",
+                                 type=str,
+                                 help="which GT image to supervise with",
+                                 default="refined",
+                                 choices=["refined", "raw_tgt_gt"])
+        self.parser.add_argument("--reproj2_supervised_which",
+                                 type=str,
+                                 help="which image to supervise",
+                                 default="motion_masked_color",
+                                 choices=['motion_masked_color', 'gt_motion_masked_color_debug'])
+        #/////////
+
+        
         self.parser.add_argument("--flow_reproj_supervised_with_which",
                                  type=str,
                                  help="which image to supervise",
