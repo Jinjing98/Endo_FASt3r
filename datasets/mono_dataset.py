@@ -6,6 +6,7 @@ import numpy as np
 import copy
 from PIL import Image  # using pillow-simd for increased speed
 from PIL import ImageFile
+from scipy.spatial.transform import Rotation as R
 
 import torch
 import torch.utils.data as data
@@ -60,6 +61,8 @@ class MonoDataset(data.Dataset):
         self.interp = Image.LANCZOS
 
         self.frame_ids = frame_ids
+        assert self.frame_ids[0] == 0, "frame_ids[0] must be 0"
+        assert len(self.frame_ids) == 3, "frame_ids must be of length 3"
 
         self.is_train = is_train
         self.img_ext = img_ext
@@ -87,6 +90,9 @@ class MonoDataset(data.Dataset):
             self.resize[i] = transforms.Resize((self.height // s, self.width // s),
                                                interpolation=self.interp)
         self.load_depth = self.check_depth()
+
+        self.trajs_dict = {}
+
 
     def preprocess(self, inputs, color_aug):
         """Resize colour images to the required scales and augment if required
@@ -214,13 +220,180 @@ class MonoDataset(data.Dataset):
             stereo_T[0, 3] = side_sign * baseline_sign * 0.1
 
             inputs["stereo_T"] = torch.from_numpy(stereo_T)
+
+        if self.load_gt_poses:
+            if self.dataset_name == 'SCARED':
+                offset = -1
+            elif self.dataset_name == 'DynaSCARED':
+                assert 0, f'not tested'
+            else:
+                raise ValueError(f'Unknown dataset name: {self.dataset_name}')
+            
+            for i in self.frame_ids:
+                if i == "s":
+                    other_side = {"r": "l", "l": "r"}[side]
+                    inputs[("gt_c2w_poses", i)] = self.get_poses_for_frames(folder, [frame_index], offset=offset)
+                else:
+                    inputs[("gt_c2w_poses", i)] = self.get_poses_for_frames(folder, [frame_index + i], offset=offset)
+            # print('===============================================')
+            # print('read_folder:', folder)
+            # print('gt traj folder:', self.map_traj_search(folder))
+            # print('sequence:', inputs["sequence"])
+            # print('keyframe:', inputs["keyframe"])
+            # print('Loaded gt poses this item index:', index)
+            # print('frame_index:', frame_index)
+            # print('frame_ids:', self.frame_ids)
+            # print('tgt frame id:', inputs["frame_id"])
+            # for i in self.frame_ids:
+            #     print('gt_c2w_poses:', inputs[("gt_c2w_poses", i)])
+
         return inputs
 
     def get_color(self, folder, frame_index, side, do_flip):
         raise NotImplementedError
-
+    
     def check_depth(self):
         raise NotImplementedError
 
     def get_depth(self, folder, frame_index, side, do_flip):
         raise NotImplementedError
+
+    def pose_vec_to_mat(self, pose_vec):
+        """
+        Convert a 7D vector (xyz + quaternion) to a 4x4 transformation matrix.
+        
+        pose_vec: array-like, shape (7,)
+                  Format: [x, y, z, qx, qy, qz, qw]
+        
+        Returns: np.ndarray, shape (4, 4)
+                 The SE(3) transformation matrix.
+        """
+        pose_vec = np.asarray(pose_vec)
+        assert pose_vec.shape[-1] == 7, f"{pose_vec} Expected input shape (..., 7)"
+        
+        trans = pose_vec[:3]
+        quat = pose_vec[3:]
+        
+        rot = R.from_quat(quat).as_matrix()  # 3x3 rotation matrix
+
+        T = np.eye(4)
+        T[:3, :3] = rot
+        T[:3, 3] = trans
+        return T
+
+    def read_freiburg_scipy(self, path: str, ret_stamps=False, no_stamp=False):
+        '''
+        Read trajectory file in Freiburg format.
+        '''
+        with open(path, 'r') as f:
+            data = f.read()
+            lines = data.replace(",", " ").replace("\t", " ").split("\n")
+            list_data = [[v.strip() for v in line.split(" ") if v.strip() != ""] for line in lines if
+                        len(line) > 0 and line[0] != "#"]
+
+        trans_scale = 1000  # m to mm
+        if no_stamp:       
+            trans_np = np.asarray([l[0:3] for l in list_data if len(l) > 0], dtype=float)
+            quat_np = np.asarray([l[3:] for l in list_data if len(l) > 0], dtype=float)
+            trans_quat_np = np.hstack((trans_np, quat_np)) 
+            trans_quat_np[:,:3] *= trans_scale 
+            pose_matrix = np.asarray([self.pose_vec_to_mat(l) for l in trans_quat_np if len(l) > 0], dtype=float)
+        else:
+            time_stamp = [l[0] for l in list_data if len(l) > 0]
+            try:
+                time_stamp = np.asarray([int(l.split('.')[0] + l.split('.')[1]) for l in time_stamp])*100
+            except IndexError:
+                time_stamp = np.asarray([int(l) for l in time_stamp])
+            trans_np = np.asarray([l[1:4] for l in list_data if len(l) > 0], dtype=float)
+            quat_np = np.asarray([l[4:] for l in list_data if len(l) > 0], dtype=float)
+            trans_quat_np = np.hstack((trans_np, quat_np))
+            trans_quat_np[:,:3] *= trans_scale 
+            pose_matrix = np.asarray([self.pose_vec_to_mat(l) for l in trans_quat_np if len(l) > 0], dtype=float)
+            if ret_stamps:
+                return pose_matrix, time_stamp
+        return pose_matrix
+
+    def map_traj_search(self, folder):
+        """
+        Map folder path to trajectory search path.
+        """
+        # Extract sequence and keyframe from folder name
+        # Expected format: "dataset_X/keyframe_Y"
+        parts = folder.split('/')
+        if len(parts) == 2:
+            if self.dataset_name == 'SCARED':
+                sequence = int(parts[0][-1])  # "datasetX"
+                keyframe = int(parts[1][-1])  # "keyframeY"
+            elif self.dataset_name == 'DynaSCARED':
+                assert 0, f'not tested'
+            else:
+                raise ValueError(f"Unknown dataset name: {self.dataset_name}")
+            
+            assert isinstance(sequence, int) and isinstance(keyframe, int), f'sequence and keyframe must be int, but got {sequence} and {keyframe}'
+            split_dir_ori = 'testing' if sequence in range(8, 10) else 'training' 
+            sequence_ori = sequence 
+            keyframe_ori = keyframe - 1 if sequence in range(8, 10) else keyframe
+            
+            trajfolder = f'{self.traj_data_root}/{split_dir_ori}/dataset_{sequence_ori}/keyframe_{keyframe_ori}/'
+            # print('traj folder is:')
+            # print(trajfolder)
+            return trajfolder
+        else:
+            raise ValueError(f"Invalid folder format: {folder}")
+
+    def get_gt_poses(self):
+        """
+        Load ground truth poses for all folders in filenames.
+        Returns a dictionary mapping folder to trajectory data.
+        """
+        trajs_dict = {}
+        # Get unique folders from filenames
+        unique_folders = set()
+        for filename in self.filenames:
+            line = filename.split()
+            if len(line) >= 1:
+                folder = line[0]
+                unique_folders.add(folder)
+            else:
+                raise ValueError(f"Invalid filename format: {filename}")
+        
+        print(f"Loading trajectories for {len(unique_folders)} unique folders...")
+        # print('Load from folder:', unique_folders)
+        for folder in unique_folders:
+            traj_full_folder = self.map_traj_search(folder)
+            traj_path = f'{traj_full_folder}/groundtruth.txt'
+            
+            if os.path.exists(traj_path):
+                traj = self.read_freiburg_scipy(traj_path, ret_stamps=False, no_stamp=False)
+                trajs_dict[folder] = traj
+                # print(f"Loaded trajectory for {folder}: {len(traj)} poses")
+            else:
+                assert 0, f'Trajectory file {traj_path} does not exist for {folder}'
+        
+        print(f"Successfully loaded {len([v for v in trajs_dict.values() if v is not None])} trajectories")
+        return trajs_dict
+
+    def get_poses_for_frames(self, folder, frame_indices, offset):
+        """
+        Get ground truth poses for specific frame indices in a folder.
+        
+        Args:
+            offset (int): should be -1 for scared. Offset to add to frame indices to get trajectory indices
+            folder (str): Folder path in format "dataset_X/keyframe_Y"
+            frame_indices (list): List of frame indices to get poses for
+            
+        Returns:
+            list: List of 4x4 transformation matrices (cam2world)
+        """
+        poses = []
+        for frame_idx in frame_indices:
+            # Convert to 0-indexed for trajectory lookup
+            # traj_idx = frame_idx - 1
+            traj_idx = frame_idx + offset
+            
+            if 0 <= traj_idx < len(self.trajs_dict[folder]):
+                pose = self.trajs_dict[folder][traj_idx].astype(np.float32)
+                poses.append(pose)
+            else:
+                raise ValueError(f"Frame index {frame_idx} out of range for trajectory in {folder}. Using identity pose.")
+        return poses

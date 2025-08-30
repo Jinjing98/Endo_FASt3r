@@ -39,6 +39,16 @@ class SCAREDRAWDataset(SCAREDDataset):
     def __init__(self, *args, **kwargs):
         super(SCAREDRAWDataset, self).__init__(*args, **kwargs)
 
+        self.load_gt_poses = True # will enable register_gt_traj_dict and load gt_abs_poses when get_item
+        # self.load_gt_poses = False
+
+        # register gt_traj for get_gt_poses
+        self.traj_data_root = '/mnt/cluster/datasets/SCARED/'
+        if self.load_gt_poses:
+            self.trajs_dict = self.get_gt_poses()
+            print(f"Loaded {len(self.trajs_dict)} trajectories")
+
+
     def get_image_path(self, folder, frame_index, side):
         f_str = "{:010d}{}".format(frame_index, self.img_ext)
         image_path = os.path.join(
@@ -67,6 +77,7 @@ class SCAREDRAWDataset(SCAREDDataset):
 if __name__ == "__main__":
 
     fpath = '/mnt/cluster/workspaces/jinjingxu/proj/UniSfMLearner/submodule/Endo_FASt3r/splits/endovis/train_files.txt'
+    # fpath = '/mnt/cluster/workspaces/jinjingxu/proj/UniSfMLearner/submodule/Endo_FASt3r/splits/endovis/val_files.txt'
     from utils import readlines
     filenames = readlines(fpath)
 
@@ -75,11 +86,12 @@ if __name__ == "__main__":
         filenames=filenames,
         height=256,
         width=320,
-        frame_ids=[0, -1, 1],# control which nbr frames to load: [0, -1, 1] / [0, 1]
+        frame_ids=[0, -4, 4],# control which nbr frames to load: [0, -1, 1] / [0, 1]
         num_scales=4,
-        is_train=True, # control aug or not
+        # is_train=True, # control aug or not
+        is_train=False, # control aug or not
         img_ext=".png",
     )
     
-    dataset[0]
+    dataset[5]
     # print(dataset[0])
