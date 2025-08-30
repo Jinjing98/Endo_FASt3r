@@ -6,6 +6,7 @@ from six.moves import urllib
 import cv2
 import torch
 from torchvision.utils import flow_to_image
+import numpy as np
 
 # Convert standard RGB torch tensors to OpenCV BGR
 def color_to_cv_img(img_tensor):
@@ -21,10 +22,50 @@ def gray_to_cv_img(img_tensor):
 def flow_to_cv_img(flow_tensor):
     # print('flow_tensor shape:', flow_tensor.shape)
     # print('flow max and min:', flow_tensor.max(), flow_tensor.min())
-
-    img = flow_to_image(flow_tensor)                    # (3,H,W), uint8 RGB
+    # Use robust flow visualization to handle extreme values
+    # # (3,H,W), float [0,1]
+    img = flow_vis_robust(flow_tensor)   # filter out outliers then norm
     img = img.permute(1, 2, 0).cpu().numpy()            # HWC
+    img = (img * 255).astype(np.uint8)                   # Convert to uint8 [0,255]
     img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)          # to BGR
+    return img
+
+# Flow visualization functions for tensorboard logging
+def flow_vis(flow_tensor):
+    """Convert flow tensor to image for tensorboard logging (original version)"""
+    img = flow_to_image(flow_tensor)    # returns (3,H,W) uint8
+    img = img.float() / 255.0
+    return img
+
+def flow_vis_robust(flow_tensor):
+    """Convert flow tensor to image for tensorboard logging (RAFT-style robust version)"""
+    # Robust flow normalization using quantiles to handle extreme values
+    # Similar to RAFT visualization approach
+    
+    # Convert to numpy for quantile computation
+    flow_np = flow_tensor.detach().cpu().numpy()  # (2, H, W)
+    flow_np = flow_np.transpose(1, 2, 0)  # (H, W, 2)
+    
+    # Use absolute values for quantile computation since flow can be positive/negative
+    # Get 95th percentile of absolute values as upper bound
+    upper_bound = np.quantile(np.abs(flow_np), 0.95)
+    
+    # Clamp flow to reasonable range [-upper_bound, +upper_bound]
+    flow_clamped = np.clip(flow_np, 
+                         a_min=-upper_bound, 
+                         a_max=upper_bound)
+    
+    # Normalize to [-1, 1] range for flow_to_image
+    if upper_bound > 1e-6:  # Avoid division by zero
+        flow_normalized = flow_clamped / upper_bound
+    else:
+        flow_normalized = flow_clamped
+    
+    # Convert to image using torchvision
+    flow_tensor_normalized = torch.from_numpy(flow_normalized.transpose(2, 0, 1)).float()  # (2, H, W)
+    img = flow_to_image(flow_tensor_normalized)  # returns (3, H, W) uint8
+    img = img.float() / 255.0
+    
     return img
 
 def readlines(filename):

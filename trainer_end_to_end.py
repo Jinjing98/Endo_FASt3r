@@ -1142,26 +1142,23 @@ class Trainer:
                                 "IMG/color_MotionCorrected_{}_{}/{}".format(frame_id, s, j),
                                 outputs[("color_MotionCorrected", frame_id, s)][j].data, self.step)
 
-                        # write various flow; define conver function
-                        from torchvision.utils import flow_to_image
-                        def convert_flow_tensor_for_login(flow_tensor):
-                            flow_img = flow_to_image(flow_tensor)    # returns (3,H,W) uint8
-                            flow_img = flow_img.float() / 255.0
-                            return flow_img
-                        
+                        # write various flow; import functions from utils
+                        from utils import flow_vis, flow_vis_robust
+                        vis_flow_func = flow_vis_robust
+                        # vis_flow_func = flow_vis
                         # add optic flow
                         writer.add_image(
                             "FLOW/optic_flow_{}_{}/{}".format(frame_id, s, j),
-                            convert_flow_tensor_for_login(outputs[("position", s, frame_id)][j].data), self.step)
+                            vis_flow_func(outputs[("position", s, frame_id)][j].data), self.step)
                         # add pose_flow
                         writer.add_image(
                             "FLOW/pose_flow_{}_{}/{}".format(frame_id, s, j),
-                            convert_flow_tensor_for_login(outputs[("pose_flow", frame_id, s)][j].data), self.step)
+                            vis_flow_func(outputs[("pose_flow", frame_id, s)][j].data), self.step)
                         # add motion_flow
                         if self.opt.enable_motion_computation:
                             writer.add_image(
                                 "FLOW/motion_flow_{}_{}/{}".format(frame_id, s, j),
-                                convert_flow_tensor_for_login(outputs[("motion_flow", frame_id, s)][j].data), self.step)
+                                vis_flow_func(outputs[("motion_flow", frame_id, s)][j].data), self.step)
                     
                     if compute_vis and s == 0:
                         '''
