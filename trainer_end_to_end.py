@@ -125,7 +125,7 @@ class Trainer:
 
             options.frame_ids = [0, -8, 8]
             options.frame_ids = [0, -1, 1]
-            options.frame_ids = [0, -4, 4]
+            options.frame_ids = [0, -14, 14]
 
             # not okay to use: we did not adjust the init_K accordingly yet
             # options.height = 192
@@ -689,11 +689,21 @@ class Trainer:
 
 
 
-                    view1 = {'img':prepare_images(pose_feats[0], self.device, size = 512)}
-                    view0 = {'img':prepare_images(pose_feats[f_i],self.device, size = 512)}
+                    # view0 = {'img':prepare_images(pose_feats[f_i],self.device, size = 512)}
+                    # view1 = {'img':prepare_images(pose_feats[0], self.device, size = 512)}
+                    # # pose2 = self.models["pose"](view0,view1)
+                    # pose2, _ = self.models["pose"](view0,view1)# notice we save pose2to1 as usually saved by reloc3r/fast3r/mvp3r; dares saved rel pose1to2
+                    # outputs[("cam_T_cam", 0, f_i)] = pose2["pose"] # it shoudl save transformation: tgt to src
+
+                    # udpate reloc3r_relpose forward returning and below to be consistent with original reloc3r
+                    view1 = {'img':prepare_images(pose_feats[f_i],self.device, size = 512)}
+                    view2 = {'img':prepare_images(pose_feats[0], self.device, size = 512)}
                     # pose2 = self.models["pose"](view0,view1)
-                    pose2, _ = self.models["pose"](view0,view1)
-                    outputs[("cam_T_cam", 0, f_i)] = pose2["pose"]
+                    # pose2, _ = self.models["pose"](view0,view1)# notice we save pose2to1 as usually saved by reloc3r/fast3r/mvp3r; dares saved rel pose1to2
+                    _ , pose2 = self.models["pose"](view1,view2)# 
+                    # notice we save pose2to1 as usually saved by reloc3r/fast3r/mvp3r; dares saved rel pose1to2
+                    outputs[("cam_T_cam", 0, f_i)] = pose2["pose"] # we need pose tgt2src, ie: pose2to1, i.e the pose2 in breif in reloc3r model.
+
                     
         return outputs
 

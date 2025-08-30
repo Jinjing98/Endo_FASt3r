@@ -172,8 +172,8 @@ class Reloc3rRelpose(nn.Module):
             # pose1 = self._downstream_head([tok.float() for tok in dec1], shape1)  
             pose2 = self._downstream_head([tok.float() for tok in dec2], shape2)  # relative camera pose from 2 to 1. 
             
-        # return pose1, pose2
-        return pose2,dec2[-1]
+        return None, pose2 # try to be consistent with original reloc3r
+        # return pose2, dec2[-1]
 
 
 def load_model(ckpt_path, img_size, device):
