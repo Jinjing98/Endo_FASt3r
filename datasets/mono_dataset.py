@@ -232,9 +232,9 @@ class MonoDataset(data.Dataset):
             for i in self.frame_ids:
                 if i == "s":
                     other_side = {"r": "l", "l": "r"}[side]
-                    inputs[("gt_c2w_poses", i)] = self.get_poses_for_frames(folder, [frame_index], offset=offset)
+                    inputs[("gt_c2w_poses", i)] = torch.from_numpy(self.get_poses_for_frames(folder, [frame_index], offset=offset))
                 else:
-                    inputs[("gt_c2w_poses", i)] = self.get_poses_for_frames(folder, [frame_index + i], offset=offset)
+                    inputs[("gt_c2w_poses", i)] = torch.from_numpy(self.get_poses_for_frames(folder, [frame_index + i], offset=offset))
             # print('===============================================')
             # print('read_folder:', folder)
             # print('sequence:', inputs["sequence"])
@@ -404,4 +404,5 @@ class MonoDataset(data.Dataset):
                 poses.append(pose)
             else:
                 raise ValueError(f"Frame index {frame_idx} out of range for trajectory in {folder}. Using identity pose.")
-        return poses
+
+        return np.array(poses)  
