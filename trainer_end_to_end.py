@@ -110,13 +110,13 @@ class Trainer:
             # options.reproj_supervised_with_which = "raw_tgt_gt"
             # options.reproj_supervised_which = "color_MotionCorrected"
 
-            options.flow_reproj_supervised_with_which = "raw_tgt_gt"
+            # options.flow_reproj_supervised_with_which = "raw_tgt_gt"
 
-            options.transform_constraint = 0.0
-            options.transform_smoothness = 0.0
+            # options.transform_constraint = 0.0
+            # options.transform_smoothness = 0.0
             # options.disparity_smoothness = 0.0
 
-            options.freeze_as_much_debug = True #save mem # need to be on for OF exp
+            # options.freeze_as_much_debug = True #save mem # need to be on for OF exp
 
             options.of_samples = True
             options.of_samples_num = 10
@@ -126,7 +126,7 @@ class Trainer:
 
             options.frame_ids = [0, -8, 8]
             options.frame_ids = [0, -1, 1]
-            options.frame_ids = [0, -14, 14]
+            # options.frame_ids = [0, -14, 14]
 
             # not okay to use: we did not adjust the init_K accordingly yet
             # options.height = 192
@@ -141,7 +141,7 @@ class Trainer:
             # options.split_appendix = "_CaToTi000"
             # options.split_appendix = "_CaToTi001"
             # # options.split_appendix = "_CaToTi110"
-            # # options.split_appendix = "_CaToTi101"
+            # options.split_appendix = "_CaToTi101"
 
         self.opt = options
         
@@ -645,14 +645,17 @@ class Trainer:
 
         outputs = self.generate_images_pred(inputs, outputs)# img is warp from pose_flow('sample'), save as "color"
         losses = self.compute_losses(inputs, outputs)
-        # compute the pose errors
-        trans_err, rot_err = self.compute_pose_errors(inputs, outputs)
-        # print('trans_err:', trans_err)
-        # print('rot_err:', rot_err)
-        metrics = {
-            'trans_err': trans_err,
-            'rot_err': rot_err
-        }
+        if self.train_dataset.load_gt_poses:
+            # compute the pose errors
+            trans_err, rot_err = self.compute_pose_errors(inputs, outputs)
+            # print('trans_err:', trans_err)
+            # print('rot_err:', rot_err)
+            metrics = {
+                'trans_err': trans_err,
+                'rot_err': rot_err
+            }
+        else:
+            metrics = {}
         return outputs, losses, metrics
 
     def predict_poses(self, inputs, disps):
@@ -920,14 +923,23 @@ class Trainer:
         for frame_id in self.opt.frame_ids[1:]:
             gt_src_abs_poses = inputs[("gt_c2w_poses", frame_id)]  # (B, 4, 4)
             pred_rel_poses_batch = outputs[("cam_T_cam", 0, frame_id)]  # (B, 4, 4)
+            assert gt_src_abs_poses.shape == pred_rel_poses_batch.shape, f'gt_src_abs_poses.shape: {gt_src_abs_poses.shape}, pred_rel_poses_batch.shape: {pred_rel_poses_batch.shape}'
             gt_tgt2src_rel_poses = torch.inverse(gt_src_abs_poses) @ gt_tgt_abs_poses
             trans_err, rot_err = compute_pose_error(gt_tgt2src_rel_poses, pred_rel_poses_batch)
             trans_err_list.append(trans_err)
             rot_err_list.append(rot_err)
-            # print('gt_tgt2src_rel_poses:')
-            # print(gt_tgt2src_rel_poses)
-            # print('pred_rel_poses_batch:')
-            # print(pred_rel_poses_batch)
+            print('gt_tgt2src_rel_poses shape:')
+            print(gt_tgt2src_rel_poses.shape)
+            print('pred_rel_poses_batch shape:')
+            print(pred_rel_poses_batch.shape)
+            print('gt_tgt2src_rel_poses trans:')
+            print(gt_tgt2src_rel_poses[:, :3, 3])
+            print('pred_rel_poses_batch trans:')
+            print(pred_rel_poses_batch[:, :3, 3])
+            print('gt_tgt2src_rel_poses rot:')
+            print(gt_tgt2src_rel_poses[:, :3, :3])
+            print('pred_rel_poses_batch rot:')
+            print(pred_rel_poses_batch[:, :3, :3])
 
         trans_err_list = torch.cat(trans_err_list, 0)
         rot_err_list = torch.cat(rot_err_list, 0)

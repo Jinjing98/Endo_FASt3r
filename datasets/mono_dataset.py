@@ -291,6 +291,7 @@ class MonoDataset(data.Dataset):
                         len(line) > 0 and line[0] != "#"]
 
         trans_scale = 1000  # m to mm
+        # trans_scale = 1  # m 
         if no_stamp:       
             trans_np = np.asarray([l[0:3] for l in list_data if len(l) > 0], dtype=float)
             quat_np = np.asarray([l[3:] for l in list_data if len(l) > 0], dtype=float)
@@ -404,5 +405,5 @@ class MonoDataset(data.Dataset):
                 poses.append(pose)
             else:
                 raise ValueError(f"Frame index {frame_idx} out of range for trajectory in {folder}. Using identity pose.")
-
-        return np.array(poses)  
+        print(f'poses shape: {np.array(poses).shape}')
+        return np.array(poses).squeeze()  
