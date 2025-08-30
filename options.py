@@ -173,6 +173,10 @@ class MonodepthOptions:
                                  type=int,
                                  help="batch size",
                                  default=12)
+        self.parser.add_argument("--accumulate_steps",
+                                 type=int,
+                                 help="number of steps to accumulate gradients (effective batch size = batch_size * accumulate_steps)",
+                                 default=1)
         self.parser.add_argument("--learning_rate",
                                  type=float,
                                  help="learning rate",

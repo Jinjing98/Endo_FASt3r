@@ -95,17 +95,19 @@ class Trainer:
             print('update options for debug purposes...')
             options.num_epochs = 50000
             options.batch_size = 1
+            options.accumulate_steps = 1  # Effective batch size = 1 * 12 = 12
             options.log_frequency = 10
+            options.save_frequency = 100000# no save
             options.model_name = "debug"
             options.log_dir = "/mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm_debug"
 
-            options.enable_motion_computation = True
+            # options.enable_motion_computation = True
 
             # options.zero_pose_debug = True
 
             # options.zero_pose_flow_debug = True
             # options.reproj_supervised_with_which = "raw_tgt_gt"
-            options.reproj_supervised_which = "color_MotionCorrected"
+            # options.reproj_supervised_which = "color_MotionCorrected"
 
             options.flow_reproj_supervised_with_which = "raw_tgt_gt"
 
@@ -117,12 +119,13 @@ class Trainer:
 
             options.of_samples = True
             options.of_samples_num = 10
-            options.of_samples_num = 3
+            options.of_samples_num = 1
             options.is_train = True
             options.is_train = False # no augmentation
 
             options.frame_ids = [0, -8, 8]
             options.frame_ids = [0, -1, 1]
+            options.frame_ids = [0, -4, 4]
 
             # not okay to use: we did not adjust the init_K accordingly yet
             # options.height = 192
@@ -132,12 +135,12 @@ class Trainer:
             options.data_path = "/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/"
             options.split_appendix = ""
 
-            options.dataset = "DynaSCARED"
-            options.data_path = "/mnt/cluster/datasets/Surg_oclr_stereo/"
-            options.split_appendix = "_CaToTi000"
-            options.split_appendix = "_CaToTi001"
-            # options.split_appendix = "_CaToTi110"
-            # options.split_appendix = "_CaToTi101"
+            # options.dataset = "DynaSCARED"
+            # options.data_path = "/mnt/cluster/datasets/Surg_oclr_stereo/"
+            # options.split_appendix = "_CaToTi000"
+            # options.split_appendix = "_CaToTi001"
+            # # options.split_appendix = "_CaToTi110"
+            # # options.split_appendix = "_CaToTi101"
 
         self.opt = options
         
@@ -161,6 +164,8 @@ class Trainer:
 
         # print("learning rate is",self.opt.learning_rate)
         print("batch size is:",self.opt.batch_size)
+        print("accumulate steps is:",self.opt.accumulate_steps)
+        print("effective batch size is:",self.opt.batch_size * self.opt.accumulate_steps)
 
         self.models = {}  
         self.parameters_to_train = []
@@ -451,6 +456,9 @@ class Trainer:
 
         print("Training")
 
+        # Initialize gradient accumulation counters
+        accumulate_step = 0
+        
         for batch_idx, inputs in enumerate(self.train_loader):
 
             before_op_time = time.time()
@@ -460,32 +468,48 @@ class Trainer:
             if self.opt.freeze_as_much_debug:
                 self.freeze_params(keys = ['position_encoder',])#debug only for save mem
             _, losses_0 = self.process_batch_0(inputs) 
-            self.model_optimizer_0.zero_grad()
-            losses_0["loss"].backward()#
-            torch.nn.utils.clip_grad_norm_(self.parameters_to_train_0, max_norm=1.0)
-            self.model_optimizer_0.step()
+            
+            # Scale loss by accumulate_steps for gradient accumulation
+            scaled_loss_0 = losses_0["loss"] / self.opt.accumulate_steps
+            scaled_loss_0.backward()
+            
+            accumulate_step += 1
+            
+            # Only step optimizer when accumulation is complete
+            if accumulate_step % self.opt.accumulate_steps == 0:
+                torch.nn.utils.clip_grad_norm_(self.parameters_to_train_0, max_norm=1.0)
+                self.model_optimizer_0.step()
+                self.model_optimizer_0.zero_grad()
 
             self.set_train()
             if self.opt.freeze_as_much_debug:
                 self.freeze_params(keys = ['depth_model', 'pose', 'transform_encoder'])#debug only
             outputs, losses = self.process_batch(inputs) # img_warped_from_pose_flow saved as "color"; img_warped_from_optic_flow saved as "registration"
-            self.model_optimizer.zero_grad()
-            losses["loss"].backward()
-            torch.nn.utils.clip_grad_norm_(self.parameters_to_train, max_norm=1.0)
-            self.model_optimizer.step()
+            
+            # Scale loss by accumulate_steps for gradient accumulation
+            scaled_loss = losses["loss"] / self.opt.accumulate_steps
+            scaled_loss.backward()
+            
+            # Only step optimizer when accumulation is complete
+            if accumulate_step % self.opt.accumulate_steps == 0:
+                torch.nn.utils.clip_grad_norm_(self.parameters_to_train, max_norm=1.0)
+                self.model_optimizer.step()
+                self.model_optimizer.zero_grad()
 
             duration = time.time() - before_op_time
 
             phase = batch_idx % self.opt.log_frequency == 0
 
             if phase:
-
-                self.log_time(batch_idx, duration, losses["loss"].cpu().data)
-                self.log("train", inputs, outputs, losses, compute_vis=True)
+                # Use the accumulated loss for logging (multiply back to show effective loss)
+                effective_loss = losses["loss"] * (self.opt.accumulate_steps / max(1, accumulate_step % self.opt.accumulate_steps))
+                self.log_time(batch_idx, duration, effective_loss.cpu().data)
+                self.log("train", inputs, outputs, {"loss": effective_loss}, compute_vis=True)
                 # self.log("train", inputs, outputs, losses, compute_vis=True, online_vis=True)
 
             self.step += 1
             
+        # Step schedulers at the end of epoch
         self.model_lr_scheduler.step()
         self.model_lr_scheduler_0.step()
 
