@@ -485,7 +485,7 @@ class Trainer:
             self.set_train()
             if self.opt.freeze_as_much_debug:
                 self.freeze_params(keys = ['depth_model', 'pose', 'transform_encoder'])#debug only
-            outputs, losses = self.process_batch(inputs) # img_warped_from_pose_flow saved as "color"; img_warped_from_optic_flow saved as "registration"
+            outputs, losses, metric_errs = self.process_batch(inputs) # img_warped_from_pose_flow saved as "color"; img_warped_from_optic_flow saved as "registration"
             
             # Scale loss by accumulate_steps for gradient accumulation
             scaled_loss = losses["loss"] / self.opt.accumulate_steps
@@ -505,7 +505,14 @@ class Trainer:
                 # Use the accumulated loss for logging (multiply back to show effective loss)
                 effective_loss = losses["loss"] * (self.opt.accumulate_steps / max(1, accumulate_step % self.opt.accumulate_steps))
                 self.log_time(batch_idx, duration, effective_loss.cpu().data)
-                self.log("train", inputs, outputs, {"loss": effective_loss}, compute_vis=True)
+                scalers_to_log = {
+                    "scalar/loss": effective_loss,
+                    "scalar/trans_err": metric_errs["trans_err"].mean(),
+                    "scalar/rot_err": metric_errs["rot_err"].mean()
+                }
+                self.log("train", inputs, outputs, 
+                         scalers_to_log, 
+                         compute_vis=True)
                 # self.log("train", inputs, outputs, losses, compute_vis=True, online_vis=True)
 
             self.step += 1
@@ -638,8 +645,15 @@ class Trainer:
 
         outputs = self.generate_images_pred(inputs, outputs)# img is warp from pose_flow('sample'), save as "color"
         losses = self.compute_losses(inputs, outputs)
-
-        return outputs, losses
+        # compute the pose errors
+        trans_err, rot_err = self.compute_pose_errors(inputs, outputs)
+        # print('trans_err:', trans_err)
+        # print('rot_err:', rot_err)
+        metrics = {
+            'trans_err': trans_err,
+            'rot_err': rot_err
+        }
+        return outputs, losses, metrics
 
     def predict_poses(self, inputs, disps):
         """Predict poses between input frames for monocular sequences.
@@ -918,7 +932,8 @@ class Trainer:
         trans_err_list = torch.cat(trans_err_list, 0)
         rot_err_list = torch.cat(rot_err_list, 0)
         # print esti_rel and gt_rel for debug purpose
-        return trans_err_list.mean(), rot_err_list.mean()
+        # return trans_err_list.mean(), rot_err_list.mean()
+        return trans_err_list, rot_err_list
 
 
     def compute_reprojection_loss(self, pred, target):
