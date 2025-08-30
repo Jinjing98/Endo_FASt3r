@@ -47,6 +47,14 @@ class DynaSCAREDRAWDataset(DynaSCAREDDataset):
         super(DynaSCAREDRAWDataset, self).__init__(*args, **kwargs)
 
         self.K_dict_registered = {} # key: folder
+
+        self.load_gt_poses = True # will enable register_gt_traj_dict and load gt_abs_poses when get_item
+        self.traj_data_root = '/mnt/cluster/datasets/Surg_oclr_stereo/'
+        if self.load_gt_poses:
+            self.trajs_dict = self.get_gt_poses()
+            print(f"Loaded {len(self.trajs_dict)} trajectories")
+
+        
     def read_yaml_calib(self, yaml_file):
         import cv2
         import numpy as np
@@ -128,7 +136,7 @@ if __name__ == "__main__":
         filenames=filenames,
         height=256,
         width=320,
-        frame_ids=[0, -1, 1],# control which nbr frames to load: [0, -1, 1] / [0, 1]
+        frame_ids=[0, -2, 2],# control which nbr frames to load: [0, -1, 1] / [0, 1]
         num_scales=4,
         is_train=True, # control aug or not
         img_ext=".png",

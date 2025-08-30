@@ -225,7 +225,7 @@ class MonoDataset(data.Dataset):
             if self.dataset_name == 'SCARED':
                 offset = -1
             elif self.dataset_name == 'DynaSCARED':
-                assert 0, f'not tested'
+                offset = 0
             else:
                 raise ValueError(f'Unknown dataset name: {self.dataset_name}')
             
@@ -237,7 +237,6 @@ class MonoDataset(data.Dataset):
                     inputs[("gt_c2w_poses", i)] = self.get_poses_for_frames(folder, [frame_index + i], offset=offset)
             # print('===============================================')
             # print('read_folder:', folder)
-            # print('gt traj folder:', self.map_traj_search(folder))
             # print('sequence:', inputs["sequence"])
             # print('keyframe:', inputs["keyframe"])
             # print('Loaded gt poses this item index:', index)
@@ -360,8 +359,17 @@ class MonoDataset(data.Dataset):
         print(f"Loading trajectories for {len(unique_folders)} unique folders...")
         # print('Load from folder:', unique_folders)
         for folder in unique_folders:
-            traj_full_folder = self.map_traj_search(folder)
-            traj_path = f'{traj_full_folder}/groundtruth.txt'
+            if self.dataset_name == 'DynaSCARED':
+                import glob
+                traj_full_folder = os.path.join(self.traj_data_root, folder, 'vid')
+                traj_path = glob.glob(f'{traj_full_folder}/*.txt')
+                assert len(traj_path) == 1, f'Expected 1 trajectory file, but got {len(traj_path)} for {folder}'
+                traj_path = traj_path[0]
+            elif self.dataset_name == 'SCARED':
+                traj_full_folder = self.map_traj_search(folder)
+                traj_path = f'{traj_full_folder}/groundtruth.txt'
+            else:
+                raise ValueError(f'Unknown dataset name: {self.dataset_name}')
             
             if os.path.exists(traj_path):
                 traj = self.read_freiburg_scipy(traj_path, ret_stamps=False, no_stamp=False)
