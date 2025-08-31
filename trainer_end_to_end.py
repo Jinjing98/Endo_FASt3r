@@ -14,7 +14,7 @@ from layers import *
 from torch.utils.data import DataLoader
 from tensorboardX import SummaryWriter
 from torchmetrics.image import MultiScaleStructuralSimilarityIndexMeasure
-from metrics import compute_pose_error, compute_pose_error_v2
+from metrics import compute_pose_error_v2
 
 # from networks import DINOEncoder
 import random
