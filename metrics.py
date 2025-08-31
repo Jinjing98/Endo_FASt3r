@@ -86,6 +86,7 @@ def compute_pose_error_v2(gt_rel_poses, pred_rel_poses):
     Rgt = gt_rel_poses[:, :3, :3]   # [B, 3, 3]
 
     # compute translation error with angular version and scalr version
+    # already mean over batches internally; the raw_saved non meaned version
     trans_err_ang, trans_err_ang_raw = transl_ang_loss(t, tgt)
     trans_err_scale, trans_err_scale_raw  = transl_scale_loss(t, tgt, norm_gt=False, norm_esti=False)
     trans_err_scale_norm, trans_err_scale_norm_raw  = transl_scale_loss(t, tgt, norm_gt=True, norm_esti=True)

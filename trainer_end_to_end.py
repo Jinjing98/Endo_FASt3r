@@ -95,7 +95,7 @@ class Trainer:
             print("DEBUG MODE")
             print('update options for debug purposes...')
             options.num_epochs = 50000
-            options.batch_size = 2
+            options.batch_size = 1
             options.accumulate_steps = 1  # Effective batch size = 1 * 12 = 12
             options.log_frequency = 10
             options.save_frequency = 100000# no save
@@ -120,7 +120,7 @@ class Trainer:
 
             options.of_samples = True
             options.of_samples_num = 10
-            options.of_samples_num = 2
+            options.of_samples_num = 1
             options.is_train = True
             options.is_train = False # no augmentation
 
@@ -503,13 +503,25 @@ class Trainer:
 
             if phase:
                 # Use the accumulated loss for logging (multiply back to show effective loss)
-                effective_loss = losses["loss"] * (self.opt.accumulate_steps / max(1, accumulate_step % self.opt.accumulate_steps))
-                self.log_time(batch_idx, duration, effective_loss.cpu().data)
-                scalers_to_log = {
-                    "scalar/loss": effective_loss,
-                    "scalar/trans_err": metric_errs["trans_err"].mean(),
-                    "scalar/rot_err": metric_errs["rot_err"].mean()
+                # effective_loss = losses["loss"] * (self.opt.accumulate_steps / max(1, accumulate_step % self.opt.accumulate_steps))
+                # self.log_time(batch_idx, duration, effective_loss.cpu().data)
+                losses_to_log = {
+                    "loss": scaled_loss,
+                    "loss_0": scaled_loss_0,
                 }
+                errs_to_log = {}
+                for k, v in metric_errs.items():
+                    assert len(v) == len(self.opt.frame_ids)-1, f'{k}: {v}'
+                    # mean over frames_ids (already mean over batches internally)
+                    errs_to_log[f"{k}"] = torch.mean(torch.stack(v)).item()
+
+                self.log_time(batch_idx, duration, scaled_loss.cpu().data, scaled_loss_0.cpu().data, 
+                              errs_to_log)
+
+                scalers_to_log = {**losses_to_log, **errs_to_log}
+                # add 'scalar/' prefix to the keys
+                scalers_to_log = {f"scalar/{k}": v for k, v in scalers_to_log.items()}
+
                 self.log("train", inputs, outputs, 
                          scalers_to_log, 
                          compute_vis=True)
@@ -919,12 +931,19 @@ class Trainer:
 
         # This line has a bug - frame_id is not defined yet
         # esti_tgt2src_rel_poses = outputs[("cam_T_cam", 0, frame_id)]
+        if ('gt_c2w_poses', 0) not in inputs:
+            print(f'warning: gt_c2w_poses not in inputs')
+            print(f'load_gt is train:{self.train_dataset.load_gt_poses}')
+            print(f'load_gt is val:{self.val_dataset.load_gt_poses}')
+            return metrics_list_dict
+        
+        # gt_tgt_abs_poses: (B, 4, 4)
         gt_tgt_abs_poses = inputs[("gt_c2w_poses", 0)]  # (B, 4, 4)
         for frame_id in self.opt.frame_ids[1:]:
             gt_src_abs_poses = inputs[("gt_c2w_poses", frame_id)]  # (B, 4, 4)
             pred_rel_poses_batch = outputs[("cam_T_cam", 0, frame_id)]  # (B, 4, 4)
-            assert gt_src_abs_poses.shape == pred_rel_poses_batch.shape, f'gt_src_abs_poses.shape: {gt_src_abs_poses.shape}, pred_rel_poses_batch.shape: {pred_rel_poses_batch.shape}'
             gt_tgt2src_rel_poses = torch.inverse(gt_src_abs_poses) @ gt_tgt_abs_poses
+            assert gt_tgt2src_rel_poses.shape == pred_rel_poses_batch.shape, f'gt_tgt2src_rel_poses.shape: {gt_tgt2src_rel_poses.shape}, pred_rel_poses_batch.shape: {pred_rel_poses_batch.shape}'
             
             # err_dict = compute_pose_error(gt_tgt2src_rel_poses, pred_rel_poses_batch.detach())
             # trans_err_list.append(err_dict['trans_err'])
@@ -1103,9 +1122,10 @@ class Trainer:
         outputs = self.generate_images_pred(inputs, outputs)
         losses = self.compute_losses_val(inputs, outputs)
         # compute the pose errors
-        trans_err, rot_err = self.compute_pose_metrics(inputs, outputs)
-        print('trans_err:', trans_err)
-        print('rot_err:', rot_err)
+        metrics_list_dict = self.compute_pose_metrics(inputs, outputs)
+        
+        # for k, v in metrics_list_dict.items():
+            # print(f'{k}: {v}')
 
         return outputs, losses
 
@@ -1138,17 +1158,37 @@ class Trainer:
 
         return losses
 
-    def log_time(self, batch_idx, duration, loss):
-        """Print a logging statement to the terminal
-        """
+    def log_time(self, batch_idx, duration, loss, loss_0=None, metric_errs=None):
+        """Print a logging statement to the terminal"""
         samples_per_sec = self.opt.batch_size / duration
         time_sofar = time.time() - self.start_time
         training_time_left = (
             self.num_total_steps / self.step - 1.0) * time_sofar if self.step > 0 else 0
+        
         print_string = "epoch {:>3} | batch {:>6} | examples/s: {:5.1f}" + \
-            " | loss: {:.5f} | time elapsed: {} | time left: {}"
-        print(print_string.format(self.epoch, batch_idx, samples_per_sec, loss,
-                                  sec_to_hm_str(time_sofar), sec_to_hm_str(training_time_left)))
+            " | loss: {:.5f}"
+        
+        if loss_0 is not None:
+            print_string += " | loss_0: {:.5f}"
+        
+        print_string += " | time elapsed: {} | time left: {}"
+        
+        if loss_0 is not None:
+            print(print_string.format(self.epoch, batch_idx, samples_per_sec, loss, loss_0,
+                                      sec_to_hm_str(time_sofar), sec_to_hm_str(training_time_left)))
+        else:
+            print(print_string.format(self.epoch, batch_idx, samples_per_sec, loss,
+                                      sec_to_hm_str(time_sofar), sec_to_hm_str(training_time_left)))
+        
+        # Add pose metrics if available
+        if metric_errs:
+            print("  Pose Errors:", end=" ")
+            for k, v in metric_errs.items():
+                if isinstance(v, torch.Tensor):
+                    # v = v.mean().item()
+                    v = v.item()
+                print(f"{k}: {v:.3f}", end=" | ")
+            print()
 
     def log(self, mode, inputs, outputs, losses, compute_vis=True, online_vis=False):
         """Write an event to the tensorboard events file
