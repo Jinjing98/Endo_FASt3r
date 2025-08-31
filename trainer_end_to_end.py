@@ -14,7 +14,7 @@ from layers import *
 from torch.utils.data import DataLoader
 from tensorboardX import SummaryWriter
 from torchmetrics.image import MultiScaleStructuralSimilarityIndexMeasure
-from metrics import compute_pose_error
+from metrics import compute_pose_error, compute_pose_error_v2
 
 # from networks import DINOEncoder
 import random
@@ -95,7 +95,7 @@ class Trainer:
             print("DEBUG MODE")
             print('update options for debug purposes...')
             options.num_epochs = 50000
-            options.batch_size = 1
+            options.batch_size = 2
             options.accumulate_steps = 1  # Effective batch size = 1 * 12 = 12
             options.log_frequency = 10
             options.save_frequency = 100000# no save
@@ -120,7 +120,7 @@ class Trainer:
 
             options.of_samples = True
             options.of_samples_num = 10
-            options.of_samples_num = 1
+            options.of_samples_num = 2
             options.is_train = True
             options.is_train = False # no augmentation
 
@@ -647,13 +647,13 @@ class Trainer:
         losses = self.compute_losses(inputs, outputs)
         if self.train_dataset.load_gt_poses:
             # compute the pose errors
-            trans_err, rot_err = self.compute_pose_errors(inputs, outputs)
+            metrics = self.compute_pose_metrics(inputs, outputs) # dict
             # print('trans_err:', trans_err)
             # print('rot_err:', rot_err)
-            metrics = {
-                'trans_err': trans_err,
-                'rot_err': rot_err
-            }
+            # metrics = {
+            #     'trans_err': trans_err,
+            #     'rot_err': rot_err
+            # }
         else:
             metrics = {}
         return outputs, losses, metrics
@@ -903,7 +903,7 @@ class Trainer:
         return outputs
 
 
-    def compute_pose_errors(self, inputs, outputs):
+    def compute_pose_metrics(self, inputs, outputs):
         """
         Compute pose errors between ground truth and predicted relative poses.
         
@@ -915,8 +915,8 @@ class Trainer:
             trans_err_mean: Mean translation error across batch and frames (in mm)
             rot_err_mean: Mean rotation error across batch and frames (in degrees)
         """
-        trans_err_list = []
-        rot_err_list = []
+        metrics_list_dict = {}
+
         # This line has a bug - frame_id is not defined yet
         # esti_tgt2src_rel_poses = outputs[("cam_T_cam", 0, frame_id)]
         gt_tgt_abs_poses = inputs[("gt_c2w_poses", 0)]  # (B, 4, 4)
@@ -925,27 +925,44 @@ class Trainer:
             pred_rel_poses_batch = outputs[("cam_T_cam", 0, frame_id)]  # (B, 4, 4)
             assert gt_src_abs_poses.shape == pred_rel_poses_batch.shape, f'gt_src_abs_poses.shape: {gt_src_abs_poses.shape}, pred_rel_poses_batch.shape: {pred_rel_poses_batch.shape}'
             gt_tgt2src_rel_poses = torch.inverse(gt_src_abs_poses) @ gt_tgt_abs_poses
-            trans_err, rot_err = compute_pose_error(gt_tgt2src_rel_poses, pred_rel_poses_batch)
-            trans_err_list.append(trans_err)
-            rot_err_list.append(rot_err)
-            print('gt_tgt2src_rel_poses shape:')
-            print(gt_tgt2src_rel_poses.shape)
-            print('pred_rel_poses_batch shape:')
-            print(pred_rel_poses_batch.shape)
-            print('gt_tgt2src_rel_poses trans:')
-            print(gt_tgt2src_rel_poses[:, :3, 3])
-            print('pred_rel_poses_batch trans:')
-            print(pred_rel_poses_batch[:, :3, 3])
-            print('gt_tgt2src_rel_poses rot:')
-            print(gt_tgt2src_rel_poses[:, :3, :3])
-            print('pred_rel_poses_batch rot:')
-            print(pred_rel_poses_batch[:, :3, :3])
+            
+            # err_dict = compute_pose_error(gt_tgt2src_rel_poses, pred_rel_poses_batch.detach())
+            # trans_err_list.append(err_dict['trans_err'])
+            # rot_err_list.append(err_dict['rot_err'])
 
-        trans_err_list = torch.cat(trans_err_list, 0)
-        rot_err_list = torch.cat(rot_err_list, 0)
+            err_dict = compute_pose_error_v2(gt_tgt2src_rel_poses, pred_rel_poses_batch.detach())
+            for k, v in err_dict.items():
+                # print(f'{k}: {v}')
+                assert k in ['trans_err_ang', 'trans_err_ang_deg', 'trans_err_scale', 'trans_err_scale_norm', 'rot_err', 'rot_err_deg']
+                metrics_list_dict[k] = metrics_list_dict.get(k, []) + [v]
+
+
+            # print('gt_tgt2src_rel_poses shape:')
+            # print(gt_tgt2src_rel_poses.shape)
+            # print('pred_rel_poses_batch shape:')
+            # print(pred_rel_poses_batch.shape)
+            # print('gt_tgt2src_rel_poses trans:')
+            # print(gt_tgt2src_rel_poses[:, :3, 3])
+            # print('pred_rel_poses_batch trans:')
+            # print(pred_rel_poses_batch[:, :3, 3])
+
+
+            # print('gt_tgt2src_rel_poses rot:')
+            # print(gt_tgt2src_rel_poses[:, :3, :3])
+            # print('pred_rel_poses_batch rot:')
+            # print(pred_rel_poses_batch[:, :3, :3])
+
+        # trans_err_list = torch.cat(trans_err_list, 0)
+        # rot_err_list = torch.cat(rot_err_list, 0)
         # print esti_rel and gt_rel for debug purpose
         # return trans_err_list.mean(), rot_err_list.mean()
-        return trans_err_list, rot_err_list
+
+        # print('Report all metrics:')
+        # for k, v in metrics_list_dict.items():
+        #     print(f'{k}: {v}')
+
+        # return trans_err_list, rot_err_list
+        return metrics_list_dict
 
 
     def compute_reprojection_loss(self, pred, target):
@@ -1086,7 +1103,7 @@ class Trainer:
         outputs = self.generate_images_pred(inputs, outputs)
         losses = self.compute_losses_val(inputs, outputs)
         # compute the pose errors
-        trans_err, rot_err = self.compute_pose_errors(inputs, outputs)
+        trans_err, rot_err = self.compute_pose_metrics(inputs, outputs)
         print('trans_err:', trans_err)
         print('rot_err:', rot_err)
 
