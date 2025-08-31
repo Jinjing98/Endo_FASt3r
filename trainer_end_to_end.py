@@ -99,12 +99,14 @@ class Trainer:
             options.accumulate_steps = 1  # Effective batch size = 1 * 12 = 12
             options.log_frequency = 10
             options.save_frequency = 100000# no save
-            options.model_name = "debug"
             options.log_dir = "/mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm_debug"
 
             # options.enable_motion_computation = True
 
             # options.zero_pose_debug = True
+
+            options.freeze_depth_debug = True
+            options.model_name = "debug"
 
             # options.zero_pose_flow_debug = True
             # options.reproj_supervised_with_which = "raw_tgt_gt"
@@ -120,12 +122,12 @@ class Trainer:
 
             options.of_samples = True
             options.of_samples_num = 10
-            options.of_samples_num = 1
+            # options.of_samples_num = 1
             options.is_train = True
             options.is_train = False # no augmentation
 
-            options.frame_ids = [0, -8, 8]
             options.frame_ids = [0, -1, 1]
+            options.frame_ids = [0, -8, 8]
             # options.frame_ids = [0, -14, 14]
 
             # not okay to use: we did not adjust the init_K accordingly yet
@@ -347,6 +349,7 @@ class Trainer:
             # self.project_3d_raw[scale] = Project3D_Raw(self.opt.batch_size, h, w)
             # self.project_3d_raw[scale].to(self.device)
 
+            # not used?
             self.position_depth[scale] = optical_flow((h, w), self.opt.batch_size, h, w)
             self.position_depth[scale].to(self.device)
 
@@ -412,6 +415,10 @@ class Trainer:
             # param.requires_grad = True
         for param in self.models["depth_model"].parameters():
             param.requires_grad = True
+            #debug: freeze depth_model
+            if self.opt.freeze_depth_debug:
+                param.requires_grad = False
+
         # for param in self.models["pose_encoder"].parameters():
         #     param.requires_grad = True
         for param in self.models["pose"].parameters():
@@ -461,6 +468,7 @@ class Trainer:
         accumulate_step = 0
         
         for batch_idx, inputs in enumerate(self.train_loader):
+            # print('step:', self.step)
 
             before_op_time = time.time()
 
@@ -485,8 +493,8 @@ class Trainer:
             self.set_train()
             if self.opt.freeze_as_much_debug:
                 self.freeze_params(keys = ['depth_model', 'pose', 'transform_encoder'])#debug only
-            outputs, losses, metric_errs = self.process_batch(inputs) # img_warped_from_pose_flow saved as "color"; img_warped_from_optic_flow saved as "registration"
-            
+            outputs, losses = self.process_batch(inputs) # img_warped_from_pose_flow saved as "color"; img_warped_from_optic_flow saved as "registration"
+
             # Scale loss by accumulate_steps for gradient accumulation
             scaled_loss = losses["loss"] / self.opt.accumulate_steps
             scaled_loss.backward()
@@ -510,6 +518,17 @@ class Trainer:
                     "loss_0": scaled_loss_0,
                 }
                 errs_to_log = {}
+                metric_errs = {}
+                if self.train_dataset.load_gt_poses:
+                    # compute the pose errors
+                    metric_errs = self.compute_pose_metrics(inputs, outputs) # dict
+                    # print('trans_err:', trans_err)
+                    # print('rot_err:', rot_err)
+                    # metric_errs = {
+                    #     'trans_err': trans_err,
+                    #     'rot_err': rot_err
+                    # }
+
                 for k, v in metric_errs.items():
                     assert len(v) == len(self.opt.frame_ids)-1, f'{k}: {v}'
                     # mean over frames_ids (already mean over batches internally)
@@ -657,18 +676,8 @@ class Trainer:
 
         outputs = self.generate_images_pred(inputs, outputs)# img is warp from pose_flow('sample'), save as "color"
         losses = self.compute_losses(inputs, outputs)
-        if self.train_dataset.load_gt_poses:
-            # compute the pose errors
-            metrics = self.compute_pose_metrics(inputs, outputs) # dict
-            # print('trans_err:', trans_err)
-            # print('rot_err:', rot_err)
-            # metrics = {
-            #     'trans_err': trans_err,
-            #     'rot_err': rot_err
-            # }
-        else:
-            metrics = {}
-        return outputs, losses, metrics
+        return outputs, losses
+
 
     def predict_poses(self, inputs, disps):
         """Predict poses between input frames for monocular sequences.
@@ -909,6 +918,7 @@ class Trainer:
                     #     padding_mode="border",
                     #     align_corners=True)
 
+                # not used
                 outputs[("position_depth", scale, frame_id)] = self.position_depth[source_scale](
                         cam_points, inputs[("K", source_scale)], T)
         
@@ -960,11 +970,11 @@ class Trainer:
             # print(gt_tgt2src_rel_poses.shape)
             # print('pred_rel_poses_batch shape:')
             # print(pred_rel_poses_batch.shape)
-            # print('gt_tgt2src_rel_poses trans:')
-            # print(gt_tgt2src_rel_poses[:, :3, 3])
-            # print('pred_rel_poses_batch trans:')
-            # print(pred_rel_poses_batch[:, :3, 3])
-
+            if frame_id == self.opt.frame_ids[1]:
+                print('gt_tgt2src_rel_poses trans:')
+                print(gt_tgt2src_rel_poses[:, :3, 3])
+                print('pred_rel_poses_batch trans:')
+                print(pred_rel_poses_batch[:, :3, 3])
 
             # print('gt_tgt2src_rel_poses rot:')
             # print(gt_tgt2src_rel_poses[:, :3, :3])
@@ -1321,7 +1331,7 @@ class Trainer:
             tgt_imgs = [color_to_cv_img(img) for img in tgt_imgs]
             reproj_supervised_tgt_color_debug_imgs = [color_to_cv_img(img) for img in reproj_supervised_tgt_color_debug_imgs]
             registered_tgt_imgs = [color_to_cv_img(img) for img in registered_tgt_imgs]
-            depth_imgs = [gray_to_cv_img(normalize_image(img)) for img in depth_imgs]
+            depth_imgs = [gray_to_cv_img(normalize_image(img)).astype(np.uint8) for img in depth_imgs]
             colored_tgt_imgs = [color_to_cv_img(img) for img in colored_tgt_imgs]
             # print('Optic flow:')
             optic_flow_imgs = [flow_to_cv_img(img) for img in optic_flow_imgs]

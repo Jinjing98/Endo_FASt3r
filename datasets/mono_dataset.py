@@ -291,6 +291,8 @@ class MonoDataset(data.Dataset):
             lines = data.replace(",", " ").replace("\t", " ").split("\n")
             list_data = [[v.strip() for v in line.split(" ") if v.strip() != ""] for line in lines if
                         len(line) > 0 and line[0] != "#"]
+        #close file
+        f.close()
 
         # self.trans_scale_gt_traj = 1000  # m to mm
         trans_scale = self.trans_scale_gt_traj  # m to mm

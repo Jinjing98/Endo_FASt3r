@@ -14,6 +14,11 @@ def transl_ang_loss(t, tgt, eps=1e-6):
     Returns: 
         T_err: translation direction angular error 
     """
+    assert t.dim() == 2, f't: {t.shape}'
+    assert tgt.dim() == 2, f'tgt: {tgt.shape}'
+    assert t.shape[1] == 3, f't: {t.shape}'
+    assert tgt.shape[1] == 3, f'tgt: {tgt.shape}'
+    
     t_norm = torch.norm(t, dim=1, keepdim=True)
     t_normed = t / (t_norm + eps)
     tgt_norm = torch.norm(tgt, dim=1, keepdim=True)

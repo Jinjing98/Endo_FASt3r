@@ -74,6 +74,9 @@ class MonodepthOptions:
         self.parser.add_argument("--zero_pose_debug",
                                  help="it will set T as eye",
                                  action="store_true")
+        self.parser.add_argument("--freeze_depth_debug",
+                                 help="it will freeze depth_model, solution space too big for pose model if dpeth is also trainiable",
+                                 action="store_true")
 
         # TRAINING options
         self.parser.add_argument("--debug",
@@ -153,11 +156,11 @@ class MonodepthOptions:
                                  default=[0, 1, 2, 3])
         self.parser.add_argument("--min_depth",
                                  type=float,
-                                 help="minimum depth",
+                                 help="minimum depth mm",
                                  default=0.1)
         self.parser.add_argument("--max_depth",
                                  type=float,
-                                 help="maximum depth",
+                                 help="maximum depth mm",
                                  default=150.0)
         self.parser.add_argument("--use_stereo",
                                  help="if set, uses stereo pair for training",
