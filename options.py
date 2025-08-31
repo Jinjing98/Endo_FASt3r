@@ -247,6 +247,12 @@ class MonodepthOptions:
                                  type=str,
                                  help="models to load",
                                  default=["position_encoder", "position"])
+        
+        # OPTICAL FLOW options
+        self.parser.add_argument("--use_raft_flow",
+                                 help="use RAFT optical flow estimator instead of custom position_encoder/position networks",
+                                 action="store_true")
+ 
 
         # LOGGING options
         self.parser.add_argument("--log_frequency",

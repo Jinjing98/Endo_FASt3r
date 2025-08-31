@@ -103,10 +103,13 @@ class Trainer:
 
             # options.enable_motion_computation = True
 
-            options.zero_pose_debug = True
+            # options.zero_pose_debug = True
 
             options.freeze_depth_debug = True
             options.model_name = "debug"
+
+
+            options.use_raft_flow = True
 
             # options.zero_pose_flow_debug = True
             # options.reproj_supervised_with_which = "raw_tgt_gt"
@@ -127,8 +130,8 @@ class Trainer:
             options.is_train = False # no augmentation
 
             options.frame_ids = [0, -1, 1]
-            options.frame_ids = [0, -2, 2]
-            # options.frame_ids = [0, -14, 14]
+            # options.frame_ids = [0, -2, 2]
+            options.frame_ids = [0, -14, 14]
 
             # not okay to use: we did not adjust the init_K accordingly yet
             # options.height = 192
@@ -138,12 +141,12 @@ class Trainer:
             options.data_path = "/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/"
             options.split_appendix = ""
 
-            options.dataset = "DynaSCARED"
-            options.data_path = "/mnt/cluster/datasets/Surg_oclr_stereo/"
-            options.split_appendix = "_CaToTi000"
-            options.split_appendix = "_CaToTi001"
-            # options.split_appendix = "_CaToTi110"
-            options.split_appendix = "_CaToTi101"
+            # options.dataset = "DynaSCARED"
+            # options.data_path = "/mnt/cluster/datasets/Surg_oclr_stereo/"
+            # options.split_appendix = "_CaToTi000"
+            # options.split_appendix = "_CaToTi001"
+            # # options.split_appendix = "_CaToTi110"
+            # options.split_appendix = "_CaToTi101"
 
         self.opt = options
         
@@ -197,19 +200,31 @@ class Trainer:
 
         self.parameters_to_train += list(filter(lambda p: p.requires_grad, self.models["depth_model"].parameters()))
 
-        self.models["position_encoder"] = networks.ResnetEncoder(
-            self.opt.num_layers, self.opt.weights_init == "pretrained", num_input_images=2)  # 18
-        
-        self.models["position_encoder"].load_state_dict(torch.load(f"{AF_PRETRAINED_ROOT}/position_encoder.pth"))
-        self.models["position_encoder"].to(self.device)
-        self.parameters_to_train_0 += list(self.models["position_encoder"].parameters())
+        # Initialize optical flow networks (either custom or RAFT)
+        if self.opt.use_raft_flow:
+            print("Using RAFT optical flow estimator instead of custom position networks")
+            # Use RAFT as a direct replacement for both position_encoder and position
+            from networks import RAFT
+            self.models["raft_flow"] = RAFT(self.device).model
+            # self.models["raft_flow"].to(self.device)
+            # RAFT is trainable, so add its parameters to training
+            self.parameters_to_train_0 += list(self.models["raft_flow"].parameters())
+            print("RAFT flow estimator initialized (trainable)")
+        else:
+            # Use original custom networks
+            self.models["position_encoder"] = networks.ResnetEncoder(
+                self.opt.num_layers, self.opt.weights_init == "pretrained", num_input_images=2)  # 18
+            
+            self.models["position_encoder"].load_state_dict(torch.load(f"{AF_PRETRAINED_ROOT}/position_encoder.pth"))
+            self.models["position_encoder"].to(self.device)
+            self.parameters_to_train_0 += list(self.models["position_encoder"].parameters())
 
-        self.models["position"] = networks.PositionDecoder(
-            self.models["position_encoder"].num_ch_enc, self.opt.scales)
-        self.models["position"].load_state_dict(torch.load(f"{AF_PRETRAINED_ROOT}/position.pth"))
-        
-        self.models["position"].to(self.device)
-        self.parameters_to_train_0 += list(self.models["position"].parameters())
+            self.models["position"] = networks.PositionDecoder(
+                self.models["position_encoder"].num_ch_enc, self.opt.scales)
+            self.models["position"].load_state_dict(torch.load(f"{AF_PRETRAINED_ROOT}/position.pth"))
+            
+            self.models["position"].to(self.device)
+            self.parameters_to_train_0 += list(self.models["position"].parameters())
 
         self.models["transform_encoder"] = networks.ResnetEncoder(
             self.opt.num_layers, self.opt.weights_init == "pretrained", num_input_images=2)  # 18
@@ -368,10 +383,19 @@ class Trainer:
     def set_train_0(self):
         """Convert all models to training mode
         """
-        for param in self.models["position_encoder"].parameters():
-            param.requires_grad = True
-        for param in self.models["position"].parameters():
-            param.requires_grad = True
+        if self.opt.use_raft_flow:
+            # RAFT models are trainable
+            for param in self.models["raft_flow"].parameters():
+                param.requires_grad = True
+            self.models["raft_flow"].train()
+        else:
+            # Custom position networks are trainable
+            for param in self.models["position_encoder"].parameters():
+                param.requires_grad = True
+            for param in self.models["position"].parameters():
+                param.requires_grad = True
+            self.models["position_encoder"].train()
+            self.models["position"].train()
 
         for param in self.models["depth_model"].parameters():
             param.requires_grad = False
@@ -384,9 +408,6 @@ class Trainer:
         for param in self.models["transform"].parameters():
             param.requires_grad = False
 
-        self.models["position_encoder"].train()
-        self.models["position"].train()
-
         self.models["depth_model"].eval()
         # self.models["pose_encoder"].eval()
         self.models["pose"].eval()
@@ -396,7 +417,6 @@ class Trainer:
     def freeze_params(self,keys = []):
         # no grad compuation: debug only
         # for all keys in self.models, set requires_grad to False
-        pass
         for key in keys:
             if key not in self.models:
                 continue
@@ -406,10 +426,19 @@ class Trainer:
     def set_train(self):
         """Convert all models to training mode
         """
-        for param in self.models["position_encoder"].parameters():
-            param.requires_grad = False
-        for param in self.models["position"].parameters():
-            param.requires_grad = False
+        if self.opt.use_raft_flow:
+            # RAFT models are frozen during main training
+            for param in self.models["raft_flow"].parameters():
+                param.requires_grad = False
+            self.models["raft_flow"].eval()
+        else:
+            # Custom position networks are frozen during main training
+            for param in self.models["position_encoder"].parameters():
+                param.requires_grad = False
+            for param in self.models["position"].parameters():
+                param.requires_grad = False
+            self.models["position_encoder"].eval()
+            self.models["position"].eval()
 
         # for param in self.models["encoder"].parameters():
             # param.requires_grad = True
@@ -428,9 +457,6 @@ class Trainer:
         for param in self.models["transform"].parameters():
             param.requires_grad = True
 
-        self.models["position_encoder"].eval()
-        self.models["position"].eval()
-
         self.models["depth_model"].train()
         # self.models["pose_encoder"].train()
         self.models["pose"].train()
@@ -440,6 +466,12 @@ class Trainer:
     def set_eval(self):
         """Convert all models to testing/evaluation mode
         """
+        if self.opt.use_raft_flow:
+            self.models["raft_flow"].eval()
+        else:
+            self.models["position_encoder"].eval()
+            self.models["position"].eval()
+            
         self.models["depth_model"].eval()
         self.models["transform_encoder"].eval()
         self.models["transform"].eval()
@@ -475,8 +507,12 @@ class Trainer:
             # position
             self.set_train_0()
             if self.opt.freeze_as_much_debug:
-                self.freeze_params(keys = ['position_encoder',])#debug only for save mem
-            _, losses_0 = self.process_batch_0(inputs) 
+                if self.opt.use_raft_flow:
+                    pass
+                    # self.freeze_params(keys = ['raft_flow',])#debug only for save mem
+                else:
+                    self.freeze_params(keys = ['position_encoder',])#debug only for save mem
+            _, losses_0 = self.process_batch_0(inputs)
             
             # Scale loss by accumulate_steps for gradient accumulation
             scaled_loss_0 = losses_0["loss"] / self.opt.accumulate_steps
@@ -565,6 +601,26 @@ class Trainer:
 
         return outputs, losses
 
+    def reformat_raft_output(self, num_flow_udpates, outputs_raw):
+        outputs = {}
+        assert len(outputs_raw) == num_flow_udpates, f"outputs_raw length {len(outputs_raw)} != num_flow_udpates {num_flow_udpates}"
+
+        for scale, scale_raw in enumerate([11,8,5,2]):
+            #high to low
+            # resize the resolution according to the scale
+            # pyramid resolution
+            pyramid_resolution_height = self.opt.height // (2 ** scale)
+            pyramid_resolution_width = self.opt.width // (2 ** scale)
+            if scale!=0:
+                outputs[("position", scale)] = F.interpolate(
+                        outputs_raw[scale_raw], [pyramid_resolution_height, pyramid_resolution_width], mode="bilinear",
+                        align_corners=True)
+            else:
+                outputs[("position", scale)] = outputs_raw[scale_raw]
+
+
+        return outputs
+
     def predict_poses_0(self, inputs):
         """Predict poses between input frames for monocular sequences.
         """
@@ -580,11 +636,24 @@ class Trainer:
                     inputs_all = [pose_feats[f_i], pose_feats[0]]# tgt to src flow
                     inputs_all_reverse = [pose_feats[0], pose_feats[f_i]]
 
-                    # position
-                    position_inputs = self.models["position_encoder"](torch.cat(inputs_all, 1))
-                    position_inputs_reverse = self.models["position_encoder"](torch.cat(inputs_all_reverse, 1))
-                    outputs_0 = self.models["position"](position_inputs)
-                    outputs_1 = self.models["position"](position_inputs_reverse)
+                    # position - handle both custom networks and RAFT
+                    if self.opt.use_raft_flow:
+                        # RAFT expects separate image inputs, not concatenated features
+                        # we reformat raft 12 resolution output to 4 resolution output
+                        num_flow_udpates = 12
+                        outputs_0_raw = self.models["raft_flow"](pose_feats[f_i], pose_feats[0])
+                        outputs_1_raw = self.models["raft_flow"](pose_feats[0], pose_feats[f_i])
+                        outputs_0 = self.reformat_raft_output(num_flow_udpates, outputs_0_raw)
+                        outputs_1 = self.reformat_raft_output(num_flow_udpates, outputs_1_raw)
+                    else:
+                        # Original custom networks
+                        position_inputs = self.models["position_encoder"](torch.cat(inputs_all, 1))
+                        position_inputs_reverse = self.models["position_encoder"](torch.cat(inputs_all_reverse, 1))
+                        outputs_0 = self.models["position"](position_inputs)
+                        outputs_1 = self.models["position"](position_inputs_reverse)
+
+                    # for k, v in outputs_0.items():
+                    #     print(f"{k}: {v.shape}")
 
                     for scale in self.opt.scales:
                         outputs[("position", scale, f_i)] = outputs_0[("position", scale)]
@@ -694,11 +763,20 @@ class Trainer:
                     inputs_all = [pose_feats[f_i], pose_feats[0]]
                     inputs_all_reverse = [pose_feats[0], pose_feats[f_i]]
 
-                    # position
-                    position_inputs = self.models["position_encoder"](torch.cat(inputs_all, 1))
-                    position_inputs_reverse = self.models["position_encoder"](torch.cat(inputs_all_reverse, 1))
-                    outputs_0 = self.models["position"](position_inputs)
-                    outputs_1 = self.models["position"](position_inputs_reverse)
+                    # position - handle both custom networks and RAFT
+                    if self.opt.use_raft_flow:
+                        num_flow_udpates = 12
+                        outputs_0_raw = self.models["raft_flow"](pose_feats[f_i], pose_feats[0])
+                        outputs_1_raw = self.models["raft_flow"](pose_feats[0], pose_feats[f_i])
+                        outputs_0 = self.reformat_raft_output(num_flow_udpates, outputs_0_raw)
+                        outputs_1 = self.reformat_raft_output(num_flow_udpates, outputs_1_raw)
+                        # RAFT expects separate image inputs, not concatenated features
+                    else:
+                        # Original custom networks
+                        position_inputs = self.models["position_encoder"](torch.cat(inputs_all, 1))
+                        position_inputs_reverse = self.models["position_encoder"](torch.cat(inputs_all_reverse, 1))
+                        outputs_0 = self.models["position"](position_inputs)
+                        outputs_1 = self.models["position"](position_inputs_reverse)
 
                     for scale in self.opt.scales:
 
