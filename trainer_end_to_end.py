@@ -103,7 +103,7 @@ class Trainer:
 
             # options.enable_motion_computation = True
 
-            # options.zero_pose_debug = True
+            options.zero_pose_debug = True
 
             options.freeze_depth_debug = True
             options.model_name = "debug"
@@ -121,13 +121,13 @@ class Trainer:
             # options.freeze_as_much_debug = True #save mem # need to be on for OF exp
 
             options.of_samples = True
-            options.of_samples_num = 10
+            options.of_samples_num = 100
             # options.of_samples_num = 1
             options.is_train = True
             options.is_train = False # no augmentation
 
             options.frame_ids = [0, -1, 1]
-            options.frame_ids = [0, -8, 8]
+            options.frame_ids = [0, -2, 2]
             # options.frame_ids = [0, -14, 14]
 
             # not okay to use: we did not adjust the init_K accordingly yet
@@ -138,12 +138,12 @@ class Trainer:
             options.data_path = "/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/"
             options.split_appendix = ""
 
-            # options.dataset = "DynaSCARED"
-            # options.data_path = "/mnt/cluster/datasets/Surg_oclr_stereo/"
-            # options.split_appendix = "_CaToTi000"
-            # options.split_appendix = "_CaToTi001"
-            # # options.split_appendix = "_CaToTi110"
-            # options.split_appendix = "_CaToTi101"
+            options.dataset = "DynaSCARED"
+            options.data_path = "/mnt/cluster/datasets/Surg_oclr_stereo/"
+            options.split_appendix = "_CaToTi000"
+            options.split_appendix = "_CaToTi001"
+            # options.split_appendix = "_CaToTi110"
+            options.split_appendix = "_CaToTi101"
 
         self.opt = options
         
@@ -577,7 +577,7 @@ class Trainer:
                 if f_i != "s":
                     # ipdb.set_trace()
 
-                    inputs_all = [pose_feats[f_i], pose_feats[0]]
+                    inputs_all = [pose_feats[f_i], pose_feats[0]]# tgt to src flow
                     inputs_all_reverse = [pose_feats[0], pose_feats[f_i]]
 
                     # position
@@ -844,6 +844,7 @@ class Trainer:
                 # pix_coords_raw_dbg = pix_coords_raw.view(self.opt.batch_size, -1, 2).permute(0, 2, 1)
                 # print(pix_coords_raw_dbg.shape)
                 # print(pix_coords_raw_dbg[0,:,:10])  
+                # tgt2src pose flow
                 outputs[("pose_flow", frame_id, scale)] = pix_coords_raw.permute(0, 3, 1, 2) - mesh_gird_high_res # there is grad; B 2 H W 
                 # print('pose_flow max min')
                 # print(outputs[("pose_flow", frame_id, scale)].max())
@@ -851,12 +852,16 @@ class Trainer:
                 # print(outputs[("pose_flow", frame_id, scale)][0,:,0,:10])
                 
                 if self.opt.enable_motion_computation:
-                    # generate motion_flow from pose_flow and position
+                    # If you want to warp the source image src to the target view tgt, you need the flow that maps pixels from the target frame to the source frame, i.e., tgt → src.
+                    assert 0,f'use color is correct! not need to use color_motion_corrected! considering the pose_flow now is computed from tgt depth+pose'
+
                     # outputs[("motion_flow", frame_id, scale)] = - outputs[("pose_flow", frame_id, scale)].detach() + outputs[("position", scale, frame_id)]#.detach() # 
                     # print('outputs[("position", 0, frame_id)].shape:')
                     # print(outputs[("position", 0, frame_id)].shape)
                     # print('outputs[("pose_flow", frame_id, scale)].shape:')
                     # print(outputs[("pose_flow", frame_id, scale)].shape)
+
+                    # tgt2src motion flow
                     outputs[("motion_flow", frame_id, scale)] = - outputs[("pose_flow", frame_id, scale)].detach() + outputs[("position", "high", 0, frame_id)]#.detach() # 
                     # print('motion_flow max min')
                     # print(outputs[("motion_flow", frame_id, scale)].max())
