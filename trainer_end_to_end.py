@@ -101,9 +101,9 @@ class Trainer:
             options.save_frequency = 100000# no save
             options.log_dir = "/mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm_debug"
 
-            options.enable_motion_computation = True
-            # options.use_loss_reproj2_nomotion = True
-            options.enable_mutual_motion = True
+            # options.enable_motion_computation = True
+            options.use_loss_reproj2_nomotion = True
+            # options.enable_mutual_motion = True
 
             # options.zero_pose_debug = True
 
@@ -1010,10 +1010,14 @@ class Trainer:
                     # assert 0,f'use color is correct! not need to use color_motion_corrected! considering the pose_flow now is computed from tgt depth+pose'
                     # tgt2src motion flow
                     outputs[("motion_flow", frame_id, scale)] = - outputs[("pose_flow", frame_id, scale)].detach() + outputs[("position", "high", 0, frame_id)]#.detach() # 
-                    
                     if scale == 0:
                         outputs[("motion_mask_backward", 0, frame_id)] = self.get_motion_mask(outputs[("motion_flow", frame_id, 0)], frame_id, detach=True)
-                        
+                    
+                    if self.opt.enable_mutual_motion:
+                        # compute s2t motion_flow and s2t_motion_mask
+                        outputs[("motion_flow_s2t", frame_id, 0)] = - outputs[("pose_flow_s2t", frame_id, 0)].detach() + outputs[("position_reverse", "high", 0, frame_id)]#.detach() # 
+                        if scale == 0:
+                            outputs[("motion_mask_s2t_backward", 0, frame_id)] = self.get_motion_mask(outputs[("motion_flow_s2t", frame_id, 0)], frame_id, detach=True)
 
                         # outputs[("motion_mask_s2t_backward", 0, frame_id)] = self.get_motion_mask(outputs[("motion_flow_s2t", frame_id, 0)], frame_id, detach=True)
 
@@ -1139,6 +1143,8 @@ class Trainer:
             loss_reprojection = 0
             loss_transform = 0
             loss_cvt = 0
+            if self.opt.use_loss_reproj2_nomotion:
+                loss2_reprojection = 0
 
             if self.opt.v1_multiscale:
                 source_scale = scale
@@ -1189,19 +1195,26 @@ class Trainer:
                 # the 2st reporj_loss: main aim: supervise PoseNet properly by masking out the mutual motion area
                 if self.opt.use_loss_reproj2_nomotion:
                     if self.opt.reproj2_supervised_which == "color":
-                        reproj_loss_supervised_tgt_color = outputs[("color", frame_id, scale)]
+                        reproj_loss2_supervised_tgt_color = outputs[("color", frame_id, scale)]
                     else:
                         raise ValueError(f"Invalid reproj2_supervised_which: {self.opt.reproj2_supervised_which}")
                     
                     if self.opt.reproj2_supervised_with_which == "refined":
-                        reproj_loss_supervised_signal_color = outputs[("refined", scale, frame_id)]
+                        reproj_loss2_supervised_signal_color = outputs[("refined", scale, frame_id)]
                     else:
                         raise ValueError(f"Invalid reproj2_supervised_with_which: {self.opt.reproj2_supervised_with_which}")
                     
-                # occu_mask_backward = outputs[("occu_mask_backward", 0, frame_id)].detach()
                 motion_mask_backward = outputs[("motion_mask_backward", 0, frame_id)].detach()
-                valid_mask = occu_mask_backward
+                if self.opt.enable_mutual_motion:
+                    # computational expensive but safer
+                    motion_mask_s2t_backward = outputs[("motion_mask_s2t_backward", 0, frame_id)].detach()
+                    valid_mask2 = motion_mask_backward * motion_mask_s2t_backward
+                else:
+                    valid_mask2 = motion_mask_backward
 
+                if self.opt.use_loss_reproj2_nomotion:
+                    loss2_reprojection += (
+                        self.compute_reprojection_loss(reproj_loss2_supervised_tgt_color, reproj_loss2_supervised_signal_color) * valid_mask2).sum() / valid_mask2.sum()  
 
             mean_disp = disp.mean(2, True).mean(3, True)
             norm_disp = disp / (mean_disp + 1e-7)
@@ -1211,6 +1224,9 @@ class Trainer:
             loss += self.opt.transform_constraint * (loss_transform / 2.0)
             loss += self.opt.transform_smoothness * (loss_cvt / 2.0) 
             loss += self.opt.disparity_smoothness * smooth_loss / (2 ** scale)
+            
+            if self.opt.use_loss_reproj2_nomotion:
+                loss += loss2_reprojection / 2.0
 
             total_loss += loss
             losses["loss/{}".format(scale)] = loss
@@ -1361,6 +1377,7 @@ class Trainer:
 
         occlursion_mask_imgs = []
         motion_mask_imgs = []
+        motion_mask_s2t_imgs = []
 
         reproj_supervised_tgt_color_debug_imgs = []
         img_order_strs = []
@@ -1395,6 +1412,13 @@ class Trainer:
                             writer.add_image(
                                 "Other/motion_mask_backward_{}_{}/{}".format(frame_id, s, j),
                                 outputs[("motion_mask_backward", s, frame_id)][j].data, self.step)
+                            if self.opt.enable_mutual_motion:
+                                writer.add_image(
+                                    "Other/motion_mask_s2t_backward_{}_{}/{}".format(frame_id, s, j),
+                                    outputs[("motion_mask_s2t_backward", s, frame_id)][j].data, self.step)
+                                writer.add_image(
+                                    "Other/motion_flow_s2t_{}_{}/{}".format(frame_id, s, j),
+                                    outputs[("motion_flow_s2t", frame_id, s)][j].data, self.step)
                         
                         # add src and tgt
                         writer.add_image(
@@ -1457,6 +1481,8 @@ class Trainer:
                             colored_motion_tgt_imgs.append(outputs[("color_MotionCorrected", frame_id, s)][j].data)
                             motion_flow_imgs.append(outputs[("motion_flow", frame_id, s)][j].data)
                             motion_mask_imgs.append(outputs[("motion_mask_backward", s, frame_id)][j].data)
+                            if self.opt.enable_mutual_motion:
+                                motion_mask_s2t_imgs.append(outputs[("motion_mask_s2t_backward", s, frame_id)][j].data)
 
                 # only predicted depth from the center image (frame_id == 0)
                 writer.add_image(
@@ -1484,6 +1510,8 @@ class Trainer:
                 # print('Motion flow:')
                 motion_flow_imgs = [flow_to_cv_img(img) for img in motion_flow_imgs]
                 motion_mask_imgs = [gray_to_cv_img(img) for img in motion_mask_imgs]
+                if self.opt.enable_mutual_motion:
+                    motion_mask_s2t_imgs = [gray_to_cv_img(img) for img in motion_mask_s2t_imgs]
 
             occlursion_mask_imgs = [gray_to_cv_img(img) for img in occlursion_mask_imgs]
 
@@ -1520,7 +1548,12 @@ class Trainer:
                 img_order_strs.append('Motion_Flow-')
                 motion_mask_concat_img = np.concatenate(motion_mask_imgs, axis=0)
                 img_order_strs.append('Motion_Mask-')
-                concat_img = np.concatenate([concat_img, colored_motion_tgt_concat_img, motion_flow_concat_img, motion_mask_concat_img], axis=1)
+                if self.opt.enable_mutual_motion:
+                    motion_mask_s2t_concat_img = np.concatenate(motion_mask_s2t_imgs, axis=0)
+                    img_order_strs.append('Motion_Mask_S2T-')
+                    concat_img = np.concatenate([concat_img, colored_motion_tgt_concat_img, motion_flow_concat_img, motion_mask_concat_img, motion_mask_s2t_concat_img], axis=1)
+                else:
+                    concat_img = np.concatenate([concat_img, colored_motion_tgt_concat_img, motion_flow_concat_img, motion_mask_concat_img], axis=1)
 
             img_order_strs = ''.join(img_order_strs)
             

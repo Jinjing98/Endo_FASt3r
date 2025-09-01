@@ -54,6 +54,10 @@ def flow_vis_robust(flow_tensor):
     flow_clamped = np.clip(flow_np, 
                          a_min=-upper_bound, 
                          a_max=upper_bound)
+
+    #clamp to avoid absurd values
+    threshold = 1000 #px
+    flow_clamped = np.clip(flow_clamped, a_min=-threshold, a_max=threshold)
     
     # Normalize to [-1, 1] range for flow_to_image
     if upper_bound > 1e-6:  # Avoid division by zero
