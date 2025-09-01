@@ -133,7 +133,7 @@ class Trainer:
 
             options.frame_ids = [0, -1, 1]
             # options.frame_ids = [0, -2, 2]
-            options.frame_ids = [0, -14, 14]
+            # options.frame_ids = [0, -14, 14]
 
             # not okay to use: we did not adjust the init_K accordingly yet
             # options.height = 192
@@ -859,6 +859,88 @@ class Trainer:
         # motion_mask_v2 = (outputs[("motion_flow", frame_id, 0)].norm(dim=1, keepdim=True) > 3).detach()
         return motion_mask
 
+    def gen_sample_and_pose_flow(self, inputs, outputs, mesh_gird_high_res, scale, source_scale = 0, tgt_frame_id = 0, frame_id = None):
+        '''
+        only udpate the samples and pose_flow:
+        extend with samples_s2t pose_flow_s2t: controler by given swappred input id
+        '''
+        
+        if tgt_frame_id == 0:
+            assert frame_id in self.opt.frame_ids[1:], f'frame_id {frame_id} is not in self.opt.frame_ids[1:]'
+            compute_tgt2src = True
+        else:
+            assert frame_id == 0, f'src_frame_id {frame_id} is not 0'
+            assert tgt_frame_id in self.opt.frame_ids[1:], f'tgt_frame_id {tgt_frame_id} is not in self.opt.frame_ids[1:]'
+            compute_tgt2src = False
+
+        if frame_id == "s":
+            T = inputs["stereo_T"]
+        else:
+            if compute_tgt2src:
+                # print('/////!compute tgt2src')
+                T = outputs[("cam_T_cam", 0, frame_id)]
+            else:
+                # print('/////!waring..to be optimal later')
+                T = outputs[("cam_T_cam", 0, tgt_frame_id)]
+                T = torch.inverse(T) 
+
+        if self.opt.zero_pose_debug:
+            T = torch.eye(4).to(self.device).repeat(T.shape[0], 1, 1)
+
+        # if self.opt.pose_model_type == "posecnn":
+        #     assert 0, 'posecnn is not supported for mutual motion'
+
+        #     axisangle = outputs[("axisangle", 0, frame_id)]
+        #     translation = outputs[("translation", 0, frame_id)]
+
+        #     inv_depth = 1 / outputs[("depth", tgt_frame_id, scale)]
+        #     mean_inv_depth = inv_depth.mean(3, True).mean(2, True)
+
+        #     T = transformation_from_parameters(
+        #         axisangle[:, 0], translation[:, 0] * mean_inv_depth[:, 0], frame_id < 0)
+        
+
+        # print('tgt frame id:')
+        # print(tgt_frame_id)
+        # print('frame id:')
+        # print(frame_id)
+        # print('Compute cam_points')
+        cam_points = self.backproject_depth[source_scale](
+            outputs[("depth", tgt_frame_id, scale)], inputs[("inv_K", source_scale)])# 3D pts
+        # print('cam_points.shape:')
+        # print(cam_points.shape)
+        # Project3D: it saves values in range [-1,1] for direct sampling
+        # pix_coords saves values in range [-1,1]
+        # print('compute pix_coords')
+        pix_coords = self.project_3d[source_scale](cam_points, inputs[("K", source_scale)], T)# 2D pxs; T: f0 -> f1  f0->f-1
+        # print('pix_coords.shape:')
+        # print(pix_coords.shape)
+        if compute_tgt2src:
+            outputs[("sample", frame_id, scale)] = pix_coords # b h w 2
+        else:
+            outputs[("sample_s2t", tgt_frame_id, scale)] = pix_coords # b h w 2
+        # generate pose_flow from pix_coords
+        norm_width_source_scale = self.project_3d[scale].width
+        norm_height_source_scale = self.project_3d[scale].height
+        # compute the raw_unit value pix_coords_raw from pix_coords, leveraging the fact that pix_coords saves values in range [-1,1]
+        if compute_tgt2src:
+            pix_coords_raw = outputs[("sample", frame_id, scale)].clone()#.detach()
+        else:
+            pix_coords_raw = outputs[("sample_s2t", tgt_frame_id, scale)].clone()#.detach()
+        pix_coords_raw = pix_coords_raw * 0.5 + 0.5 # convert to range [0,1]
+        # at high resolution
+        pix_coords_raw[..., 0] = pix_coords_raw[..., 0] * (norm_width_source_scale - 1)
+        pix_coords_raw[..., 1] = pix_coords_raw[..., 1] * (norm_height_source_scale - 1)
+        # tgt2src pose flow
+        if compute_tgt2src:
+            outputs[("pose_flow", frame_id, scale)] = pix_coords_raw.permute(0, 3, 1, 2) - mesh_gird_high_res # there is grad; B 2 H W 
+        else:
+            outputs[("pose_flow_s2t", tgt_frame_id, scale)] = pix_coords_raw.permute(0, 3, 1, 2) - mesh_gird_high_res # there is grad; B 2 H W 
+        
+        return outputs
+
+
+
     def generate_images_pred(self, inputs, outputs):
         """Generate the warped (reprojected) color images for a minibatch.
         Generated images are saved into the `outputs` dictionary.
@@ -875,7 +957,7 @@ class Trainer:
             _, depth = disp_to_depth(disp, self.opt.min_depth, self.opt.max_depth)
             outputs[("depth", 0, scale)] = depth
 
-            if self.opt.enable_mutual_motion:
+            if self.opt.enable_mutual_motion and self.opt.enable_motion_computation:
                 # collected depth--prepared for mutual pose flow, finally mutual motion_mask
                 for frame_id in self.opt.frame_ids[1:]:
                     assert frame_id != 0,f'frame_id == 0 already computed'
@@ -902,64 +984,33 @@ class Trainer:
             
             for i, frame_id in enumerate(self.opt.frame_ids[1:]):
 
-                if frame_id == "s":
-                    T = inputs["stereo_T"]
-                else:
-                    T = outputs[("cam_T_cam", 0, frame_id)]
-
-                if self.opt.zero_pose_debug:
-                    T = torch.eye(4).to(self.device).repeat(T.shape[0], 1, 1)
-
-                if self.opt.pose_model_type == "posecnn":
-
-                    axisangle = outputs[("axisangle", 0, frame_id)]
-                    translation = outputs[("translation", 0, frame_id)]
-
-                    inv_depth = 1 / outputs[("depth", 0, scale)]
-                    mean_inv_depth = inv_depth.mean(3, True).mean(2, True)
-
-                    T = transformation_from_parameters(
-                        axisangle[:, 0], translation[:, 0] * mean_inv_depth[:, 0], frame_id < 0)
-
-
-
-                cam_points = self.backproject_depth[source_scale](
-                    outputs[("depth", 0, scale)], inputs[("inv_K", source_scale)])# 3D pts
-                # Project3D: it saves values in range [-1,1] for direct sampling
-                # pix_coords saves values in range [-1,1]
-                pix_coords = self.project_3d[source_scale](
-                    cam_points, inputs[("K", source_scale)], T)# 2D pxs; T: f0 -> f1  f0->f-1
-
-                outputs[("sample", frame_id, scale)] = pix_coords # b h w 2
-                # generate pose_flow from pix_coords
-                norm_width_source_scale = self.project_3d[scale].width
-                norm_height_source_scale = self.project_3d[scale].height
-                # compute the raw_unit value pix_coords_raw from pix_coords, leveraging the fact that pix_coords saves values in range [-1,1]
-                pix_coords_raw = outputs[("sample", frame_id, scale)].clone()#.detach()
-                pix_coords_raw = pix_coords_raw * 0.5 + 0.5 # convert to range [0,1]
-                # at high resolution
-                pix_coords_raw[..., 0] = pix_coords_raw[..., 0] * (norm_width_source_scale - 1)
-                pix_coords_raw[..., 1] = pix_coords_raw[..., 1] * (norm_height_source_scale - 1)
-                # tgt2src pose flow
-                outputs[("pose_flow", frame_id, scale)] = pix_coords_raw.permute(0, 3, 1, 2) - mesh_gird_high_res # there is grad; B 2 H W 
+                outputs = self.gen_sample_and_pose_flow(inputs, outputs, mesh_gird_high_res, scale, source_scale = 0, 
+                                                        tgt_frame_id = 0, frame_id = frame_id)
                 
+                # outputs_dbg = outputs.copy()
+                # outputs_dbg = self.gen_sample_and_pose_flow(inputs, outputs_dbg, mesh_gird_high_res, scale, source_scale = 0, 
+                #                                         tgt_frame_id = 0, frame_id = frame_id)
+                # check the each ekement in outputs and outputs_dbg should be exactly the same
+                # for k, v in outputs.items():
+                #     if k in outputs_dbg:
+                #         print(f'check {k} in outputs and outputs_dbg should be exactly the same')
+                #         assert torch.all(v == outputs_dbg[k]), f'{k} in outputs and outputs_dbg should be exactly the same'
+                #     else:
+                #         print(f'{k} in outputs_dbg not in outputs')
+                #         assert 0,f'{k} in outputs_dbg not in outputs'
+
+                
+                if self.opt.enable_mutual_motion and self.opt.enable_motion_computation:
+                    # it will update: samples_s2t and pose_flow_s2t in outputs
+                    outputs = self.gen_sample_and_pose_flow(inputs, outputs, mesh_gird_high_res, scale, source_scale = 0, 
+                                                        tgt_frame_id = frame_id, frame_id = 0)
+
                 if self.opt.enable_motion_computation:
                     # If you want to warp the source image src to the target view tgt, you need the flow that maps pixels from the target frame to the source frame, i.e., tgt → src.
                     # assert 0,f'use color is correct! not need to use color_motion_corrected! considering the pose_flow now is computed from tgt depth+pose'
-
-                    # outputs[("motion_flow", frame_id, scale)] = - outputs[("pose_flow", frame_id, scale)].detach() + outputs[("position", scale, frame_id)]#.detach() # 
-                    # print('outputs[("position", 0, frame_id)].shape:')
-                    # print(outputs[("position", 0, frame_id)].shape)
-                    # print('outputs[("pose_flow", frame_id, scale)].shape:')
-                    # print(outputs[("pose_flow", frame_id, scale)].shape)
-
                     # tgt2src motion flow
                     outputs[("motion_flow", frame_id, scale)] = - outputs[("pose_flow", frame_id, scale)].detach() + outputs[("position", "high", 0, frame_id)]#.detach() # 
                     
-                    # print('motion_flow max min')
-                    # print(outputs[("motion_flow", frame_id, scale)].max())
-                    # print(outputs[("motion_flow", frame_id, scale)].min())
-                    # print(outputs[("motion_flow", frame_id, scale)][0,:,0,:10])
                     if scale == 0:
                         outputs[("motion_mask_backward", 0, frame_id)] = self.get_motion_mask(outputs[("motion_flow", frame_id, 0)], frame_id, detach=True)
                         
@@ -988,40 +1039,9 @@ class Trainer:
                         # inputs[("color", 0, source_scale)],
                         sample_motion_corrected)
 
-
-
-                    # print('sample_motion_corrected.shape:')
-                    # print('raw max min')
-                    # print(sample_motion_corrected.max())
-                    # print(sample_motion_corrected.min())
-                    # print(sample_motion_corrected[0,0,:10,:])
-                    # # norm to [0,1]
-                    # # norm to [-1,1]
-                    # sample_motion_corrected[..., 0] = sample_motion_corrected[..., 0] / (norm_width_source_scale - 1)
-                    # sample_motion_corrected[..., 1] = sample_motion_corrected[..., 1] / (norm_height_source_scale - 1)
-                    # # sample_motion_corrected = (sample_motion_corrected - 0.5) * 2
-
-                    # print('sample_motion_corrected.shape:')
-                    # print('normed max min')
-                    # print(sample_motion_corrected.max())
-                    # print(sample_motion_corrected.min())
-                    # print(sample_motion_corrected[0,0,:10,:])
-                    
-                    # # # assert sample_motion_corrected.max() <= 1.0 and sample_motion_corrected.min() >= -1.0
-                    # # print('max min sample_motion_corrected:')
-                    # # print(sample_motion_corrected.max())
-                    # # print(sample_motion_corrected.min())
-
-                    # outputs[("color_MotionCorrected", frame_id, scale)] = F.grid_sample(
-                    #     inputs[("color", frame_id, source_scale)],
-                    #     sample_motion_corrected,
-                    #     # outputs[("sample", frame_id, scale)],
-                    #     padding_mode="border",
-                    #     align_corners=True)
-
-                # not used
-                outputs[("position_depth", scale, frame_id)] = self.position_depth[source_scale](
-                        cam_points, inputs[("K", source_scale)], T)
+                # # not used
+                # outputs[("position_depth", scale, frame_id)] = self.position_depth[source_scale](
+                #         cam_points, inputs[("K", source_scale)], T)
         
         return outputs
 
