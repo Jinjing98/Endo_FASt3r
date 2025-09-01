@@ -1,3 +1,14 @@
+31.Aug
+/////colored_MotionCorrected_loss2nomo_000_fzD_b1_correct: 93977  b1_accu4 93865+freeze_depth# quick resullts
+/////colored_MotionCorrected_loss2nomo_000_fzD_b4_correct: 93972(20h) 93995(4h)  93865+freeze_depth
+/////colored_MotionCorrected_loss2nomo_000_fzD_b4(wrongly named, we forget enable loss2): 93923(2h)  92405+freeze_depth
+
+/////colored_MotionCorrected_loss2nomo_000_b1: 93876  v100 use addtionaly loss_reprj2 on static area only
+/////colored_MotionCorrected_loss2nomo_000_b4: 93865 use addtionaly loss_reprj2 on static area only--still depth zero
+/////colored_MotionCorrected_woAF_dynascared_000_b4: 93663  a100---still depth became zeor--not batch_size_issue
+
+/////colored_MotionCorrected_woAF_dynascared_000: 93580  batch_size 4 a100
+
 30.Aug 
 
 Motion_EXPx: need good OF
