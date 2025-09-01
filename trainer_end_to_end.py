@@ -1011,15 +1011,14 @@ class Trainer:
                     # tgt2src motion flow
                     outputs[("motion_flow", frame_id, scale)] = - outputs[("pose_flow", frame_id, scale)].detach() + outputs[("position", "high", 0, frame_id)]#.detach() # 
                     if scale == 0:
-                        outputs[("motion_mask_backward", 0, frame_id)] = self.get_motion_mask(outputs[("motion_flow", frame_id, 0)], frame_id, detach=True)
+                        outputs[("motion_mask_backward", 0, frame_id)] = self.get_motion_mask(outputs[("motion_flow", frame_id, 0)], frame_id, detach=True, thre_px=self.opt.motion_mask_thre_px)
                     
                     if self.opt.enable_mutual_motion:
                         # compute s2t motion_flow and s2t_motion_mask
                         outputs[("motion_flow_s2t", frame_id, 0)] = - outputs[("pose_flow_s2t", frame_id, 0)].detach() + outputs[("position_reverse", "high", 0, frame_id)]#.detach() # 
                         if scale == 0:
-                            outputs[("motion_mask_s2t_backward", 0, frame_id)] = self.get_motion_mask(outputs[("motion_flow_s2t", frame_id, 0)], frame_id, detach=True)
+                            outputs[("motion_mask_s2t_backward", 0, frame_id)] = self.get_motion_mask(outputs[("motion_flow_s2t", frame_id, 0)], frame_id, detach=True, thre_px=self.opt.motion_mask_thre_px)
 
-                        # outputs[("motion_mask_s2t_backward", 0, frame_id)] = self.get_motion_mask(outputs[("motion_flow_s2t", frame_id, 0)], frame_id, detach=True)
 
                 # pose_flow
                 # assert outputs[("sample", frame_id, scale)].max() <= 1.0 and outputs[("sample", frame_id, scale)].min() >= -1.0

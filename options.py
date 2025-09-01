@@ -63,6 +63,11 @@ class MonodepthOptions:
         self.parser.add_argument("--enable_mutual_motion",
                                  help="can be expensive as evertyhign including depth need to computer s2t version, it will compute: motion_flow, pose_flow, motion_mask, color_motion_warped",
                                  action="store_true")
+        self.parser.add_argument("--motion_mask_thre_px",
+                                 type=float,
+                                 help="smaller, more aggressive(safe), threshold for motion mask, if flow norm is less than this, set motion mask to 1",
+                                 default=3,
+                                 choices=[3, 1,])
         #/////////
 
         
