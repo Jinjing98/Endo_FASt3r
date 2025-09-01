@@ -101,7 +101,9 @@ class Trainer:
             options.save_frequency = 100000# no save
             options.log_dir = "/mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm_debug"
 
-            # options.enable_motion_computation = True
+            options.enable_motion_computation = True
+            # options.use_loss_reproj2_nomotion = True
+            options.enable_mutual_motion = True
 
             # options.zero_pose_debug = True
 
@@ -740,6 +742,14 @@ class Trainer:
             inputs[key] = ipt.to(self.device)
         outputs = self.models["depth_model"](inputs["color_aug", 0, 0])
 
+        if self.opt.enable_mutual_motion:
+            # extend the depth prediction for srcs
+            for frame_id in self.opt.frame_ids[1:]:
+                outputs_i = self.models["depth_model"](inputs["color_aug", frame_id, 0])
+                for scale in self.opt.scales:
+                    outputs["disp", scale, frame_id] = outputs_i["disp", scale]
+
+
         if self.use_pose_net:
             outputs.update(self.predict_poses(inputs, outputs))# img is warp from optic_flow, save as "registration" 
 
@@ -826,17 +836,21 @@ class Trainer:
         return outputs
 
     #compute and regisered the masks: can be used to masked out loss 
-    def get_motion_mask(self, outputs, frame_id, detach, thre_px = 3):
+    def get_motion_mask(self, motion_flow, frame_id, detach, thre_px = 3):
+        '''
+        static area will be set to 1, motion area will be set to 0.
+        Therefor can be directly used for validness when supervise.
+        '''
         # obtain motion mask from motion_flow:
         if detach:
             # motion_mask = get_texu_mask(outputs[("position", 0, frame_id)].detach(), 
                                         # outputs[("pose_flow", frame_id, 0)].detach())
-            motion_mask = (outputs[("motion_flow", frame_id, 0)].norm(dim=1, keepdim=True) > thre_px).detach()
+            motion_mask = (motion_flow.norm(dim=1, keepdim=True) <= thre_px).detach()
             
         else:
             # motion_mask = get_texu_mask(outputs[("position", 0, frame_id)], 
                                         # outputs[("pose_flow", frame_id, 0)])
-            motion_mask = (outputs[("motion_flow", frame_id, 0)].norm(dim=1, keepdim=True) > thre_px).detach()
+            motion_mask = (motion_flow.norm(dim=1, keepdim=True) <= thre_px).detach()
 
         # convert to float
         motion_mask = motion_mask.float()
@@ -859,8 +873,20 @@ class Trainer:
                     disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=True)
 
             _, depth = disp_to_depth(disp, self.opt.min_depth, self.opt.max_depth)
-
             outputs[("depth", 0, scale)] = depth
+
+            if self.opt.enable_mutual_motion:
+                # collected depth--prepared for mutual pose flow, finally mutual motion_mask
+                for frame_id in self.opt.frame_ids[1:]:
+                    assert frame_id != 0,f'frame_id == 0 already computed'
+                    disp_i = outputs[("disp", scale, frame_id)]
+
+                    assert not self.opt.v1_multiscale,f'v1_multiscale is not supported for mutual motion'
+                    disp_i = F.interpolate(
+                        disp_i, [self.opt.height, self.opt.width], mode="bilinear", align_corners=True)
+                    
+                    _, depth_i = disp_to_depth(disp_i, self.opt.min_depth, self.opt.max_depth)
+                    outputs[("depth", frame_id, scale)] = depth_i
 
             source_scale = 0
             for i, frame_id in enumerate(self.opt.frame_ids[1:]):
@@ -878,7 +904,7 @@ class Trainer:
                     axisangle = outputs[("axisangle", 0, frame_id)]
                     translation = outputs[("translation", 0, frame_id)]
 
-                    inv_depth = 1 / depth
+                    inv_depth = 1 / outputs[("depth", 0, scale)]
                     mean_inv_depth = inv_depth.mean(3, True).mean(2, True)
 
                     T = transformation_from_parameters(
@@ -895,7 +921,7 @@ class Trainer:
                 mesh_gird_high_res = mesh_gird_high_res.permute(0, 3, 1, 2)  # (B, 2, H, W)
 
                 cam_points = self.backproject_depth[source_scale](
-                    depth, inputs[("inv_K", source_scale)])# 3D pts
+                    outputs[("depth", 0, scale)], inputs[("inv_K", source_scale)])# 3D pts
                 # Project3D: it saves values in range [-1,1] for direct sampling
                 # pix_coords saves values in range [-1,1]
                 pix_coords = self.project_3d[source_scale](
@@ -905,7 +931,6 @@ class Trainer:
                 # pix_coords_dbg = pix_coords.view(self.opt.batch_size, -1, 2).permute(0, 2, 1)
                 # print(pix_coords_dbg.shape)
                 # print(pix_coords_dbg[0,:,:10])  
-
                 # will always be the high resolution across scales!--it computed from depth_scale0
                 outputs[("sample", frame_id, scale)] = pix_coords # b h w 2
 
@@ -913,7 +938,7 @@ class Trainer:
                 norm_width_source_scale = self.project_3d[scale].width
                 norm_height_source_scale = self.project_3d[scale].height
                 # compute the raw_unit value pix_coords_raw from pix_coords, leveraging the fact that pix_coords saves values in range [-1,1]
-                pix_coords_raw = pix_coords.clone()#.detach()
+                pix_coords_raw = outputs[("sample", frame_id, scale)].clone()#.detach()
                 pix_coords_raw = pix_coords_raw * 0.5 + 0.5 # convert to range [0,1]
                 # at high resolution
                 pix_coords_raw[..., 0] = pix_coords_raw[..., 0] * (norm_width_source_scale - 1)
@@ -941,12 +966,16 @@ class Trainer:
 
                     # tgt2src motion flow
                     outputs[("motion_flow", frame_id, scale)] = - outputs[("pose_flow", frame_id, scale)].detach() + outputs[("position", "high", 0, frame_id)]#.detach() # 
+                    
                     # print('motion_flow max min')
                     # print(outputs[("motion_flow", frame_id, scale)].max())
                     # print(outputs[("motion_flow", frame_id, scale)].min())
                     # print(outputs[("motion_flow", frame_id, scale)][0,:,0,:10])
                     if scale == 0:
-                        outputs[("motion_mask_backward", 0, frame_id)] = self.get_motion_mask(outputs, frame_id, detach=True)
+                        outputs[("motion_mask_backward", 0, frame_id)] = self.get_motion_mask(outputs[("motion_flow", frame_id, 0)], frame_id, detach=True)
+                        
+
+                        # outputs[("motion_mask_s2t_backward", 0, frame_id)] = self.get_motion_mask(outputs[("motion_flow_s2t", frame_id, 0)], frame_id, detach=True)
 
                 # pose_flow
                 # assert outputs[("sample", frame_id, scale)].max() <= 1.0 and outputs[("sample", frame_id, scale)].min() >= -1.0
@@ -1112,14 +1141,12 @@ class Trainer:
 
 
             for frame_id in self.opt.frame_ids[1:]:
-                
-                occu_mask_backward = outputs[("occu_mask_backward", 0, frame_id)].detach()
-                valid_mask = occu_mask_backward
-                # valid_mask = occu_mask_backward * ~outputs[("motion_mask_backward", 0, frame_id)].detach()
+                                # valid_mask = occu_mask_backward * ~outputs[("motion_mask_backward", 0, frame_id)].detach()
 
                 # img warped from pose_flow is saved as "color"; img warped from optic_flow is saved as "registration"
                 # register for debug monitoring
                 
+                # the 1st reporj_loss: main aim: enforce proper AF learning when everything defautl as it is.
                 if self.opt.reproj_supervised_which == "color_MotionCorrected" and self.opt.enable_motion_computation:
                     reproj_loss_supervised_tgt_color = outputs[("color_MotionCorrected", frame_id, scale)]
                 elif self.opt.reproj_supervised_which == "color":
@@ -1135,6 +1162,9 @@ class Trainer:
                 else:
                     raise ValueError(f"Invalid reproj_supervised_with_which: {self.opt.reproj_supervised_with_which}")
 
+                occu_mask_backward = outputs[("occu_mask_backward", 0, frame_id)].detach()
+                valid_mask = occu_mask_backward
+
                 loss_reprojection += (
                     self.compute_reprojection_loss(reproj_loss_supervised_tgt_color, reproj_loss_supervised_signal_color) * valid_mask).sum() / valid_mask.sum()  
                 loss_transform += (
@@ -1145,6 +1175,24 @@ class Trainer:
                 #register reproj_loss_supervised_tgt_color for debugging
                 outputs[("reproj_supervised_tgt_color_debug", scale, frame_id)] = reproj_loss_supervised_tgt_color.detach() #reproj_loss_supervised_tgt_color.detach()
                 outputs[("reproj_supervised_signal_color_debug", scale, frame_id)] = reproj_loss_supervised_signal_color.detach() #reproj_loss_supervised_tgt_color.detach()
+
+
+                # the 2st reporj_loss: main aim: supervise PoseNet properly by masking out the mutual motion area
+                if self.opt.use_loss_reproj2_nomotion:
+                    if self.opt.reproj2_supervised_which == "color":
+                        reproj_loss_supervised_tgt_color = outputs[("color", frame_id, scale)]
+                    else:
+                        raise ValueError(f"Invalid reproj2_supervised_which: {self.opt.reproj2_supervised_which}")
+                    
+                    if self.opt.reproj2_supervised_with_which == "refined":
+                        reproj_loss_supervised_signal_color = outputs[("refined", scale, frame_id)]
+                    else:
+                        raise ValueError(f"Invalid reproj2_supervised_with_which: {self.opt.reproj2_supervised_with_which}")
+                    
+                # occu_mask_backward = outputs[("occu_mask_backward", 0, frame_id)].detach()
+                motion_mask_backward = outputs[("motion_mask_backward", 0, frame_id)].detach()
+                valid_mask = occu_mask_backward
+
 
             mean_disp = disp.mean(2, True).mean(3, True)
             norm_disp = disp / (mean_disp + 1e-7)

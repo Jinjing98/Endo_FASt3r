@@ -44,7 +44,7 @@ class MonodepthOptions:
                                  choices=["color",'color_MotionCorrected','motion_masked_color', 'gt_motion_masked_color_debug'])
 
         #/////////
-        self.parser.add_argument("--use_loss_reproj2_nomotion_only",
+        self.parser.add_argument("--use_loss_reproj2_nomotion",
                                  help="used to addtionally supervise the pose flow to be effective---imporant to get good pose when eval!",
                                  action="store_true")
         self.parser.add_argument("--reproj2_supervised_with_which",
@@ -55,8 +55,14 @@ class MonodepthOptions:
         self.parser.add_argument("--reproj2_supervised_which",
                                  type=str,
                                  help="which image to supervise",
-                                 default="motion_masked_color",
-                                 choices=['motion_masked_color', 'gt_motion_masked_color_debug'])
+                                 default="color",
+                                 choices=['color'])
+        self.parser.add_argument("--reproj2_turnoff_motion_based mask",
+                                 help="it will compute: motion_flow, pose_flow, motion_mask, color_motion_warped",
+                                 action="store_true")
+        self.parser.add_argument("--enable_mutual_motion",
+                                 help="can be expensive as evertyhign including depth need to computer s2t version, it will compute: motion_flow, pose_flow, motion_mask, color_motion_warped",
+                                 action="store_true")
         #/////////
 
         
