@@ -931,7 +931,7 @@ class Trainer:
                 
                 if self.opt.enable_motion_computation:
                     # If you want to warp the source image src to the target view tgt, you need the flow that maps pixels from the target frame to the source frame, i.e., tgt → src.
-                    assert 0,f'use color is correct! not need to use color_motion_corrected! considering the pose_flow now is computed from tgt depth+pose'
+                    # assert 0,f'use color is correct! not need to use color_motion_corrected! considering the pose_flow now is computed from tgt depth+pose'
 
                     # outputs[("motion_flow", frame_id, scale)] = - outputs[("pose_flow", frame_id, scale)].detach() + outputs[("position", scale, frame_id)]#.detach() # 
                     # print('outputs[("position", 0, frame_id)].shape:')
@@ -1309,7 +1309,8 @@ class Trainer:
         img_order_strs = []
         concat_img = None
 
-        for j in range(min(4, self.opt.batch_size)):  # write a maxmimum of four images
+        # for j in range(min(4, self.opt.batch_size)):  # write a maxmimum of four images
+        for j in range(min(1, self.opt.batch_size)):  # write a maxmimum of 2 images
             # for s in self.opt.scales:
             for s in [0]:
                 # frames_ids = [0,-1,1]
@@ -1348,7 +1349,8 @@ class Trainer:
                             inputs[("color", 0, s)][j].data, self.step)  
                         # add supervised_img
                         writer.add_image(
-                            "IMG/reproj_supervised_tgt_color_debug_{}_{}/{}".format(frame_id, s, j),
+                            "GT/reproj_supervised_tgt_color_debug_{}_{}/{}".format(frame_id, s, j),
+                            # "IMG/reproj_supervised_tgt_color_debug_{}_{}/{}".format(frame_id, s, j),
                             outputs[("reproj_supervised_tgt_color_debug", 0, frame_id)][j].data, self.step)
                         # add vis of other warped img
                         # add color image as well
