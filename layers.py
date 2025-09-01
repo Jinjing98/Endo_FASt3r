@@ -543,11 +543,30 @@ class match(nn.Module):
         return mach
 
 
-def get_texu_mask(non_rigid, rigid):
+def get_texu_mask(non_rigid, rigid, ret_conf = True):
     
     diff_flow = (non_rigid - rigid).pow(2).mean(1, True)
     sum_flow = 0.01 * (non_rigid.pow(2).mean(1, True) + rigid.pow(2).mean(1, True)) + 0.5
-    texu_mask = (diff_flow < sum_flow).float()
+    if ret_conf:
+        # return the confidence map rather than the mask
+        texu_mask = 1 - (diff_flow / sum_flow) # negative_unlimited, 1
+        # normalize to [0,1]
+        texu_mask = (texu_mask - texu_mask.min()) / (texu_mask.max() - texu_mask.min())
+
+        # # report the distrutbution of the confidence map
+        # print('count px num for 0 ,1, not0_and_not1')
+        # print(torch.sum((texu_mask == 0.0).float()), 
+        #       torch.sum((texu_mask == 1.0).float()), 
+        #       torch.sum((texu_mask != 0.0).float() * (texu_mask != 1.0).float()))
+        # print('max and min of confidence map:')
+        # print(texu_mask.max(), texu_mask.min())
+        # print('quantile of confidence map:')
+        # print(torch.quantile(texu_mask, 0.01),
+        #       torch.quantile(texu_mask, 0.5),
+        #       torch.quantile(texu_mask, 0.99))
+    
+    else:
+        texu_mask = (diff_flow < sum_flow).float()
    
     return texu_mask
 
