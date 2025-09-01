@@ -889,6 +889,17 @@ class Trainer:
                     outputs[("depth", frame_id, scale)] = depth_i
 
             source_scale = 0
+
+            # # Create sampling grid
+            # use pose_flow(sample-img_grid) and optic_flow(position)
+            # implement mem effecient mesh_gird_high_res 
+            x = torch.linspace(0, self.opt.width - 1, self.opt.width, device=self.device)
+            y = torch.linspace(0, self.opt.height - 1, self.opt.height, device=self.device)
+            grid_y, grid_x = torch.meshgrid(y, x, indexing='ij')  # (H, W)
+            mesh_gird_high_res = torch.stack((grid_x, grid_y), dim=-1)  # (H, W, 2)
+            mesh_gird_high_res = mesh_gird_high_res.unsqueeze(0)  # (1, H, W, 2)
+            mesh_gird_high_res = mesh_gird_high_res.permute(0, 3, 1, 2)  # (B, 2, H, W)            
+            
             for i, frame_id in enumerate(self.opt.frame_ids[1:]):
 
                 if frame_id == "s":
@@ -910,15 +921,7 @@ class Trainer:
                     T = transformation_from_parameters(
                         axisangle[:, 0], translation[:, 0] * mean_inv_depth[:, 0], frame_id < 0)
 
-                # # Create sampling grid
-                # use pose_flow(sample-img_grid) and optic_flow(position)
-                # implement mem effecient mesh_gird_high_res 
-                x = torch.linspace(0, self.opt.width - 1, self.opt.width, device=self.device)
-                y = torch.linspace(0, self.opt.height - 1, self.opt.height, device=self.device)
-                grid_y, grid_x = torch.meshgrid(y, x, indexing='ij')  # (H, W)
-                mesh_gird_high_res = torch.stack((grid_x, grid_y), dim=-1)  # (H, W, 2)
-                mesh_gird_high_res = mesh_gird_high_res.unsqueeze(0)  # (1, H, W, 2)
-                mesh_gird_high_res = mesh_gird_high_res.permute(0, 3, 1, 2)  # (B, 2, H, W)
+
 
                 cam_points = self.backproject_depth[source_scale](
                     outputs[("depth", 0, scale)], inputs[("inv_K", source_scale)])# 3D pts
@@ -926,14 +929,8 @@ class Trainer:
                 # pix_coords saves values in range [-1,1]
                 pix_coords = self.project_3d[source_scale](
                     cam_points, inputs[("K", source_scale)], T)# 2D pxs; T: f0 -> f1  f0->f-1
-                
-                # print('pix_coords normed:')
-                # pix_coords_dbg = pix_coords.view(self.opt.batch_size, -1, 2).permute(0, 2, 1)
-                # print(pix_coords_dbg.shape)
-                # print(pix_coords_dbg[0,:,:10])  
-                # will always be the high resolution across scales!--it computed from depth_scale0
-                outputs[("sample", frame_id, scale)] = pix_coords # b h w 2
 
+                outputs[("sample", frame_id, scale)] = pix_coords # b h w 2
                 # generate pose_flow from pix_coords
                 norm_width_source_scale = self.project_3d[scale].width
                 norm_height_source_scale = self.project_3d[scale].height
@@ -943,16 +940,8 @@ class Trainer:
                 # at high resolution
                 pix_coords_raw[..., 0] = pix_coords_raw[..., 0] * (norm_width_source_scale - 1)
                 pix_coords_raw[..., 1] = pix_coords_raw[..., 1] * (norm_height_source_scale - 1)
-                # print('pix_coords after 3d 2 2D raw:')
-                # pix_coords_raw_dbg = pix_coords_raw.view(self.opt.batch_size, -1, 2).permute(0, 2, 1)
-                # print(pix_coords_raw_dbg.shape)
-                # print(pix_coords_raw_dbg[0,:,:10])  
                 # tgt2src pose flow
                 outputs[("pose_flow", frame_id, scale)] = pix_coords_raw.permute(0, 3, 1, 2) - mesh_gird_high_res # there is grad; B 2 H W 
-                # print('pose_flow max min')
-                # print(outputs[("pose_flow", frame_id, scale)].max())
-                # print(outputs[("pose_flow", frame_id, scale)].min())
-                # print(outputs[("pose_flow", frame_id, scale)][0,:,0,:10])
                 
                 if self.opt.enable_motion_computation:
                     # If you want to warp the source image src to the target view tgt, you need the flow that maps pixels from the target frame to the source frame, i.e., tgt → src.
