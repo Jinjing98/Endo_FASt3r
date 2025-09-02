@@ -96,7 +96,7 @@ class Trainer:
             print('update options for debug purposes...')
             options.num_epochs = 50000
             options.batch_size = 1
-            options.batch_size = 2
+            # options.batch_size = 2
             options.accumulate_steps = 1  # Effective batch size = 1 * 12 = 12
             options.log_frequency = 10
             options.save_frequency = 100000# no save
@@ -143,9 +143,9 @@ class Trainer:
             # options.frame_ids = [0, -2, 2]
             # options.frame_ids = [0, -14, 14]
 
-            # not okay to use: we did not adjust the init_K accordingly yet
-            options.height = 192
-            options.width = 224
+            # # not okay to use: we did not adjust the init_K accordingly yet
+            # options.height = 192
+            # options.width = 224
 
             options.dataset = "endovis"
             options.data_path = "/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/"
@@ -1061,7 +1061,10 @@ class Trainer:
                     # assert 0,f'use color is correct! not need to use color_motion_corrected! considering the pose_flow now is computed from tgt depth+pose'
                     # tgt2src motion flow
                     # avoid grad in motion_flow! elsewise the sample_motion_corrected will loss grad at all.
-                    outputs[("motion_flow", frame_id, scale)] = - outputs[("pose_flow", frame_id, scale)].detach() + outputs[("position", "high", 0, frame_id)]#.detach() # 
+                    # outputs[("motion_flow", frame_id, scale)] = - outputs[("pose_flow", frame_id, scale)].detach() + outputs[("position", "high", 0, frame_id)]#.detach() # 
+                    # we enable grad in motion_flow, can be latered used to reg motion mask
+                    # there is no grad in OF anyway in for 2nd statge traning
+                    outputs[("motion_flow", frame_id, scale)] = - outputs[("pose_flow", frame_id, scale)] + outputs[("position", "high", 0, frame_id)]#.detach() # 
                     
 
                     if scale == 0:
@@ -1072,7 +1075,8 @@ class Trainer:
                                                                   thre_px=self.opt.motion_mask_thre_px)
                         else:
                             outputs[("motion_mask_backward", 0, frame_id)] = self.get_motion_mask(
-                                                                                            #   outputs[("motion_flow", frame_id, 0)], 
+                                                                                            #  do not use outputs[("motion_flow", frame_id, 0)], depend on what is set to it, the grad might get lost!
+                                                                                            # use below to make sure grad exists. 
                                                                                               - outputs[("pose_flow", frame_id, scale)] + outputs[("position", "high", 0, frame_id)], # there is grad_flow here! differ from motion_flow
                                                                                               frame_id, 
                                                                                               detach=(not self.opt.enable_grad_flow_motion_mask), 
@@ -1080,19 +1084,22 @@ class Trainer:
                     
                     if self.opt.enable_mutual_motion:
                         # compute s2t motion_flow and s2t_motion_mask
-                        outputs[("motion_flow_s2t", frame_id, 0)] = - outputs[("pose_flow_s2t", frame_id, 0)].detach() + outputs[("position_reverse", "high", 0, frame_id)]#.detach() # 
+                        # we enable grad in motion_flow, can be latered used to reg motion mask
+                        outputs[("motion_flow_s2t", frame_id, 0)] = - outputs[("pose_flow_s2t", frame_id, 0)] + outputs[("position_reverse", "high", 0, frame_id)]#.detach() # 
                         if scale == 0:
                             if self.opt.use_soft_motion_mask:
-                                outputs[("motion_mask_s2t_backward", 0, frame_id)] = self.get_motion_mask_soft(outputs[("position_reverse", 0, frame_id)], 
-                                                                  outputs[("pose_flow_s2t", frame_id, 0)],
+                                outputs[("motion_mask_s2t_backward", 0, frame_id)] = self.get_motion_mask_soft(optic_flow = outputs[("position_reverse", 0, frame_id)], 
+                                                                  pose_flow = outputs[("pose_flow_s2t", frame_id, 0)],
                                                                   detach=(not self.opt.enable_grad_flow_motion_mask), 
                                                                   thre_px=self.opt.motion_mask_thre_px)
                             else:
                                 outputs[("motion_mask_s2t_backward", 0, frame_id)] = self.get_motion_mask(
                                                                                                     # outputs[("motion_flow_s2t", frame_id, 0)], 
-                                                                                                    - outputs[("pose_flow_s2t", frame_id, 0)] + outputs[("position_reverse", "high", 0, frame_id)], # there is grad_flow here! differ from motion_flow
-                                                                                                    frame_id, 
-                                                                                                      detach=(not self.opt.enable_grad_flow_motion_mask), thre_px=self.opt.motion_mask_thre_px)
+                                                                                                    # desipte there is grad in motion_flow, we readd for safety.
+                                                                                                    motion_flow = - outputs[("pose_flow_s2t", frame_id, 0)] + outputs[("position_reverse", "high", 0, frame_id)], # there is grad_flow here! differ from motion_flow
+                                                                                                    frame_id = frame_id, 
+                                                                                                    detach=(not self.opt.enable_grad_flow_motion_mask), 
+                                                                                                    thre_px=self.opt.motion_mask_thre_px)
 
 
                 # pose_flow
@@ -1108,8 +1115,10 @@ class Trainer:
                 
                 if self.opt.enable_motion_computation:
                     # gen sample_motion_corrected from pose_flow and motion_flow, then sample image with sample_motion_corrected
-                    # sample_motion_corrected = (outputs[("sample", frame_id, scale)] + outputs[("motion_flow", frame_id, scale)].permute(0, 2, 3, 1))
-                    sample_motion_corrected = (outputs[("pose_flow", frame_id, scale)] + outputs[("motion_flow", frame_id, scale)])#.permute(0, 2, 3, 1)
+                    # sample_motion_corrected = (outputs[("pose_flow", frame_id, scale)] + outputs[("motion_flow", frame_id, scale)])#.permute(0, 2, 3, 1)
+                    # do not use motion_flow, but use below to make sure grad exists. 
+                    sample_motion_corrected = outputs[("pose_flow", frame_id, scale)] + \
+                        (- outputs[("pose_flow", frame_id, scale)].detach() + outputs[("position", "high", scale, frame_id)])
                     #use self.spatial_transform to sample
 
                     outputs[("color_MotionCorrected", frame_id, scale)] = self.spatial_transform(
@@ -1192,22 +1201,26 @@ class Trainer:
         # return trans_err_list, rot_err_list
         return metrics_list_dict
 
-    def compute_motion_mask_reg_loss(self, optic_flow, motion_mask, is_soft_mask):
-        assert optic_flow.dim() == 4, f'optic_flow.dim() is {optic_flow.dim()}'
+    def compute_motion_mask_reg_loss(self, reg_tgt_flow, motion_mask, is_soft_mask):
+        '''
+        we initially tried reg_tgt_flow as optic_flow, but it is not ideal.
+        Try using motion flow now: while it is recommended to detach the grad of motion flow--else wise the motion_mask might bailan.
+        '''
+        assert reg_tgt_flow.dim() == 4, f'reg_tgt_flow.dim() is {reg_tgt_flow.dim()}'
         assert motion_mask.dim() == 3, f'motion_mask.dim() is {motion_mask.dim()}'
-        assert optic_flow.shape[1] == 2, f'optic_flow.shape[1] is {optic_flow.shape[1]}'
+        assert reg_tgt_flow.shape[1] == 2, f'reg_tgt_flow.shape[1] is {reg_tgt_flow.shape[1]}'
         # print(f'optic_flow.shape: {optic_flow.shape}')
         # print(f'motion_mask.shape: {motion_mask.shape}')
         
         from mask_utils import structure_loss_soft, structure_loss
         
         if is_soft_mask:
-            loss_mag, loss_edge, loss_dice, imgs_debug = structure_loss_soft(optic_flow, motion_mask)
+            loss_mag, loss_edge, loss_dice, imgs_debug = structure_loss_soft(reg_tgt_flow, motion_mask)
         else:
             # check the motion mask is binary
             assert motion_mask.max() in [0,1], f'motion_mask.max() is {motion_mask.max()}'
             assert motion_mask.min() in [0,1], f'motion_mask.min() is {motion_mask.min()}'
-            loss_mag, loss_edge, loss_dice, imgs_debug = structure_loss(optic_flow, motion_mask)
+            loss_mag, loss_edge, loss_dice, imgs_debug = structure_loss(reg_tgt_flow, motion_mask)
         
         return loss_mag, loss_edge, loss_dice, imgs_debug
 
@@ -1318,13 +1331,18 @@ class Trainer:
                     
                 #compute motion mask reg loss
                 if self.opt.use_loss_motion_mask_reg and scale == 0:
-                    optic_flow = outputs[("position", "high", 0, frame_id)]
-                    motion_mask = outputs[("motion_mask_backward", 0, frame_id)].squeeze(1)
+                    # optic_flow = outputs[("position", "high", 0, frame_id)]
+                    # reg_tgt_flow = optic_flow # we use optic_flow as reg_tgt_flow, not good.
 
+                    motion_flow = outputs[("motion_flow", frame_id, scale)]
+                    reg_tgt_flow = motion_flow.detach() # we want to make sure there is no grad in motion_flow, elsewise the motion_mask might bailan.
+
+                    motion_mask = outputs[("motion_mask_backward", 0, frame_id)].squeeze(1)
+                    
                     loss_mag, loss_edge, loss_dice, imgs_debug = self.compute_motion_mask_reg_loss(
-                        optic_flow, 
-                        1-motion_mask,# we want to apply strcuture loss of moiton_mask where motion is positive
-                        is_soft_mask=self.opt.use_soft_motion_mask)
+                        reg_tgt_flow = reg_tgt_flow, 
+                        motion_mask = 1-motion_mask,# we want to apply strcuture loss of moiton_mask where motion is positive
+                        is_soft_mask = self.opt.use_soft_motion_mask)
                     # print(f'loss_mag: {loss_mag}, loss_edge: {loss_edge}, loss_dice: {loss_dice}')
                     
 
@@ -1359,13 +1377,19 @@ class Trainer:
                     loss_reg_mag += loss_mag
 
                     if self.opt.enable_mutual_motion:
-                        optic_flow = outputs[("position_inverse", "high", 0, frame_id)]
-                        motion_mask = outputs[("motion_mask_s2t_backward", 0, frame_id)].squeeze(1)
+                        # optic_flow = outputs[("position_inverse", "high", 0, frame_id)]
+                        # reg_tgt_flow = optic_flow
+
+                        motion_flow = outputs[("motion_flow_s2t", frame_id, scale)]
+                        reg_tgt_flow = motion_flow.detach() # we want to make sure there is no grad in motion_flow, elsewise the motion_mask might bailan.
+
+                        motion_mask = outputs[("motion_mask_s2t_backward", 0, frame_id)].squeeze(1) # there  is grad
+
 
                         loss_mag, loss_edge, loss_dice, imgs_debug = self.compute_motion_mask_reg_loss(
-                            optic_flow, 
-                            1-motion_mask,# we want to apply strcuture loss of moiton_mask where motion is positive
-                            is_soft_mask=self.opt.use_soft_motion_mask)
+                            reg_tgt_flow = reg_tgt_flow, 
+                            motion_mask = 1-motion_mask,# we want to apply strcuture loss of moiton_mask where motion is positive
+                            is_soft_mask = self.opt.use_soft_motion_mask)
                         # loss_motion_mask_reg += (weights[0] * loss_mag + weights[1] * loss_edge + weights[2] * loss_dice) * self.opt.motion_mask_reg_loss_weight
                         loss_reg_dice += loss_dice
                         loss_reg_edge += loss_edge
