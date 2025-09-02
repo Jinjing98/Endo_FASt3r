@@ -4,11 +4,29 @@ import kornia  # optional, for Sobel and Gaussian
 
 eps = 1e-6
 
-def flow_to_magnitude(flow):            # flow: (B,2,H,W)
+# def flow_to_magnitude(flow):            # flow: (B,2,H,W)
+#     u = flow[:,0]
+#     v = flow[:,1]
+#     mag = torch.sqrt(u*u + v*v + 1e-12)
+#     return mag  # (B,H,W)
+
+def flow_to_magnitude_robust_simple(flow, noise_threshold_px=5e-2):
+    """
+    Ultra-simple robust flow magnitude computation.
+    If max magnitude is below noise threshold, return zeros.
+    """
     u = flow[:,0]
     v = flow[:,1]
-    mag = torch.sqrt(u*u + v*v + 1e-12)
-    return mag  # (B,H,W)
+    
+    # Compute raw magnitude
+    raw_mag = torch.sqrt(u*u + v*v + eps)
+    
+    # If max magnitude is below noise threshold, return zeros
+    if raw_mag.max() < noise_threshold_px:
+        # print('///////////////zet to zero of the flow//////////////////////')
+        return torch.zeros_like(raw_mag)
+    else:
+        return raw_mag
 
 def normalize_map(x, p=99.0):
     # robust normalization: divide by p-th percentile per-sample to avoid outliers
@@ -25,6 +43,10 @@ def gaussian_blur(x, kernel_size=11, sigma=1.5):
     return kornia.filters.gaussian_blur2d(x.unsqueeze(1), (kernel_size,kernel_size), (sigma,sigma)).squeeze(1)
 
 def edge_map(x):
+    '''
+    maybe improper for soft masks?
+    '''
+
     # x: (B,H,W) float
     # if x.dim() == 3:
     assert x.dim() == 3
@@ -45,11 +67,13 @@ def edge_map(x):
     return grad_mag
 
 # Example loss builder
-def structure_loss(flow, mask, weights=(1.0,0.2,0.5)):
+def structure_loss(flow, mask, weights=(1.0,0.2,0.5),static_flow_noise_thre = 1e-3):
     # flow: (B,2,H,W), mask: (B,1,H,W) or (B,H,W) with {0,1}
     if mask.dim()==4:
         mask = mask.squeeze(1)
-    mag = flow_to_magnitude(flow)            # (B,H,W)
+    # mag = flow_to_magnitude(flow)    
+    mag = flow_to_magnitude_robust_simple(flow, noise_threshold_px=static_flow_noise_thre)
+    #         # (B,H,W)
     mag_n = normalize_map(mag)               # (B,H,W), in [0,1]
     mask_f = mask.float()
 
@@ -84,9 +108,10 @@ def structure_loss(flow, mask, weights=(1.0,0.2,0.5)):
 
 
 
-def structure_loss_soft(flow, mask, weights=(1.0,0.2,0.5)):
+def structure_loss_soft(flow, mask, weights=(1.0,0.2,0.5),static_flow_noise_thre = 1e-3):
     # flow: (B,2,H,W), mask: (B,H,W) in [0,1]
-    mag = flow_to_magnitude(flow)           
+    # mag = flow_to_magnitude(flow)           
+    mag = flow_to_magnitude_robust_simple(flow, noise_threshold_px=static_flow_noise_thre)
     mag_n = normalize_map(mag)
     # print(f'flow.shape: {flow.shape}')               # [0,1]
     # print(f'mask.shape: {mask.shape}')
@@ -130,6 +155,8 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
     import numpy as np
     
+
+
     # Set device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
@@ -157,6 +184,14 @@ if __name__ == "__main__":
     # Stack into flow tensor (B, 2, H, W)
     flow = torch.stack([flow_u, flow_v], dim=0).unsqueeze(0).repeat(B, 1, 1, 1).to(device)
     
+
+    static_flow_noise_thre = 0.01#1e-3
+
+    #debug flow_mag_robust
+    # print('/////before flow max and min', flow.max(), flow.min())
+    flow = flow*(static_flow_noise_thre*0.001)
+    # print('///after flow max and min', flow.max(), flow.min())
+
     # Create binary mask (B, H, W) with {0, 1}
     binary_mask = torch.zeros(B, H, W, device=device)
     # Create circular mask
@@ -173,11 +208,11 @@ if __name__ == "__main__":
     soft_mask[1] = 1.0 - gaussian_mask  # inverted for second sample
     
     print("Testing structure_loss (binary mask)...")
-    L_mag_bin, L_edge_bin, L_dice_bin, imgs_debug_bin = structure_loss(flow, binary_mask)
+    L_mag_bin, L_edge_bin, L_dice_bin, imgs_debug_bin = structure_loss(flow, binary_mask,static_flow_noise_thre=static_flow_noise_thre)
     print(f"Binary mask losses - L_mag: {L_mag_bin:.4f}, L_edge: {L_edge_bin:.4f}, L_dice: {L_dice_bin:.4f}")
     
     print("\nTesting structure_loss_soft (soft gray mask)...")
-    L_mag_soft, L_edge_soft, L_dice_soft, imgs_debug_soft = structure_loss_soft(flow, soft_mask)
+    L_mag_soft, L_edge_soft, L_dice_soft, imgs_debug_soft = structure_loss_soft(flow, soft_mask,static_flow_noise_thre=static_flow_noise_thre)
     print(f"Soft mask losses - L_mag: {L_mag_soft:.4f}, L_edge: {L_edge_soft:.4f}, L_dice: {L_dice_soft:.4f}")
     
     # Visualize results
@@ -218,7 +253,7 @@ if __name__ == "__main__":
     axes[1, 3].axis('off')
     
     plt.tight_layout()
-    plt.savefig('mask_utils_test_results.png', dpi=150, bbox_inches='tight')
+    plt.savefig('submodule/Endo_FASt3r/mask_utils_test_results.png', dpi=150, bbox_inches='tight')
     print("\nVisualization saved as 'mask_utils_test_results.png'")
     
     # Test with different flow patterns
@@ -230,10 +265,10 @@ if __name__ == "__main__":
     linear_flow[:, 1] = torch.linspace(-5, 5, H).unsqueeze(1).repeat(1, W)    # vertical flow
     
     # Test with linear flow
-    L_mag_lin, L_edge_lin, L_dice_lin, _ = structure_loss(linear_flow, binary_mask)
+    L_mag_lin, L_edge_lin, L_dice_lin, _ = structure_loss(linear_flow, binary_mask,static_flow_noise_thre=static_flow_noise_thre)
     print(f"Linear flow with binary mask - L_mag: {L_mag_lin:.4f}, L_edge: {L_edge_lin:.4f}, L_dice: {L_dice_lin:.4f}")
     
-    L_mag_lin_soft, L_edge_lin_soft, L_dice_lin_soft, _ = structure_loss_soft(linear_flow, soft_mask)
+    L_mag_lin_soft, L_edge_lin_soft, L_dice_lin_soft, _ = structure_loss_soft(linear_flow, soft_mask,static_flow_noise_thre=static_flow_noise_thre)
     print(f"Linear flow with soft mask - L_mag: {L_mag_lin_soft:.4f}, L_edge: {L_edge_lin_soft:.4f}, L_dice: {L_dice_lin_soft:.4f}")
     
     # Test edge cases
@@ -241,7 +276,7 @@ if __name__ == "__main__":
     
     # Zero flow
     zero_flow = torch.zeros(B, 2, H, W, device=device)
-    L_mag_zero, L_edge_zero, L_dice_zero, _ = structure_loss(zero_flow, binary_mask)
+    L_mag_zero, L_edge_zero, L_dice_zero, _ = structure_loss(zero_flow, binary_mask,static_flow_noise_thre=static_flow_noise_thre)
     print(f"Zero flow - L_mag: {L_mag_zero:.4f}, L_edge: {L_edge_zero:.4f}, L_dice: {L_dice_zero:.4f}")
     
     # Perfect match (flow magnitude matches mask exactly)
@@ -250,7 +285,7 @@ if __name__ == "__main__":
     # Create flow that produces this magnitude
     perfect_flow[:, 0] = perfect_mag * 0.7  # u component
     perfect_flow[:, 1] = perfect_mag * 0.7  # v component
-    L_mag_perf, L_edge_perf, L_dice_perf, _ = structure_loss(perfect_flow, binary_mask)
+    L_mag_perf, L_edge_perf, L_dice_perf, _ = structure_loss(perfect_flow, binary_mask,static_flow_noise_thre=static_flow_noise_thre)
     print(f"Perfect match - L_mag: {L_mag_perf:.4f}, L_edge: {L_edge_perf:.4f}, L_dice: {L_dice_perf:.4f}")
     
     print("\nTest completed successfully!")
