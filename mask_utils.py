@@ -24,9 +24,12 @@ def flow_to_magnitude_robust_simple(flow, noise_threshold_px=5e-2):
     # If max magnitude is below noise threshold, return zeros
     if raw_mag.max() < noise_threshold_px:
         # print('///////////////zet to zero of the flow//////////////////////')
-        return torch.zeros_like(raw_mag)
-    else:
-        return raw_mag
+        # raw_mag = torch.zeros_like(raw_mag)
+        
+        # use clamp to 0, therefore we can retain the grad if exist
+        raw_mag = raw_mag.clamp(0, noise_threshold_px)
+
+    return raw_mag
 
 def normalize_map(x, p=99.0):
     # robust normalization: divide by p-th percentile per-sample to avoid outliers
@@ -188,9 +191,7 @@ if __name__ == "__main__":
     static_flow_noise_thre = 0.01#1e-3
 
     #debug flow_mag_robust
-    # print('/////before flow max and min', flow.max(), flow.min())
-    flow = flow*(static_flow_noise_thre*0.001)
-    # print('///after flow max and min', flow.max(), flow.min())
+    # flow = flow*(static_flow_noise_thre*0.001)
 
     # Create binary mask (B, H, W) with {0, 1}
     binary_mask = torch.zeros(B, H, W, device=device)
