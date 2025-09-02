@@ -43,7 +43,15 @@ class MonodepthOptions:
                                  default="color",
                                  choices=["color",'color_MotionCorrected','motion_masked_color', 'gt_motion_masked_color_debug'])
 
-        #/////////
+        #/////REGULARIZATION LOSS/////
+        self.parser.add_argument("--use_loss_motion_mask_reg",
+                                 help="maybe we can unfreeze depth with this regularization,used to force the structure of motion_mask is similar to optic_flow, implementaion varied for soft_mask and hard_mask, make sure gard_is enable for the computed motion_mask",
+                                 action="store_true")
+        self.parser.add_argument("--motion_mask_reg_loss_weight",
+                                 type=float,
+                                 help="weight for the motion mask regularization loss",
+                                 default=0.01)
+
         self.parser.add_argument("--use_loss_reproj2_nomotion",
                                  help="used to addtionally supervise the pose flow to be effective---imporant to get good pose when eval!",
                                  action="store_true")
@@ -57,9 +65,9 @@ class MonodepthOptions:
                                  help="which image to supervise",
                                  default="color",
                                  choices=['color'])
-        self.parser.add_argument("--reproj2_turnoff_motion_based mask",
-                                 help="it will compute: motion_flow, pose_flow, motion_mask, color_motion_warped",
-                                 action="store_true")
+        # self.parser.add_argument("--reproj2_turnoff_motion_based mask",
+        #                          help="it will compute: motion_flow, pose_flow, motion_mask, color_motion_warped",
+        #                          action="store_true")
         self.parser.add_argument("--enable_mutual_motion",
                                  help="can be expensive as evertyhign including depth need to computer s2t version, it will compute: motion_flow, pose_flow, motion_mask, color_motion_warped",
                                  action="store_true")
@@ -73,7 +81,7 @@ class MonodepthOptions:
                                  help="if set, uses soft motion mask; we notice we can still get some confidence despite for SCARED dataset---can be potentially useful for other datasets",
                                  action="store_true")
         self.parser.add_argument("--enable_grad_flow_motion_mask",
-                                 help="if set, uses grad flow motion mask; we implement such a version also for binary mask",
+                                 help="This is critical to enabel if use_motion_mask_reg_loss is on.if set, uses grad flow motion mask; we implement such a version also for binary mask",
                                  action="store_true")
         #/////////
 

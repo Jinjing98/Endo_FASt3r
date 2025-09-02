@@ -96,6 +96,7 @@ class Trainer:
             print('update options for debug purposes...')
             options.num_epochs = 50000
             options.batch_size = 1
+            options.batch_size = 2
             options.accumulate_steps = 1  # Effective batch size = 1 * 12 = 12
             options.log_frequency = 10
             options.save_frequency = 100000# no save
@@ -103,9 +104,14 @@ class Trainer:
 
             options.enable_motion_computation = True
             options.use_loss_reproj2_nomotion = True
-            # options.use_soft_motion_mask = True
+            options.use_soft_motion_mask = True
+
+
             options.enable_grad_flow_motion_mask = True
+            options.use_loss_motion_mask_reg = True
+
             # options.enable_mutual_motion = True
+
 
             # options.zero_pose_debug = True
 
@@ -138,22 +144,29 @@ class Trainer:
             # options.frame_ids = [0, -14, 14]
 
             # not okay to use: we did not adjust the init_K accordingly yet
-            # options.height = 192
-            # options.width = 224
+            options.height = 192
+            options.width = 224
 
             options.dataset = "endovis"
             options.data_path = "/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/"
             options.split_appendix = ""
 
-            # options.dataset = "DynaSCARED"
-            # options.data_path = "/mnt/cluster/datasets/Surg_oclr_stereo/"
-            # options.split_appendix = "_CaToTi000"
-            # options.split_appendix = "_CaToTi001"
-            # # options.split_appendix = "_CaToTi110"
-            # options.split_appendix = "_CaToTi101"
+            options.dataset = "DynaSCARED"
+            options.data_path = "/mnt/cluster/datasets/Surg_oclr_stereo/"
+            options.split_appendix = "_CaToTi000"
+            options.split_appendix = "_CaToTi001"
+            # options.split_appendix = "_CaToTi110"
+            options.split_appendix = "_CaToTi101"
 
         self.opt = options
         
+        # sanity check some params early
+        if self.opt.use_loss_motion_mask_reg:
+            assert self.opt.enable_grad_flow_motion_mask, "enable_grad_flow_motion_mask must be True when use_loss_motion_mask_reg is True"
+
+
+
+
         from datetime import datetime
         # Current timestamp without year: month-day-hour-minute-second
         timestamp = datetime.now().strftime("%m%d-%H%M%S")
@@ -553,10 +566,14 @@ class Trainer:
                 # Use the accumulated loss for logging (multiply back to show effective loss)
                 # effective_loss = losses["loss"] * (self.opt.accumulate_steps / max(1, accumulate_step % self.opt.accumulate_steps))
                 # self.log_time(batch_idx, duration, effective_loss.cpu().data)
+
+                # losses_0
                 losses_to_log = {
-                    "loss": scaled_loss,
-                    "loss_0": scaled_loss_0,
+                    "loss_0": losses_0["loss"],
                 }
+                # catains the breakdown of losses
+                losses_to_log = {**losses_to_log, **losses}
+
                 errs_to_log = {}
                 metric_errs = {}
                 if self.train_dataset.load_gt_poses:
@@ -574,7 +591,9 @@ class Trainer:
                     # mean over frames_ids (already mean over batches internally)
                     errs_to_log[f"{k}"] = torch.mean(torch.stack(v)).item()
 
-                self.log_time(batch_idx, duration, scaled_loss.cpu().data, scaled_loss_0.cpu().data, 
+                self.log_time(batch_idx, duration, 
+                              scaled_loss.cpu().data, 
+                              scaled_loss_0.cpu().data, 
                               errs_to_log)
 
                 scalers_to_log = {**losses_to_log, **errs_to_log}
@@ -1173,6 +1192,24 @@ class Trainer:
         # return trans_err_list, rot_err_list
         return metrics_list_dict
 
+    def compute_motion_mask_reg_loss(self, optic_flow, motion_mask, is_soft_mask):
+        assert optic_flow.dim() == 4, f'optic_flow.dim() is {optic_flow.dim()}'
+        assert motion_mask.dim() == 3, f'motion_mask.dim() is {motion_mask.dim()}'
+        assert optic_flow.shape[1] == 2, f'optic_flow.shape[1] is {optic_flow.shape[1]}'
+        # print(f'optic_flow.shape: {optic_flow.shape}')
+        # print(f'motion_mask.shape: {motion_mask.shape}')
+        
+        from mask_utils import structure_loss_soft, structure_loss
+        
+        if is_soft_mask:
+            loss_mag, loss_edge, loss_dice, imgs_debug = structure_loss_soft(optic_flow, motion_mask)
+        else:
+            # check the motion mask is binary
+            assert motion_mask.max() in [0,1], f'motion_mask.max() is {motion_mask.max()}'
+            assert motion_mask.min() in [0,1], f'motion_mask.min() is {motion_mask.min()}'
+            loss_mag, loss_edge, loss_dice, imgs_debug = structure_loss(optic_flow, motion_mask)
+        
+        return loss_mag, loss_edge, loss_dice, imgs_debug
 
     def compute_reprojection_loss(self, pred, target):
 
@@ -1200,6 +1237,13 @@ class Trainer:
             loss_cvt = 0
             if self.opt.use_loss_reproj2_nomotion:
                 loss2_reprojection = 0
+            if self.opt.use_loss_motion_mask_reg:
+                assert self.opt.enable_grad_flow_motion_mask, "enable_grad_flow_motion_mask must be True when use_loss_motion_mask_reg is True"
+
+                # loss_motion_mask_reg = 0
+                loss_reg_dice = 0
+                loss_reg_edge = 0
+                loss_reg_mag = 0
 
             if self.opt.v1_multiscale:
                 source_scale = scale
@@ -1263,13 +1307,69 @@ class Trainer:
                 if self.opt.enable_mutual_motion:
                     # computational expensive but safer
                     motion_mask_s2t_backward = outputs[("motion_mask_s2t_backward", 0, frame_id)].detach()
-                    valid_mask2 = motion_mask_backward * motion_mask_s2t_backward
+                    # conver to binary if it was soft motion mask: this is critical for soft motion mask regularization loss
+                    valid_mask2 = (motion_mask_backward > 0.5).float() * (motion_mask_s2t_backward > 0.5).float()
                 else:
-                    valid_mask2 = motion_mask_backward
+                    valid_mask2 = (motion_mask_backward > 0.5).float()
 
                 if self.opt.use_loss_reproj2_nomotion:
                     loss2_reprojection += (
                         self.compute_reprojection_loss(reproj_loss2_supervised_tgt_color, reproj_loss2_supervised_signal_color) * valid_mask2).sum() / valid_mask2.sum()  
+                    
+                #compute motion mask reg loss
+                if self.opt.use_loss_motion_mask_reg and scale == 0:
+                    optic_flow = outputs[("position", "high", 0, frame_id)]
+                    motion_mask = outputs[("motion_mask_backward", 0, frame_id)].squeeze(1)
+
+                    loss_mag, loss_edge, loss_dice, imgs_debug = self.compute_motion_mask_reg_loss(
+                        optic_flow, 
+                        1-motion_mask,# we want to apply strcuture loss of moiton_mask where motion is positive
+                        is_soft_mask=self.opt.use_soft_motion_mask)
+                    # print(f'loss_mag: {loss_mag}, loss_edge: {loss_edge}, loss_dice: {loss_dice}')
+                    
+
+                    if self.step % self.opt.log_frequency == 0:
+                        save_root = os.path.join(self.log_path, f'motion_mask_reg_related')
+                        os.makedirs(save_root, exist_ok=True)
+                        # concat image in imgs_debug
+                        from utils import color_to_cv_img
+                        concat_imgs = []
+                        for batch_idx in range(self.opt.batch_size):
+                            concat_img = np.concatenate([color_to_cv_img(img[batch_idx][None]) for k, img in imgs_debug.items()], axis=1)
+                            concat_imgs.append(concat_img)
+                        concat_img = np.concatenate(concat_imgs, axis=0)
+                        save_path = os.path.join(save_root, f'{self.step}_concat.png')
+                        cv2.imwrite(save_path, concat_img)
+                        print(f'saved concat image to {save_path}')
+                            # cv2.imwrite(save_path, concat_img)
+                            # print(f'saved concat image to {save_path}')
+
+                        # # save each image in imgs_debug
+                        # for k, img in imgs_debug.items():
+                        #     # print(f'{k}: {img.shape}')
+                        #     from utils import color_to_cv_img
+                        #     batch_idx = 0
+                        #     img_cv = color_to_cv_img(img[batch_idx][None])
+                        #     save_path = os.path.join(save_root, f'{self.step}_{k}.png')
+                        #     cv2.imwrite(save_path, img_cv)
+                        #     # print(f'saved {k} to {save_path}')
+
+                    loss_reg_dice += loss_dice
+                    loss_reg_edge += loss_edge
+                    loss_reg_mag += loss_mag
+
+                    if self.opt.enable_mutual_motion:
+                        optic_flow = outputs[("position_inverse", "high", 0, frame_id)]
+                        motion_mask = outputs[("motion_mask_s2t_backward", 0, frame_id)].squeeze(1)
+
+                        loss_mag, loss_edge, loss_dice, imgs_debug = self.compute_motion_mask_reg_loss(
+                            optic_flow, 
+                            1-motion_mask,# we want to apply strcuture loss of moiton_mask where motion is positive
+                            is_soft_mask=self.opt.use_soft_motion_mask)
+                        # loss_motion_mask_reg += (weights[0] * loss_mag + weights[1] * loss_edge + weights[2] * loss_dice) * self.opt.motion_mask_reg_loss_weight
+                        loss_reg_dice += loss_dice
+                        loss_reg_edge += loss_edge
+                        loss_reg_mag += loss_mag
 
             mean_disp = disp.mean(2, True).mean(3, True)
             norm_disp = disp / (mean_disp + 1e-7)
@@ -1280,11 +1380,34 @@ class Trainer:
             loss += self.opt.transform_smoothness * (loss_cvt / 2.0) 
             loss += self.opt.disparity_smoothness * smooth_loss / (2 ** scale)
             
+            if self.opt.use_loss_motion_mask_reg:
+                weights = [1.0, 0.2, 0.05]
+                # only on scale 0
+                loss += self.opt.motion_mask_reg_loss_weight * \
+                    ((weights[0] * loss_reg_mag \
+                        + weights[1] * loss_reg_edge \
+                            + weights[2] * loss_reg_dice) / 2.0 )
+
             if self.opt.use_loss_reproj2_nomotion:
                 loss += loss2_reprojection / 2.0
 
             total_loss += loss
+            # total
             losses["loss/{}".format(scale)] = loss
+
+            # log in loss breakdown
+            # log in the loss_reproj
+            losses['loss/scale_{}_reproj'.format(scale)] = loss_reprojection
+            losses['loss/scale_{}_transform'.format(scale)] = loss_transform
+            losses['loss/scale_{}_cvt'.format(scale)] = loss_cvt
+            if self.opt.use_loss_motion_mask_reg:
+                losses['loss/scale_{}_motion_mask_reg_mag'.format(scale)] = loss_reg_mag
+                losses['loss/scale_{}_motion_mask_reg_edge'.format(scale)] = loss_reg_edge
+                losses['loss/scale_{}_motion_mask_reg_dice'.format(scale)] = loss_reg_dice
+
+            if self.opt.use_loss_reproj2_nomotion:
+                losses['loss/scale_{}_reproj2_nomotion'.format(scale)] = loss2_reprojection
+
 
         total_loss /= self.num_scales
         losses["loss"] = total_loss
@@ -1411,13 +1534,13 @@ class Trainer:
                 print(f"{k}: {v:.3f}", end=" | ")
             print()
 
-    def log(self, mode, inputs, outputs, losses, compute_vis=True, online_vis=False):
+    def log(self, mode, inputs, outputs, scalers_to_log, compute_vis=True, online_vis=False):
         """Write an event to the tensorboard events file
         """
         writer = self.writers[mode]
-        for l, v in losses.items():
+
+        for l, v in scalers_to_log.items():
             writer.add_scalar("{}".format(l), v, self.step)
-        
         #
 
         src_imgs = []
