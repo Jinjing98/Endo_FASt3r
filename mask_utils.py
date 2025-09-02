@@ -24,14 +24,36 @@ def flow_to_magnitude_robust_simple(flow, noise_threshold_px=5e-2):
     # If max magnitude is below noise threshold, return zeros
     if raw_mag.max() < noise_threshold_px:
         # print('///////////////zet to zero of the flow//////////////////////')
-        # raw_mag = torch.zeros_like(raw_mag)
-        
-        # use clamp to 0, therefore we can retain the grad if exist
-        raw_mag = raw_mag.clamp(0, noise_threshold_px)
+        assert raw_mag.requires_grad == False, 'below implementation will drop grads if exists, but in current implementation we use motion_flow/optic_flow without grads as supervision for motion mask learning'
+        raw_mag = torch.zeros_like(raw_mag)
 
     return raw_mag
 
-def normalize_map(x, p=99.0):
+
+import torch
+
+# def normalize_map_push_contrasive_flow(x, valid_motion_threshold_px = 0.25, alpha=10.0, relu_bias_for_negative_px = 0.5):
+def normalize_map(x, valid_motion_threshold_px_confident_lower_bound = 0.05, valid_motion_threshold_px = 0.5, alpha=10.0, relu_bias_for_negative_px = 0.5):
+    """
+    use to gen soft motion mask from raw flow magnitude map
+    aim: for mag > valid_motion_threshold_px, the mask should be approching 1 --while the motion flow mag indeed give some intuation regarding motion status
+    for mag < valid_motion_threshold_px, the mask should be approching 0 --while we achieve via relu+bias
+
+
+    flow_mag: (H, W) flow magnitude map, tensor
+    threshold: scalar, flow magnitude where mask ~0.5
+    alpha: controls sharpness of transition, bigger sharper
+    """
+    # return torch.sigmoid(alpha * (x - valid_motion_threshold_px))
+
+
+    # def soft_mask_from_magnitude(flow_mag, threshold=0.5, alpha=10.0):
+    bias = alpha * relu_bias_for_negative_px
+    return torch.sigmoid(alpha * torch.relu(x - valid_motion_threshold_px) -bias)
+
+
+def normalize_map_ori(x, p=99.0):
+# def normalize_map(x, p=99.0):
     # robust normalization: divide by p-th percentile per-sample to avoid outliers
     B = x.shape[0]
     out = torch.empty_like(x)
@@ -40,6 +62,9 @@ def normalize_map(x, p=99.0):
         denom = px if px>0 else x[i].max().clamp_min(eps)
         out[i] = (x[i] / (denom + eps)).clamp(0.0,1.0)
     return out
+ 
+
+ 
 
 def gaussian_blur(x, kernel_size=11, sigma=1.5):
     # use kornia if available for GPU Gaussian
@@ -178,11 +203,11 @@ if __name__ == "__main__":
     flow_u = -dy  # tangential velocity
     flow_v = dx   # tangential velocity
     
-    # Add some noise and scale
-    flow_u = flow_u + 0.1 * torch.randn(H, W)
-    flow_v = flow_v + 0.1 * torch.randn(H, W)
-    flow_u *= 5.0  # scale up
-    flow_v *= 5.0  # scale up
+    # # Add some noise and scale
+    # flow_u = flow_u + 0.01 * torch.randn(H, W)
+    # flow_v = flow_v + 0.01 * torch.randn(H, W)
+    # flow_u *= 5.0  # scale up
+    # flow_v *= 5.0  # scale up
     
     # Stack into flow tensor (B, 2, H, W)
     flow = torch.stack([flow_u, flow_v], dim=0).unsqueeze(0).repeat(B, 1, 1, 1).to(device)
@@ -191,7 +216,16 @@ if __name__ == "__main__":
     static_flow_noise_thre = 0.01#1e-3
 
     #debug flow_mag_robust
-    # flow = flow*(static_flow_noise_thre*0.001)
+    # flow = flow*(static_flow_noise_thre*0.01)
+
+    # debug later mag_n processing
+    # set flow vector to be static_flow_noise_thre if the its magnitude is below 0.1 px
+    flow_mag = torch.sqrt(flow_u**2 + flow_v**2)
+    flow_u = flow_u.clone()
+    flow_v = flow_v.clone()
+    flow_u[flow_mag < 10] = 0
+    flow_v[flow_mag < 10] = 0
+    # flow = torch.stack([flow_u, flow_v], dim=0).unsqueeze(0).repeat(B, 1, 1, 1).to(device)
 
     # Create binary mask (B, H, W) with {0, 1}
     binary_mask = torch.zeros(B, H, W, device=device)
