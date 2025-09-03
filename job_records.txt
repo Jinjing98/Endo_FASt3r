@@ -1,10 +1,17 @@
-02.Sep 
+03.Sep: inspect calib process; 
+fzD; loss_0_using_gt_supervision; binarymask; regMask_on
+94924(10h) --model_name colored_MotionCorrected_loss2nomo_000_fzD_b4_hardmask_RegMask_ignoreMotionAreaAtCalib_OFgtSup \
+OF seems in low accuracy: 94924+Raft OF, inspect if OF arch is a bottlneck.
+94927(10h) --model_name colored_MotionCorrected_loss2nomo_000_fzD_b4_hardmask_RegMask_ignoreMotionAreaAtCalib_OFgtSup \
+
+
+02.Sep: unfz still not work despite with improved motion_mask_reg; refined_img_have_issue! Bimask > Gray_mask
 
 94513 (94519 b1 version)colored_MotionCorrected_loss2nomo_000_fzD_b4_softmaskRegMF_contrasiveFlowMag_correct: soft+MF_reg+New_flow_mag_norm + fz
-94514 (94522 94526 b1 version) colored_MotionCorrected_loss2nomo_000_unfzD_b4_hardmaskRegMF_contrasiveFlowMag_correct: soft+MF_reg+New_flow_mag_norm (more step further)
+x94514 (94522 94526 b1 version) colored_MotionCorrected_loss2nomo_000_unfzD_b4_hardmaskRegMF_contrasiveFlowMag_correct: soft+MF_reg+New_flow_mag_norm (more step further)
 
-#loss priority only if 94513 works:
-94527 colored_MotionCorrected_loss2nomo_000_unfzD_b4_softmaskRegMF_contrasiveFlowMag_correct: soft+MF_reg+New_flow_mag_norm + fz
+#loss priority only if 94513 works: baseline
+X94527 colored_MotionCorrected_loss2nomo_000_fzD_b4_hardRegMF_contrasiveFlowMag_baseline: hard+MF_reg+New_flow_mag_norm + fz
 
 
 
