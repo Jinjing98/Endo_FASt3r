@@ -119,9 +119,9 @@ class Trainer:
             options.freeze_depth_debug = True
             options.model_name = "debug"
 
-            # options.ignore_motion_area_at_calib = True
+            options.ignore_motion_area_at_calib = True
 
-            options.use_raft_flow = True
+            # options.use_raft_flow = True
 
             # options.zero_pose_flow_debug = True
             # options.reproj_supervised_with_which = "raw_tgt_gt"
@@ -166,14 +166,14 @@ class Trainer:
         if self.opt.use_loss_motion_mask_reg:
             assert self.opt.enable_grad_flow_motion_mask, "enable_grad_flow_motion_mask must be True when use_loss_motion_mask_reg is True"
 
-        #/////
-        if not self.opt.debug:
-            # update the launched job if it is on queue
-            self.opt.freeze_depth_debug = True
-            self.opt.use_soft_motion_mask = False
-            self.opt.flow_reproj_supervised_with_which = "raw_tgt_gt" # should be safer considering the refined is not reasonable yet.
-            self.opt.model_name = "colored_MotionCorrected_loss2nomo_000_fzD_b4_hardRegMF_contrasiveFlowMag_baseline"
-            #/////
+        # #/////
+        # if not self.opt.debug:
+        #     # update the launched job if it is on queue
+        #     self.opt.freeze_depth_debug = True
+        #     self.opt.use_soft_motion_mask = False
+        #     self.opt.flow_reproj_supervised_with_which = "raw_tgt_gt" # should be safer considering the refined is not reasonable yet.
+        #     self.opt.model_name = "colored_MotionCorrected_loss2nomo_000_fzD_b4_hardRegMF_contrasiveFlowMag_baseline"
+        #     #/////
 
         # SANITY CHECK BEFORE TRANING START
         if self.opt.ignore_motion_area_at_calib:
@@ -635,6 +635,9 @@ class Trainer:
 
         outputs = {}
         outputs.update(self.predict_poses_0(inputs))
+        # detach compute_transfrom from predict_pose for better extention
+        outputs.update(self.compute_transform_0(inputs, outputs))
+
         losses = self.compute_losses_0(inputs, outputs)
 
         return outputs, losses
@@ -713,33 +716,77 @@ class Trainer:
                             outputs[("position", "high", scale, f_i)],
                             outputs[("position_reverse", "high", scale, f_i)])
 
-                    # transform
-                    transform_input = [outputs[("registration", 0, f_i)], inputs[("color", 0, 0)]]
-                    transform_inputs = self.models["transform_encoder"](torch.cat(transform_input, 1))
-                    outputs_2 = self.models["transform"](transform_inputs)
+            # transform
+            # outputs = self.compute_transform(inputs, outputs)
+        return outputs
 
-                    for scale in self.opt.scales:
-                        outputs[("transform", scale, f_i)] = outputs_2[("transform", scale)]
-                        outputs[("transform", "high", scale, f_i)] = F.interpolate(
-                            outputs[("transform", scale, f_i)], [self.opt.height, self.opt.width], mode="bilinear",
-                            align_corners=True)
-                                                
-                        # TWO STRATEGY TO HANDLE MOTION:
-                        refined_target = outputs[("occu_mask_backward", 0, f_i)].detach()
+    def compute_transform_0(self, inputs, outputs):
+        """Compute transform for all frame_ids.
+        
+        Args:
+            inputs: Dictionary containing input data
+            outputs: Dictionary containing output data
+            
+        Returns:
+            outputs: Updated outputs dictionary with transform results
+        """
+        return self.conduct_calib(inputs, outputs, existing_motion_mask=False)
 
-                        # # strategy 1
-                        # if self.opt.ignore_motion_area_at_calib:
-                        #     refined_target = refined_target * outputs[("motion_mask_backward", 0, f_i)].detach()
-                        #     if self.opt.enable_mutual_motion:
-                        #         refined_target = refined_target * outputs[("motion_mask_s2t_backward", 0, f_i)].detach()
+    def compute_transform(self, inputs, outputs):
+        """Compute transform for all frame_ids.
+        
+        Args:
+            inputs: Dictionary containing input data
+            outputs: Dictionary containing output data
+            
+        Returns:
+            outputs: Updated outputs dictionary with transform results
+        """
+        return self.conduct_calib(inputs, outputs, 
+                                      existing_motion_mask=self.opt.enable_motion_computation)
 
-                        # strategy 2: use regularizer to enforce the refined_target and gt_tgt have same LPIPS; and enforce the calib net only predict spec differece---reduce its capacity for color prediction.
-                        # to be implemented later: we potentialy need both; would be nice if in the end we can calibrate motion area too.
 
-                        outputs[("refined", scale, f_i)] = (outputs[("transform", "high", scale, f_i)] * refined_target + inputs[("color", 0, 0)])
+    def conduct_calib(self, inputs, outputs, existing_motion_mask):
+        """Compute transform for all frame_ids.
+        
+        Args:
+            inputs: Dictionary containing input data
+            outputs: Dictionary containing output data
+            
+        Returns:
+            outputs: Updated outputs dictionary with transform results
+        """
+        for f_i in self.opt.frame_ids[1:]:
+            if f_i != "s":
+                # transform
+                transform_input = [outputs[("registration", 0, f_i)], inputs[("color", 0, 0)]]
+                transform_inputs = self.models["transform_encoder"](torch.cat(transform_input, 1))
+                outputs_2 = self.models["transform"](transform_inputs)
 
-                        outputs[("refined", scale, f_i)] = torch.clamp(outputs[("refined", scale, f_i)], min=0.0,
-                                                                       max=1.0)
+                for scale in self.opt.scales:
+                    outputs[("transform", scale, f_i)] = outputs_2[("transform", scale)]
+                    outputs[("transform", "high", scale, f_i)] = F.interpolate(
+                        outputs[("transform", scale, f_i)], [self.opt.height, self.opt.width], mode="bilinear",
+                        align_corners=True)
+                                            
+                    # TWO STRATEGY TO HANDLE MOTION:
+                    calib_target_area = outputs[("occu_mask_backward", 0, f_i)].detach()
+
+                    # strategy 1
+                    if existing_motion_mask and self.opt.ignore_motion_area_at_calib:
+                        calib_target_area = calib_target_area * outputs[("motion_mask_backward", 0, f_i)].detach()
+                        if self.opt.enable_mutual_motion:
+                            calib_target_area = calib_target_area * outputs[("motion_mask_s2t_backward", 0, f_i)].detach()
+
+                    # strategy 2: use regularizer to enforce the calib_target_area and gt_tgt have same LPIPS; and enforce the calib net only predict spec differece---reduce its capacity for color prediction.
+                    # to be implemented later: we potentialy need both; would be nice if in the end we can calibrate motion area too.
+
+
+
+                    outputs[("refined", scale, f_i)] = (outputs[("transform", "high", scale, f_i)] * calib_target_area + inputs[("color", 0, 0)])
+
+                    outputs[("refined", scale, f_i)] = torch.clamp(outputs[("refined", scale, f_i)], min=0.0,
+                                                                   max=1.0)
         return outputs
 
     def compute_losses_0(self, inputs, outputs):
@@ -802,7 +849,12 @@ class Trainer:
         if self.use_pose_net:
             outputs.update(self.predict_poses(inputs, outputs))# img is warp from optic_flow, save as "registration" 
 
-        outputs = self.generate_images_pred(inputs, outputs)# img is warp from pose_flow('sample'), save as "color"
+        # img is warp from pose_flow('sample'), save as "color"
+        # motion masks is computed below
+        outputs = self.generate_images_pred(inputs, outputs)
+        if self.use_pose_net:
+            outputs.update(self.compute_transform(inputs, outputs))
+
         losses = self.compute_losses(inputs, outputs)
         return outputs, losses
 
@@ -850,37 +902,6 @@ class Trainer:
                         outputs[("occu_mask_backward", scale, f_i)],  outputs[("occu_map_backward", scale, f_i)]= self.get_occu_mask_backward(outputs[("position_reverse", "high", scale, f_i)])
                         outputs[("occu_map_bidirection", scale, f_i)] = self.get_occu_mask_bidirection(outputs[("position", "high", scale, f_i)],
                                                                                                           outputs[("position_reverse", "high", scale, f_i)])
-
-                    # transform
-                    transform_input = [outputs[("registration", 0, f_i)], inputs[("color", 0, 0)]]
-                    transform_inputs = self.models["transform_encoder"](torch.cat(transform_input, 1))
-                    outputs_2 = self.models["transform"](transform_inputs)
-
-                    for scale in self.opt.scales:
-
-                        outputs[("transform", scale, f_i)] = outputs_2[("transform", scale)]
-                        outputs[("transform", "high", scale, f_i)] = F.interpolate(
-                            outputs[("transform", scale, f_i)], [self.opt.height, self.opt.width], mode="bilinear", align_corners=True)
-                        
-                        
-                        refined_target = outputs[("occu_mask_backward", 0, f_i)].detach()
-
-                        # # strategy 1
-                        if self.opt.ignore_motion_area_at_calib:
-                            refined_target = refined_target * outputs[("motion_mask_backward", 0, f_i)].detach()
-                            if self.opt.enable_mutual_motion:
-                                refined_target = refined_target * outputs[("motion_mask_s2t_backward", 0, f_i)].detach()
-
-                        # strategy 2: use regularizer to enforce the refined_target and gt_tgt have same LPIPS; and enforce the calib net only predict spec differece---reduce its capacity for color prediction.
-                        # to be implemented later: we potentialy need both; would be nice if in the end we can calibrate motion area too.
-
-                        # outputs[("refined", scale, f_i)] = (outputs[("transform", "high", scale, f_i)] * outputs[("occu_mask_backward", 0, f_i)].detach()  + inputs[("color", 0, 0)])
-                        outputs[("refined", scale, f_i)] = (outputs[("transform", "high", scale, f_i)] * refined_target  + inputs[("color", 0, 0)])
-
-                        outputs[("refined", scale, f_i)] = torch.clamp(outputs[("refined", scale, f_i)], min=0.0, max=1.0)
-
-
-
                     # view0 = {'img':prepare_images(pose_feats[f_i],self.device, size = 512)}
                     # view1 = {'img':prepare_images(pose_feats[0], self.device, size = 512)}
                     # # pose2 = self.models["pose"](view0,view1)
