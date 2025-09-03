@@ -10,7 +10,7 @@ eps = 1e-6
 #     mag = torch.sqrt(u*u + v*v + 1e-12)
 #     return mag  # (B,H,W)
 
-def flow_to_magnitude_robust_simple(flow, noise_threshold_px=5e-2):
+def flow_to_magnitude_robust_simple(flow, static_flow_noise_thre=5e-2):
     """
     Ultra-simple robust flow magnitude computation.
     If max magnitude is below noise threshold, return zeros.
@@ -22,7 +22,7 @@ def flow_to_magnitude_robust_simple(flow, noise_threshold_px=5e-2):
     raw_mag = torch.sqrt(u*u + v*v + eps)
     
     # If max magnitude is below noise threshold, return zeros
-    if raw_mag.max() < noise_threshold_px:
+    if raw_mag.max() < static_flow_noise_thre:
         # print('///////////////zet to zero of the flow//////////////////////')
         assert raw_mag.requires_grad == False, 'below implementation will drop grads if exists, but in current implementation we use motion_flow/optic_flow without grads as supervision for motion mask learning'
         raw_mag = torch.zeros_like(raw_mag)
@@ -95,14 +95,19 @@ def edge_map(x):
     return grad_mag
 
 # Example loss builder
-def structure_loss(flow, mask, weights=(1.0,0.2,0.5),static_flow_noise_thre = 1e-3):
+def structure_loss(flow, mask, weights=(1.0,0.2,0.5),
+                #    static_flow_noise_thre = 1e-3,
+                   valid_motion_threshold_px = 0.5,
+                   static_flow_noise_thre = 5e-2,
+                   contrast_alpha = 10.0,
+                   ):
     # flow: (B,2,H,W), mask: (B,1,H,W) or (B,H,W) with {0,1}
     if mask.dim()==4:
         mask = mask.squeeze(1)
     # mag = flow_to_magnitude(flow)    
-    mag = flow_to_magnitude_robust_simple(flow, noise_threshold_px=static_flow_noise_thre)
+    mag = flow_to_magnitude_robust_simple(flow, static_flow_noise_thre=static_flow_noise_thre)
     #         # (B,H,W)
-    mag_n = normalize_map(mag)               # (B,H,W), in [0,1]
+    mag_n = normalize_map(mag, valid_motion_threshold_px=valid_motion_threshold_px, alpha=contrast_alpha)               # (B,H,W), in [0,1]
     mask_f = mask.float()
 
     # optionally blur to capture coarse shape
@@ -136,11 +141,16 @@ def structure_loss(flow, mask, weights=(1.0,0.2,0.5),static_flow_noise_thre = 1e
 
 
 
-def structure_loss_soft(flow, mask, weights=(1.0,0.2,0.5),static_flow_noise_thre = 1e-3):
+def structure_loss_soft(flow, mask, weights=(1.0,0.2,0.5),
+                        # static_flow_noise_thre = 1e-3,
+                        static_flow_noise_thre = 5e-2,
+                        valid_motion_threshold_px = 0.5,
+                        contrast_alpha = 10.0,
+                        ):
     # flow: (B,2,H,W), mask: (B,H,W) in [0,1]
     # mag = flow_to_magnitude(flow)           
-    mag = flow_to_magnitude_robust_simple(flow, noise_threshold_px=static_flow_noise_thre)
-    mag_n = normalize_map(mag)
+    mag = flow_to_magnitude_robust_simple(flow, static_flow_noise_thre=static_flow_noise_thre)
+    mag_n = normalize_map(mag, valid_motion_threshold_px=valid_motion_threshold_px, alpha=contrast_alpha)
     # print(f'flow.shape: {flow.shape}')               # [0,1]
     # print(f'mask.shape: {mask.shape}')
     # print(f'mag.shape: {mag.shape}')

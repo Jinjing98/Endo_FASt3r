@@ -16,7 +16,7 @@ class MonodepthOptions:
         self.parser.add_argument("--of_samples_num",                                 
                                  help="alwasy choose seveal samples for used for of",
                                  type=int,
-                                 default=1)
+                                 default=10)
         # PATHS
         self.parser.add_argument("--data_path",
                                  type=str,
@@ -47,10 +47,36 @@ class MonodepthOptions:
         self.parser.add_argument("--use_loss_motion_mask_reg",
                                  help="maybe we can unfreeze depth with this regularization,used to force the structure of motion_mask is similar to optic_flow, implementaion varied for soft_mask and hard_mask, make sure gard_is enable for the computed motion_mask",
                                  action="store_true")
+        self.parser.add_argument("--enable_grad_flow_motion_mask",
+                                 help="This is critical to enabel if use_motion_mask_reg_loss is on.if set, uses grad flow motion mask; we implement such a version also for binary mask",
+                                 action="store_true")        
         self.parser.add_argument("--motion_mask_reg_loss_weight",
                                  type=float,
                                  help="weight for the motion mask regularization loss",
                                  default=0.01)
+        self.parser.add_argument("--use_soft_motion_mask",
+                                 help="if set, uses soft motion mask; we notice we can still get some confidence despite for SCARED dataset---can be potentially useful for other datasets",
+                                 action="store_true")
+        # other reg related hyper: valid_motion_threshold_px
+
+        self.parser.add_argument("--static_flow_noise_thre",
+                                 type=float,
+                                 help="threshold for filter noise in flow_mag",
+                                 default=5e-2)
+        self.parser.add_argument("--valid_motion_threshold_px",
+                                 type=float,
+                                 help="can be critical--define how to norm the flow_mag when supervise the motion_mask in the reg",
+                                 default=0.5)
+        self.parser.add_argument("--contrast_alpha",
+                                 type=float,
+                                 help="contrast_alpha when norm the flow_mag",
+                                 default=10.0)
+        self.parser.add_argument("--motion_mask_thre_px",
+                                 type=float,
+                                 help="only used when non_soft, by far only used when compute binary mask, smaller, more aggressive(safe), threshold for motion mask, if flow norm is less than this, set motion mask to 1",
+                                 default=3,
+                                 choices=[3, 1,])
+
 
         self.parser.add_argument("--use_loss_reproj2_nomotion",
                                  help="used to addtionally supervise the pose flow to be effective---imporant to get good pose when eval!",
@@ -71,18 +97,7 @@ class MonodepthOptions:
         self.parser.add_argument("--enable_mutual_motion",
                                  help="can be expensive as evertyhign including depth need to computer s2t version, it will compute: motion_flow, pose_flow, motion_mask, color_motion_warped",
                                  action="store_true")
-        #/////
-        self.parser.add_argument("--motion_mask_thre_px",
-                                 type=float,
-                                 help="by far only used when compute binary mask, smaller, more aggressive(safe), threshold for motion mask, if flow norm is less than this, set motion mask to 1",
-                                 default=3,
-                                 choices=[3, 1,])
-        self.parser.add_argument("--use_soft_motion_mask",
-                                 help="if set, uses soft motion mask; we notice we can still get some confidence despite for SCARED dataset---can be potentially useful for other datasets",
-                                 action="store_true")
-        self.parser.add_argument("--enable_grad_flow_motion_mask",
-                                 help="This is critical to enabel if use_motion_mask_reg_loss is on.if set, uses grad flow motion mask; we implement such a version also for binary mask",
-                                 action="store_true")
+
         #/////////
 
         

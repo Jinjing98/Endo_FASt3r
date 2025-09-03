@@ -165,6 +165,14 @@ class Trainer:
             assert self.opt.enable_grad_flow_motion_mask, "enable_grad_flow_motion_mask must be True when use_loss_motion_mask_reg is True"
 
 
+        #/////
+        if not self.opt.debug:
+            # update the launched job if it is on queue
+            self.opt.freeze_depth_debug = True
+            self.opt.use_soft_motion_mask = False
+            self.opt.model_name = "colored_MotionCorrected_loss2nomo_000_fzD_b4_hardRegMF_contrasiveFlowMag_baseline"
+            #/////
+
 
 
         from datetime import datetime
@@ -1223,10 +1231,17 @@ class Trainer:
         from mask_utils import structure_loss_soft, structure_loss
         
         if is_soft_mask:
-            loss_mag, loss_edge, loss_dice, imgs_debug = structure_loss_soft(reg_tgt_flow, motion_mask)
+            loss_mag, loss_edge, loss_dice, imgs_debug = structure_loss_soft(reg_tgt_flow, motion_mask,
+                                                                             valid_motion_threshold_px=self.opt.valid_motion_threshold_px,
+                                                                             contrast_alpha=self.opt.contrast_alpha,
+                                                                             static_flow_noise_thre=self.opt.static_flow_noise_thre,
+                                                                             )
         else:
-            loss_mag, loss_edge, loss_dice, imgs_debug = structure_loss(reg_tgt_flow, motion_mask)
-        
+            loss_mag, loss_edge, loss_dice, imgs_debug = structure_loss(reg_tgt_flow, motion_mask,
+                                                                         valid_motion_threshold_px=self.opt.valid_motion_threshold_px,
+                                                                         contrast_alpha=self.opt.contrast_alpha,
+                                                                         static_flow_noise_thre=self.opt.static_flow_noise_thre,
+                                                                         )
         return loss_mag, loss_edge, loss_dice, imgs_debug
 
     def compute_reprojection_loss(self, pred, target):
@@ -1284,6 +1299,7 @@ class Trainer:
                 elif self.opt.reproj_supervised_which == "color":
                     reproj_loss_supervised_tgt_color = outputs[("color", frame_id, scale)] 
                 else:
+                    assert self.opt.enable_motion_computation, "enable_motion_computation must be True when reproj_supervised_which is color_MotionCorrected"
                     raise ValueError(f"Invalid reproj_supervised_which: {self.opt.reproj_supervised_which}")
 
                 #phedo gt
@@ -1371,10 +1387,12 @@ class Trainer:
                         save_root = os.path.join(self.log_path, f'motion_mask_reg_related')
                         os.makedirs(save_root, exist_ok=True)
                         # concat image in imgs_debug
-                        from utils import color_to_cv_img
+                        # from utils import color_to_cv_img
+                        from utils import gray_to_cv_img
                         concat_imgs = []
                         for batch_idx in range(self.opt.batch_size):
-                            concat_img = np.concatenate([color_to_cv_img(img[batch_idx][None]) for k, img in imgs_debug.items()], axis=1)
+                            # concat_img = np.concatenate([color_to_cv_img(img[batch_idx][None]) for k, img in imgs_debug.items()], axis=1)
+                            concat_img = np.concatenate([gray_to_cv_img(img[batch_idx][None]) for k, img in imgs_debug.items()], axis=1)
                             concat_imgs.append(concat_img)
                         concat_img = np.concatenate(concat_imgs, axis=0)
                         save_path = os.path.join(save_root, f'{self.step}_concat.png')
@@ -1427,6 +1445,12 @@ class Trainer:
             
             if self.opt.use_loss_motion_mask_reg:
                 weights = [1.0, 0.2, 0.05]
+                # cheat for potentially success full training!
+                # remove edge loss--not sig helps? but the new_norm introduce complex grads?
+                weights = [1.0, 0.0, 0.05]
+                weights = [1.0, 0.0, 0.0]
+
+
                 # only on scale 0
                 loss += self.opt.motion_mask_reg_loss_weight * \
                     ((weights[0] * loss_reg_mag \
