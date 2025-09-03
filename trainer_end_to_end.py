@@ -1698,7 +1698,8 @@ class Trainer:
                 for frame_id in self.opt.frame_ids[1:2]:  # only for one is enough for debug
 
                     writer.add_image(
-                        "IMG/tgt_refined_{}_{}/{}".format(frame_id, s, j),
+                        # "IMG/tgt_refined_{}_{}/{}".format(frame_id, s, j),
+                        "GT/tgt_refined_{}_{}/{}".format(frame_id, s, j),
                         outputs[("refined", s, frame_id)][j].data, self.step)
                     writer.add_image(
                         "Other/brightness_{}_{}/{}".format(frame_id, s, j),
