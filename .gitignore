@@ -6,6 +6,8 @@ __pycache__/*
 *.png
 splits/*
 
+# reloc3r_uni/*
+
 
 fast3r_ckpts/*
 
