@@ -303,6 +303,24 @@ class Trainer:
         else:
             print('CHECK: NO self.opt.predictive_mask')
 
+        #///////////params stats//////////
+        # report for total num of params and trainable params for each model in self.models
+        for model_name, model in self.models.items():
+            print(f"Model: {model_name}")
+            total_params = sum(p.numel() for p in model.parameters())
+            total_params_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+            # show in MB
+            print(f"  Total params: {total_params} ({total_params / 1024 / 1024:.2f} MB)")
+            print(f"  Total params trainable: {total_params_trainable} ({total_params_trainable / 1024 / 1024:.2f} MB)")
+            # print(f"  Total params non-trainable: {(total_params - total_params_trainable) / 1024 / 1024:.2f} MB")
+        # sum over all the models
+        total_params = sum(sum(p.numel() for p in model.parameters()) for model in self.models.values())
+        total_params_trainable = sum(sum(p.numel() for p in model.parameters() if p.requires_grad) for model in self.models.values())
+        print(f"Total params: {total_params} ({total_params / 1024 / 1024:.2f} MB)")
+        print(f"Total params trainable: {total_params_trainable} ({total_params_trainable / 1024 / 1024:.2f} MB)")
+
+
+
         self.model_optimizer = optim.Adam(self.parameters_to_train, self.opt.learning_rate)
         self.model_lr_scheduler = optim.lr_scheduler.StepLR(self.model_optimizer, self.opt.scheduler_step_size, 0.1)
 
