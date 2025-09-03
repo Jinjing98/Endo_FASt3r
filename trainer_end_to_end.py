@@ -1728,11 +1728,11 @@ class Trainer:
                         # add src and tgt
                         writer.add_image(
                             "GT/tgt_{}_{}/{}".format(frame_id, s, j),
-                            inputs[("color", frame_id, s)][j].data, self.step) 
+                            inputs[("color", 0, s)][j].data, self.step) 
                        # add gt_source
                         writer.add_image(
                             "GT/source_{}_{}/{}".format(frame_id, s, j),
-                            inputs[("color", 0, s)][j].data, self.step)  
+                            inputs[("color", frame_id, s)][j].data, self.step)  
                         # add supervised_img
                         writer.add_image(
                             "GT/reproj_supervised_tgt_color_debug_{}_{}/{}".format(frame_id, s, j),
