@@ -53,6 +53,7 @@ class TransformDecoder(nn.Module):
             x = torch.cat(x, 1)
             x = self.convs[("upconv", i, 1)](x)
             if i in self.scales:
-                self.outputs[("transform", i)] = self.Tanh(self.convs[("transform_conv", i)](x))
+                # range in -1 to 1
+                self.outputs[("transform", i)] = self.Tanh(self.convs[("transform_conv", i)](x))# B 3 H W
 
         return self.outputs

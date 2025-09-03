@@ -11,6 +11,8 @@ import numpy as np
 # Convert standard RGB torch tensors to OpenCV BGR
 def color_to_cv_img(img_tensor):
     img = img_tensor.cpu().numpy().transpose(1, 2, 0)*255   # CHW -> HWC
+    # print('img shape:', img.shape)
+    # print('img max and min:', img.max(), img.min())
     img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
     return img
 

@@ -1,6 +1,31 @@
+02.Sep 
+
+94513 (94519 b1 version)colored_MotionCorrected_loss2nomo_000_fzD_b4_softmaskRegMF_contrasiveFlowMag_correct: soft+MF_reg+New_flow_mag_norm + fz
+94514 (94522 94526 b1 version) colored_MotionCorrected_loss2nomo_000_unfzD_b4_hardmaskRegMF_contrasiveFlowMag_correct: soft+MF_reg+New_flow_mag_norm (more step further)
+
+#loss priority only if 94513 works:
+94527 colored_MotionCorrected_loss2nomo_000_unfzD_b4_softmaskRegMF_contrasiveFlowMag_correct: soft+MF_reg+New_flow_mag_norm + fz
+
+
+
+94473 b1 quick_trn: see if the soft motion mask is making sense: 
+    colored_MotionCorrected_loss2nomo_000_fzD_b1_accu4_softmaskRegMF_correct is making sense. colored_MotionCorrected_loss2nomo_000_unfzD_b1_accu4_softmaskRegMF_correct
+/////colored_MotionCorrected_loss2nomo_000_unfzD_b4_softmaskRegPF_correct: 94466(10h) 94452(15h) a100
+
+
+
 31.Aug
+
+/////colored_MotionCorrected_loss2nomo_000_fzD_b4_softmaskReg_correct: 94231(15h) a100
+/////colored_MotionCorrected_loss2nomo_000_unfzD_b4_softmaskReg_correct: 94234(15h) a100
+
+# we expect to unfreeze depth with the help of reg term
+/////colored_MotionCorrected_loss2nomo_000_fzD_b4(wrongname_actualb1)_accu4_softmaskReg_correct: X94232 v100 quick results
+/////colored_MotionCorrected_loss2nomo_000_unfzD_b4(wrongname_actualb1)_accu4_softmaskReg_correct: X94233 v100 quick results
+
+
 /////colored_MotionCorrected_loss2nomo_000_fzD_b1_correct: 93977  b1_accu4 93865+freeze_depth# quick resullts
-/////colored_MotionCorrected_loss2nomo_000_fzD_b4_correct: 93972(20h) 93995(4h)  93865+freeze_depth
+/////colored_MotionCorrected_loss2nomo_000_fzD_b4_correct:  X93972(20h. alright but the pose_err can not further reduced after iter 4k) 93995(4h)  93865+freeze_depth
 /////colored_MotionCorrected_loss2nomo_000_fzD_b4(wrongly named, we forget enable loss2): 93923(2h)  92405+freeze_depth
 
 /////colored_MotionCorrected_loss2nomo_000_b1: 93876  v100 use addtionaly loss_reprj2 on static area only

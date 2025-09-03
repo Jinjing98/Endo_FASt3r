@@ -42,6 +42,10 @@ class MonodepthOptions:
                                  help="which image to supervise",
                                  default="color",
                                  choices=["color",'color_MotionCorrected','motion_masked_color', 'gt_motion_masked_color_debug'])
+        #/////MOTION HANDLING WHEN CALIB/////
+        self.parser.add_argument("--ignore_motion_area_at_calib",
+                                 help="if set, ignore the motion area at calib",
+                                 action="store_true")
 
         #/////REGULARIZATION LOSS/////
         self.parser.add_argument("--use_loss_motion_mask_reg",
