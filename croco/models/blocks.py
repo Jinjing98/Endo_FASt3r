@@ -189,7 +189,7 @@ class DecoderBlock(nn.Module):
         x = x + self.drop_path(self.cross_attn(self.norm2(x), y_, y_, xpos, ypos))
         x = x + self.drop_path(self.mlp(self.norm3(x)))
         return x, y
-        
+            
         
 # patch embedding
 class PositionGetter(object):

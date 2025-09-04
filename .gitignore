@@ -4,6 +4,7 @@ __pycache__/*
 *.ipynb
 *.npz
 *.png
+*.egg-info/*
 splits/*
 
 # reloc3r_uni/*
