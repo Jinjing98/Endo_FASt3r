@@ -107,7 +107,7 @@ class Trainer:
             options.use_loss_reproj2_nomotion = True
             # options.use_soft_motion_mask = True
 
-            options.pose_model_type = "uni_reloc3r"
+            # options.pose_model_type = "uni_reloc3r"
 
             options.enable_grad_flow_motion_mask = True
             options.use_loss_motion_mask_reg = True

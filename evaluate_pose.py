@@ -176,9 +176,14 @@ def evaluate(opt):
             for key, ipt in inputs.items():
                 inputs[key] = ipt.to(device)
 
+            # view1 = {'img':prepare_images(inputs[("color", 1, 0)] , device,  size = 512)}
+            # view0 = {'img':prepare_images(inputs[("color", 0, 0)], device, size = 512)}
+            # pose2,_  = pose_model(view0,view1)
+
             view1 = {'img':prepare_images(inputs[("color", 1, 0)] , device,  size = 512)}
-            view0 = {'img':prepare_images(inputs[("color", 0, 0)], device, size = 512)}
-            pose2,_  = pose_model(view0,view1)
+            view2 = {'img':prepare_images(inputs[("color", 0, 0)], device, size = 512)}
+            _ , pose2 = pose_model(view1,view2)# 
+
             pred_poses.append(pose2["pose"].cpu().numpy())
 
     pred_poses = np.concatenate(pred_poses)

@@ -61,8 +61,9 @@ class MonoDataset(data.Dataset):
         self.interp = Image.LANCZOS
 
         self.frame_ids = frame_ids
-        assert self.frame_ids[0] == 0, "frame_ids[0] must be 0"
-        assert len(self.frame_ids) == 3, "frame_ids must be of length 3"
+        assert self.frame_ids[0] == 0, f"frame_ids[0] must be 0, but got {self.frame_ids[0]}"
+        # not assert during eval.
+        # assert len(self.frame_ids) == 3, f"frame_ids must be of length 3, but got {self.frame_ids}"
 
         self.is_train = is_train
         self.img_ext = img_ext

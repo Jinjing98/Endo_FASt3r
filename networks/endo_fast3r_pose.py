@@ -437,6 +437,8 @@ class PoseHead(nn.Module):
         pose = self.convert_pose_to_4x4(B, out_r, out_t, tokens.device)
         res = {"pose": pose}
 
+        # print('endofast3r pose_head returned pose:', pose)
+
         return res
 
 
