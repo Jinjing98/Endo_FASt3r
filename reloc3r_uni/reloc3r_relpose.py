@@ -9,11 +9,6 @@ from functools import partial
 from croco.stereoflow.datasets_flow import flowToColor 
 import sys
 import reloc3r_uni.utils.path_to_croco
-# we use easi3r croco models--the decoder already adapted by us
-# CROCO_REPO_PATH = '/mnt/cluster/workspaces/jinjingxu/proj/UniSfMLearner/submodule/Endo_FASt3r/croco'
-# assert os.path.exists(os.path.join(CROCO_REPO_PATH, 'models')), f"croco is not initialized, could not find: {CROCO_REPO_PATH}.\n "
-# sys.path.insert(0, CROCO_REPO_PATH)
-
 # from patch_embed import ManyAR_PatchEmbed
 from reloc3r_uni.patch_embed import ManyAR_PatchEmbed
 from models.pos_embed import RoPE2D 
@@ -57,10 +52,53 @@ import torch.nn.functional as F
 inf = float('inf')
 
 
-def load_UniReloc3r_model(ckpt_path, img_size, device):
+def load_UniReloc3r_model(ckpt_path, img_size, device, output_dir = None):
     model = Reloc3rRelpose(img_size=img_size)
     model.to(device)
     ckpt = torch.load(ckpt_path, map_location=device)
+    # #//
+    # if ckpt_path is None:
+    #     assert 0, 'ckpt_path is None'
+
+    #     # ckpt_path = 'siyan824/reloc3r-224'
+    #     ckpt_path = 'siyan824/reloc3r-512'
+    #     model = Reloc3rRelpose.from_pretrained(ckpt_path)
+    #     model.to(device)
+
+    # else:
+    #     assert os.path.exists(ckpt_path), f'Checkpoint path {ckpt_path} does not exist.'
+    #     # reloc3r_relpose = Reloc3rRelpose.from_pretrained(ckpt_path)
+    #     ckpt = torch.load(ckpt_path, map_location=device)
+
+    #     print('ckpt: ', ckpt.keys())
+    #     ckpt_args = ckpt['args']
+
+    #     # pass all args from the checkpoint if exist
+    #     # find the overlap args present in Reloc3rRelpose
+    #     # overlap_args = {k: v for k, v in ckpt_args.__dict__.items() if hasattr(Reloc3rRelpose, k)}
+    #     # overlap_args = argparse.Namespace(**overlap_args)
+    #     # reloc3r_relpose = Reloc3rRelpose(**overlap_args.__dict__)  # pass all args
+        
+    #     model = Reloc3rRelpose(init_dynamic_mask_estimator=getattr(ckpt_args, 'init_dynamic_mask_estimator', False),
+    #                                      shared_dynamic_mask_estimator=getattr(ckpt_args, 'shared_dynamic_mask_estimator', False),
+    #                                      dynamic_mask_estimator_type=getattr(ckpt_args, 'dynamic_mask_estimator_type', False),
+    #                                         #////////
+    #                                         init_3d_scene_flow=getattr(ckpt_args, 'init_3d_scene_flow', False),
+    #                                         scene_flow_estimator_type=getattr(ckpt_args, 'scene_flow_estimator_type', 'dpt'),
+    #                                         init_3d_depth=getattr(ckpt_args, 'init_3d_depth', False),
+    #                                         init_2d_optic_flow=getattr(ckpt_args, 'init_2d_optic_flow', False),
+    #                                         init_another_dec_for_depth=getattr(ckpt_args, 'init_another_dec_for_depth', False),
+    #                                         pose_head_seperate_scale=getattr(ckpt_args, 'pose_head_seperate_scale', False),
+    #                                         #/////////
+    #                                         img_size=img_size,
+    #                                         output_dir=output_dir,
+    #                                         # output_dir='/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/Endo_FASt3r-DE2D/results',
+    #                                         exp_id='tmp_id',
+    #                                         # img_size=ckpt_args.img_size,
+    #                                      )  # pass required args if any
+    # #//
+
+
     # model.load_state_dict(ckpt['model'], strict=False)
     # model.load_state_dict(ckpt['model'], strict=False)
     # /////////
@@ -87,69 +125,6 @@ def load_UniReloc3r_model(ckpt_path, img_size, device):
     model.eval()
     return model
 
-def setup_reloc3r_relpose_model(model_args, device, ckpt_path=None, output_dir=None, strict=True):
-    '''
-    the one used in our mvp3r
-    '''
-    if ckpt_path is None:
-        if '224' in model_args:
-            ckpt_path = 'siyan824/reloc3r-224'
-        elif '512' in model_args:
-            ckpt_path = 'siyan824/reloc3r-512'
-        reloc3r_relpose = Reloc3rRelpose.from_pretrained(ckpt_path)
-    else:
-        assert os.path.exists(ckpt_path), f'Checkpoint path {ckpt_path} does not exist.'
-        # reloc3r_relpose = Reloc3rRelpose.from_pretrained(ckpt_path)
-        ckpt = torch.load(ckpt_path, map_location=device)
-        ckpt_args = ckpt['args']
-
-        # pass all args from the checkpoint if exist
-        # find the overlap args present in Reloc3rRelpose
-        # overlap_args = {k: v for k, v in ckpt_args.__dict__.items() if hasattr(Reloc3rRelpose, k)}
-        # overlap_args = argparse.Namespace(**overlap_args)
-        # reloc3r_relpose = Reloc3rRelpose(**overlap_args.__dict__)  # pass all args
-        
-        reloc3r_relpose = Reloc3rRelpose(init_dynamic_mask_estimator=getattr(ckpt_args, 'init_dynamic_mask_estimator', False),
-                                         shared_dynamic_mask_estimator=getattr(ckpt_args, 'shared_dynamic_mask_estimator', False),
-                                         dynamic_mask_estimator_type=getattr(ckpt_args, 'dynamic_mask_estimator_type', False),
-                                            #////////
-                                            init_3d_scene_flow=getattr(ckpt_args, 'init_3d_scene_flow', False),
-                                            scene_flow_estimator_type=getattr(ckpt_args, 'scene_flow_estimator_type', 'dpt'),
-                                            init_3d_depth=getattr(ckpt_args, 'init_3d_depth', False),
-                                            init_2d_optic_flow=getattr(ckpt_args, 'init_2d_optic_flow', False),
-                                            init_another_dec_for_depth=getattr(ckpt_args, 'init_another_dec_for_depth', False),
-                                            pose_head_seperate_scale=getattr(ckpt_args, 'pose_head_seperate_scale', False),
-                                            #/////////
-                                            img_size=512,
-                                            output_dir=output_dir,
-                                            # output_dir='/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/Endo_FASt3r-DE2D/results',
-                                            exp_id='tmp_id',
-                                            # img_size=ckpt_args.img_size,
-                                         )  # pass required args if any
-        # Handle different checkpoint formats
-        if 'state_dict' in ckpt:
-            state_dict = ckpt['state_dict']
-        elif 'model' in ckpt:
-            state_dict = ckpt['model']
-        else:
-            state_dict = ckpt  # Assume the checkpoint is directly the state dict
-        # report keys not exist in the state_dict or not matching
-        if strict:
-            missing_keys, unexpected_keys = reloc3r_relpose.load_state_dict(state_dict, strict=True)
-            # reloc3r_relpose.load_state_dict(state_dict)  # or adjust key if needed
-            if missing_keys:
-                missing_keys_sim = {k.split('.')[0].split('[')[0] for k in missing_keys}
-                print(f'Warning: Missing keys in the checkpoint: {missing_keys_sim}')
-            if unexpected_keys:
-                unexpected_keys_sim = {k.split('.')[0].split('[')[0] for k in unexpected_keys}
-                print(f'Warning: Unexpected keys in the checkpoint: {unexpected_keys_sim}')
-        else:
-            reloc3r_relpose.load_state_dict(state_dict, strict=False)
-
-    reloc3r_relpose.to(device)
-    reloc3r_relpose.eval()
-    print('Model loaded from ', ckpt_path)
-    return reloc3r_relpose
 
 
 # parts of the code adapted from 
@@ -175,7 +150,7 @@ class Reloc3rRelpose(nn.Module, PyTorchModelHubMixin):
                  dec_use_atten_mask=False,  # only actually valid in the 2nd, as 1st masks are None
                  reweight_both_when_use_mask=True,  # only actually valid in the 2nd, as 1st masks are None
                 # das3r extension
-                 init_dynamic_mask_estimator=True,
+                 init_dynamic_mask_estimator=False,
                  shared_dynamic_mask_estimator = False,
                  dynamic_mask_estimator_type='linear',  # 'linear' or 'dpt'  
                 # 3d motion flow for masked obj
@@ -208,7 +183,11 @@ class Reloc3rRelpose(nn.Module, PyTorchModelHubMixin):
                  output_dir=None,
                 ):   
         super(Reloc3rRelpose, self).__init__()
+
+
         print('uni Reloc3rRelpose init.....')
+        print('dynamic_mask: ', init_dynamic_mask_estimator)
+
         self.exp_id = exp_id # used only for distingusible visulistion saved dir
         self.output_dir = output_dir # used only for distingusible visulistion saved dir
 

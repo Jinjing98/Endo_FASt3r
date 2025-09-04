@@ -441,7 +441,7 @@ class PoseHead(nn.Module):
         res = {"pose": pose}
 
 
-        print('the retunred pose from unireloc3r_pose is: ', pose)
+        # print('the retunred pose from unireloc3r_pose is: ', pose)
 
         return res
 

@@ -151,7 +151,10 @@ def evaluate(opt):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     reloc3r_ckpt_path = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/reloc3r/checkpoints/reloc3r-512/Reloc3r-512.pth"
-    pose_model = networks.Reloc3rX(reloc3r_ckpt_path)
+    # pose_model = networks.Reloc3rX(reloc3r_ckpt_path)
+    # we tested the framework should be correct as above when eval on pose_eval task.
+    pose_model = networks.UniReloc3r(reloc3r_ckpt_path, 
+                                     update_pose_head_with_endofast3r_format=True)
     model_dict = pose_model.state_dict()
     
     # log in the layers that are overwritten or remain
