@@ -123,6 +123,39 @@ class MonodepthOptions:
                                  help="it will freeze depth_model, solution space too big for pose model if dpeth is also trainiable",
                                  action="store_true")
 
+
+        #uni_reloc3r: PoseNet
+        self.parser.add_argument("--pose_estimation_mode",
+                                 type=str,
+                                 help="pose estimation mode",
+                                 default="pose_head_regression",
+                                 choices=["pose_head_regression", "epropnp"])
+        self.parser.add_argument("--pose_regression_with_mask",
+                                 help="if set, uses mask to regress pose",
+                                 action="store_true")
+        self.parser.add_argument("--pose_regression_which_mask",
+                                 type=str,
+                                 help="which mask to use for pose regression",
+                                 default="gt",
+                                 choices=["gt", "esti", "detached_esti"])
+        self.parser.add_argument("--pose_regression_head_input",
+                                 type=str,
+                                 help="which input to use for pose regression",
+                                 default="default",
+                                 choices=["default", "mapero", "optic_flow", "corr", "cat_feats", "add_feats", "optic_flow"])
+        self.parser.add_argument("--mapero_pixel_pe_scheme",
+                                 type=str,
+                                 help="which pixel pe scheme to use for pose regression",
+                                 default="focal_norm",
+                                 choices=["focal_norm", "focal_norm_OF_warped"])
+        # overwrite with endofast3r pose_head format
+        self.parser.add_argument("--disable_pose_head_overwrite",
+                                 help="if set, update the pose head with the endofast3r format",
+                                 action="store_true")
+        
+
+
+
         # TRAINING options
         self.parser.add_argument("--debug",
                                  help="1.adjust num_epochs, model_name, batch_size, log_frequency, log_dir for debug purposes",

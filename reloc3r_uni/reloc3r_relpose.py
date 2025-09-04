@@ -14,6 +14,7 @@ from reloc3r_uni.patch_embed import ManyAR_PatchEmbed
 from models.pos_embed import RoPE2D 
 # from models.blocks_unireloc3r import Block, DecoderBlock
 from models.blocks_unireloc3r import Block
+import kornia
 
 
 
@@ -52,55 +53,32 @@ import torch.nn.functional as F
 inf = float('inf')
 
 
-def load_UniReloc3r_model(ckpt_path, img_size, device, output_dir = None):
-    model = Reloc3rRelpose(img_size=img_size)
+def load_UniReloc3r_model(ckpt_path, img_size, device, opt, output_dir = None):
+    model = Reloc3rRelpose(init_dynamic_mask_estimator=getattr(opt, 'init_dynamic_mask_estimator', False),
+                        shared_dynamic_mask_estimator=getattr(opt, 'shared_dynamic_mask_estimator', False),
+                        dynamic_mask_estimator_type=getattr(opt, 'dynamic_mask_estimator_type', False),
+                        #////////
+                        init_3d_scene_flow=getattr(opt, 'init_3d_scene_flow', False),
+                        scene_flow_estimator_type=getattr(opt, 'scene_flow_estimator_type', 'dpt'),
+                        init_3d_depth=getattr(opt, 'init_3d_depth', False),
+                        init_2d_optic_flow=getattr(opt, 'init_2d_optic_flow', False),
+                        init_another_dec_for_depth=getattr(opt, 'init_another_dec_for_depth', False),
+                        pose_head_seperate_scale=getattr(opt, 'pose_head_seperate_scale', False),
+                        #/////////
+                        pose_estimation_mode=getattr(opt, 'pose_estimation_mode', 'pose_head_regression'),
+                        pose_regression_with_mask=getattr(opt, 'pose_regression_with_mask', False),
+                        pose_regression_which_mask=getattr(opt, 'pose_regression_which_mask', 'gt'),
+                        pose_regression_head_input=getattr(opt, 'pose_regression_head_input', 'default'),
+                        mapero_pixel_pe_scheme=getattr(opt, 'mapero_pixel_pe_scheme', 'focal_norm'),
+                        #/////////
+                        img_size=img_size,
+                        output_dir=output_dir,
+                        # output_dir='/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/Endo_FASt3r-DE2D/results',
+                        exp_id='tmp_id',
+                        )  # pass required args if any
+    # model = Reloc3rRelpose(img_size=img_size)
     model.to(device)
     ckpt = torch.load(ckpt_path, map_location=device)
-    # #//
-    # if ckpt_path is None:
-    #     assert 0, 'ckpt_path is None'
-
-    #     # ckpt_path = 'siyan824/reloc3r-224'
-    #     ckpt_path = 'siyan824/reloc3r-512'
-    #     model = Reloc3rRelpose.from_pretrained(ckpt_path)
-    #     model.to(device)
-
-    # else:
-    #     assert os.path.exists(ckpt_path), f'Checkpoint path {ckpt_path} does not exist.'
-    #     # reloc3r_relpose = Reloc3rRelpose.from_pretrained(ckpt_path)
-    #     ckpt = torch.load(ckpt_path, map_location=device)
-
-    #     print('ckpt: ', ckpt.keys())
-    #     ckpt_args = ckpt['args']
-
-    #     # pass all args from the checkpoint if exist
-    #     # find the overlap args present in Reloc3rRelpose
-    #     # overlap_args = {k: v for k, v in ckpt_args.__dict__.items() if hasattr(Reloc3rRelpose, k)}
-    #     # overlap_args = argparse.Namespace(**overlap_args)
-    #     # reloc3r_relpose = Reloc3rRelpose(**overlap_args.__dict__)  # pass all args
-        
-    #     model = Reloc3rRelpose(init_dynamic_mask_estimator=getattr(ckpt_args, 'init_dynamic_mask_estimator', False),
-    #                                      shared_dynamic_mask_estimator=getattr(ckpt_args, 'shared_dynamic_mask_estimator', False),
-    #                                      dynamic_mask_estimator_type=getattr(ckpt_args, 'dynamic_mask_estimator_type', False),
-    #                                         #////////
-    #                                         init_3d_scene_flow=getattr(ckpt_args, 'init_3d_scene_flow', False),
-    #                                         scene_flow_estimator_type=getattr(ckpt_args, 'scene_flow_estimator_type', 'dpt'),
-    #                                         init_3d_depth=getattr(ckpt_args, 'init_3d_depth', False),
-    #                                         init_2d_optic_flow=getattr(ckpt_args, 'init_2d_optic_flow', False),
-    #                                         init_another_dec_for_depth=getattr(ckpt_args, 'init_another_dec_for_depth', False),
-    #                                         pose_head_seperate_scale=getattr(ckpt_args, 'pose_head_seperate_scale', False),
-    #                                         #/////////
-    #                                         img_size=img_size,
-    #                                         output_dir=output_dir,
-    #                                         # output_dir='/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/Endo_FASt3r-DE2D/results',
-    #                                         exp_id='tmp_id',
-    #                                         # img_size=ckpt_args.img_size,
-    #                                      )  # pass required args if any
-    # #//
-
-
-    # model.load_state_dict(ckpt['model'], strict=False)
-    # model.load_state_dict(ckpt['model'], strict=False)
     # /////////
     if 'state_dict' in ckpt:
         state_dict = ckpt['state_dict']
@@ -157,26 +135,32 @@ class Reloc3rRelpose(nn.Module, PyTorchModelHubMixin):
                  init_3d_scene_flow=False,# the flow contains: motion+ego # for mask area
                  init_3d_ego_flow=False, # for whole area
                  init_3d_motion_flow=False,# the motion flow contains: motion # for mask area---most challenging
-                 scene_flow_estimator_type='dpt', 
+                 scene_flow_estimator_type='linear', 
                  ego_flow_estimator_type='linear',  
-                 motion_flow_estimator_type='dpt', 
+                 motion_flow_estimator_type='linear', 
                  shared_scene_flow_estimator = True,
                  shared_motion_flow_estimator = True,
                  shared_ego_flow_estimator = True,
                  #extend for depth
                  init_3d_depth=False,  # whether to init the depth head
-                 depth_estimator_type='dpt',  # 'dpt' or 'linear'
+                 depth_estimator_type='linear',  # 'dpt' or 'linear'
                  shared_depth_estimator = True,  # whether to share the depth estimator for all flow heads
                  init_another_dec_for_depth = False,  #use another decoder!
                 #extend for optic flow
                 init_2d_optic_flow=False,  # whether to init the optic flow head
-                optic_flow_estimator_type='dpt',  # 'dpt' or 'linear'
+                optic_flow_estimator_type='linear',  # 'dpt' or 'linear'
                 shared_optic_flow_estimator = True,  # whether to share the optic flow estimator for all flow heads
                 #extend for pose_head
                 pose_head_seperate_scale = False,  # whether to use separate scale for pose regression
-
-                 landscape_only = True,  # always landscape only; not sure
-                 output_mode = 'pts3d',  # always pts3d
+                #extend for diff pose solver
+                pose_estimation_mode = 'pose_head_regression',
+                pose_regression_with_mask = False,
+                pose_regression_which_mask = 'gt',
+                pose_regression_head_input = 'default',
+                mapero_pixel_pe_scheme = 'focal_norm',
+                #
+                landscape_only = True,  # always landscape only; not sure
+                output_mode = 'pts3d',  # always pts3d
                 #  vis=False,  # whether to visualize the trn/infer process
                  vis=True,  # whether to visualize the trn/infer process
                  exp_id=None, # experiment id for saving visualizations
@@ -283,14 +267,24 @@ class Reloc3rRelpose(nn.Module, PyTorchModelHubMixin):
         self.detach_token_grad_for_dyn_mask = True
         # self.detach_token_grad_for_dyn_mask = False #default before
 
-        self.pose_regression_with_mask = False
+        self.pose_estimation_mode = pose_estimation_mode #'pose_head_regression'
+        # self.pose_estimation_mode = 'epropnp'
+        assert self.pose_estimation_mode in ['pose_head_regression', 'epropnp'], f'Unknown pose_estimation_mode {self.pose_estimation_mode}, should be one of [pose_head_regression, epropnp]'
+        if self.pose_estimation_mode == 'epropnp':
+            assert self.init_3d_scene_flow, f'pose_estimation_mode={self.pose_estimation_mode} requires init_3d_scene_flow to be True'
+            assert self.scene_flow_estimator_type == 'linear', f'pose_estimation_mode={self.pose_estimation_mode} requires scene_flow_estimator_type to be linear'
+            # todo: implemented the flow based matching
+            # assert self.init_2d_optic_flow, f'pose_estimation_mode={self.pose_estimation_mode} requires init_2d_optic_flow to be True'
+            self.initialize_epropnp() # init: log_weight_scale, camera, cost_fun, epropnp
+            self._base_grid = None
+
+        self.pose_regression_with_mask = pose_regression_with_mask#False
         # self.pose_regression_with_mask = True
-        self.pose_regression_which_mask = 'gt'#'esti' 'detached_esti' 'gt' 
-        self.pose_regression_which_mask = 'esti'#'esti' 'detached_esti' 'gt' 
+        self.pose_regression_which_mask = pose_regression_which_mask #'gt'#'esti' 'detached_esti' 'gt' 
         assert self.pose_regression_which_mask in ['detached_esti','esti','gt'], f'Unknown pose_regression_which_mask {self.pose_regression_which_mask}, should be one of [gt, esti]'
-        self.pose_regression_head_input = 'default'#'mapero' 'optic_flow' 'default' 'corr' 'cat_feats' 'add_feats' 'optic_flow' default is raw_feat
+        self.pose_regression_head_input = pose_regression_head_input#'default'#'mapero' 'optic_flow' 'default' 'corr' 'cat_feats' 'add_feats' 'optic_flow' default is raw_feat
         # self.pose_regression_head_input = 'mapero'#'mapero_2Dbv''default' 'corr' 'cat_feats' 'add_feats' 'optic_flow' 'optic_flow_detach' default is raw_feat
-        self.mapero_pixel_pe_scheme = 'focal_norm' #focal_norm  focal_norm_OF_warped 
+        self.mapero_pixel_pe_scheme = mapero_pixel_pe_scheme #'focal_norm' #focal_norm  focal_norm_OF_warped 
         #self.mapero_pixel_pe_scheme = 'focal_norm_OF_warped' #focal_norm  focal_norm_OF_warped 
         # 'focal_norm',  # use the pts3d_in_other_view+2D
         # 'focal_norm_OF_warped',  # use the pts3d in itself view+Flow_corrsponded_Based_2D
@@ -379,6 +373,51 @@ class Reloc3rRelpose(nn.Module, PyTorchModelHubMixin):
                                               flow_head_name=flow_head_name)
         
         self.initialize_weights() 
+
+    def initialize_epropnp(self):
+        '''
+        init: log_weight_scale, camera, cost_fun, epropnp
+        '''
+        from lib.ops.pnp.epropnp import EProPnP6DoF
+        from lib.ops.pnp.levenberg_marquardt import LMSolver, RSLMSolver
+        from lib.ops.pnp.camera import PerspectiveCamera
+        from lib.ops.pnp.cost_fun import AdaptiveHuberPnPCost
+        
+        self.log_weight_scale = nn.Parameter(torch.zeros(2))# Here we use static weight_scale because the data noise is homoscedastic
+        self.camera = PerspectiveCamera()
+        self.cost_fun = AdaptiveHuberPnPCost(relative_delta=0.5)
+        self.epropnp = EProPnP6DoF(
+            mc_samples=512,
+            num_iter=4,
+            solver=LMSolver(
+                dof=6,
+                num_iter=10,
+                init_solver=RSLMSolver(
+                    dof=6,
+                    num_points=8,
+                    num_proposals=128,
+                    num_iter=5)))
+
+    def epropnp_pose_head(self, x3d, x2d, w2d, cam_mats, pose_init):
+        '''
+        adapt from epropnp demo notebook.
+        '''
+        # x3d, x2d, w2d = self.forward_correspondence(in_pose)
+        self.camera.set_param(cam_mats)
+        self.cost_fun.set_param(x2d.detach(), w2d)  # compute dynamic delta
+        pose_opt, cost, pose_opt_plus, pose_samples, pose_sample_logweights, cost_tgt = self.epropnp.monte_carlo_forward(
+            x3d,
+            x2d,
+            w2d,
+            self.camera,
+            self.cost_fun,
+            pose_init=pose_init,
+            force_init_solve=True,
+            with_pose_opt_plus=True)  # True for derivative regularization loss
+        # norm_factor = model.log_weight_scale.detach().exp().mean()
+        norm_factor = self.log_weight_scale.detach().exp().mean()
+        return pose_opt, cost, pose_opt_plus, pose_samples, pose_sample_logweights, cost_tgt, norm_factor
+
 
     def flow_head_factory(self, head_type, output_mode, has_conf):
         if head_type == 'linear':
@@ -814,24 +853,150 @@ class Reloc3rRelpose(nn.Module, PyTorchModelHubMixin):
             pose_esti_mask2 = None
         return pose_esti_mask1, pose_esti_mask2
 
+    def _init_base_grid(self, H, W, device, reallocate=False):
+        """use for construct the 2D in 2D-3D matches, assume 3D are regressed SC."""
+        if self._base_grid is None or reallocate:
+            hh, ww = torch.meshgrid(torch.arange(
+                H).float(), torch.arange(W).float())
+            coord = torch.zeros([1, H, W, 2])
+            coord[0, ..., 0] = ww
+            coord[0, ..., 1] = hh
+            self._base_grid = coord.to(device)
+
     def inference_pose(self, view1, view2, mask_1, mask_2, dec1, dec2, shape1, shape2, 
                        optic_flow1, optic_flow2,
                        depth1, depth2,
                        scene_flow1, scene_flow2,):
         # inference_pose
         with torch.cuda.amp.autocast(enabled=False):
-            pose_esti_mask1, pose_esti_mask2 = self._get_mask_for_pose_head(mask_1, mask_2, view1, view2, dec1)
             # prepare according to pose_regression_head_input
             # assert 0, view1.keys()
-            pose_regress_input1, pose_regress_input2 = self.prepare_pose_reg_input(dec1, dec2, 
-                                                                                   of1=optic_flow1['flow2d'], of2=optic_flow2['flow2d'],
-                                                                                   pts3d_1=depth1['pts3d'], pts3d_2=depth2['pts3d'],
-                                                                                   pts3d_1in2view=scene_flow1['pts3d'], pts3d_2in1view=scene_flow2['pts3d'],
-                                                                                   K_1=view1.get('camera_intrinsics', None), K_2=view2.get('camera_intrinsics', None),
-                                                                                   ) 
+            if self.pose_estimation_mode == 'pose_head_regression':
+                pose_esti_mask1, pose_esti_mask2 = self._get_mask_for_pose_head(mask_1, mask_2, view1, view2, dec1)
+                pose_regress_input1, pose_regress_input2 = self.prepare_pose_reg_input(dec1, dec2, 
+                                                                                    of1=optic_flow1['flow2d'], of2=optic_flow2['flow2d'],
+                                                                                    pts3d_1=depth1['pts3d'], pts3d_2=depth2['pts3d'],
+                                                                                    pts3d_1in2view=scene_flow1['pts3d'], pts3d_2in1view=scene_flow2['pts3d'],
+                                                                                    K_1=view1.get('camera_intrinsics', None), K_2=view2.get('camera_intrinsics', None),
+                                                                                    ) 
 
-            pose1 = self._downstream_head('', [tok.float() for tok in pose_regress_input1], shape1, pose_esti_mask1)  
-            pose2 = self._downstream_head('', [tok.float() for tok in pose_regress_input2], shape2, pose_esti_mask2)  # relative camera pose from 2 to 1. 
+                pose1 = self._downstream_head('', [tok.float() for tok in pose_regress_input1], shape1, pose_esti_mask1)  
+                pose2 = self._downstream_head('', [tok.float() for tok in pose_regress_input2], shape2, pose_esti_mask2)  # relative camera pose from 2 to 1. 
+            elif self.pose_estimation_mode == 'epropnp':
+                '''
+                # return pose1(pose1to2), pose2(pose2to1)
+
+                leverage matched 3D scene_flow to establish the 3D-2D correspondences
+                then use the epropnp to estimate the pose.
+                when compute pose1to2: as pnp, we need 3d pts w.r.t cam1, 
+                2d and K from cam2;
+                '''
+                B, C, H, W = view1['img'].shape
+                pose1, pose2 = {}, {}
+                self._init_base_grid(H=H, W=W, device=view1['img'].device)
+
+                pts3d_1 = depth1['pts3d']
+                pts3d_2 = depth2['pts3d']
+                pts3d_1in2view = scene_flow1['pts3d']
+                pts3d_2in1view = scene_flow2['pts3d']# B H W 3
+                K_1 = view1['camera_intrinsics'] # B 4 4
+                K_2 = view2['camera_intrinsics'] # B 4 4
+
+                def prepare_epropnp_input(pts3d_2in1view, K_2, B,H,W):
+                    '''
+                    return pose_init: xyz_wxyz
+                    '''
+                    # x3d_1,x2d_1,w2d_1 = 
+                    x3d_1 = pts3d_2in1view.reshape(B, -1, 3)
+                    # reset self._base_grid for various image size
+                    self._init_base_grid(H=H, W=W, device=view1['img'].device)
+                    x2d_1 = self._base_grid.repeat(B, 1, 1, 1)# B H W 2
+                    x2d_1 = x2d_1.reshape(B, -1, 2)
+                    assert 0, f'can w2d use conf? means the same? check out paper epropnp'
+                    w2d_1 = torch.ones_like(x2d_1)
+                    cam_mats_1 = K_2[:,:3,:3] 
+                    # in Epropnp: pose are in XYZ_quat 7 dim format
+                    # pose_init_1 = torch.eye(4).repeat(B, 1, 1).to(view1['img'].device) 
+
+                    import warnings 
+                    warnings.warn('pose_init_1 need to be tested...')
+                    # pose_init_1 = torch.randn([B, 7], device=view1['img'].device)
+                    # pose_init_1[:, 3:] = F.normalize(pose_init_1[:, 3:], dim=-1)  # normalize to unit quaternion
+                    # pose_init_1[:, :3] *= 0.0 # set translation to 0
+                    
+                    # xyz_wxyz
+                    pose_init_1 = torch.zeros([B, 7], device=view1['img'].device)
+                    # set quat as 1,0,0,0
+                    pose_init_1[:, 3:] = torch.tensor([1,0,0,0], device=view1['img'].device).repeat(B, 1)
+
+                    #print dim of inputs
+                    # print('x3d_1.shape:', x3d_1.shape)
+                    # print('x2d_1.shape:', x2d_1.shape)
+                    # print('w2d_1.shape:', w2d_1.shape)
+                    # print('cam_mats_1.shape:', cam_mats_1.shape)
+                    # print('pose_init_1.shape:', pose_init_1.shape)
+                    return x3d_1, x2d_1, w2d_1, cam_mats_1, pose_init_1
+
+                def xyz_quat_to_matrix_kornia(
+                    xyz_quat: torch.Tensor, 
+                    quat_format: str = 'wxyz'
+                ) -> torch.Tensor:
+                    """
+                    Convert [B, 7] tensor (tx,ty,tz,qx,qy,qz,qw or wxyz) to [B,4,4] homogeneous matrices.
+                    
+                    Args:
+                        xyz_quat: [B, 7] tensor, where the last 4 are quaternion components.
+                        quat_format: 'xyzw' if input quaternions are (x,y,z,w), 
+                                    'wxyz' if input is (w,x,y,z)
+                                    
+                    Returns:
+                        T: [B,4,4] homogeneous transformation matrices
+                    """
+                    assert xyz_quat.dim() == 2, f'xyz_quat.dim() should be 3, but got {xyz_quat.dim()}'
+                    assert xyz_quat.shape[1] == 7, f'xyz_quat.shape[2] should be 7, but got {xyz_quat.shape[2]}'
+                    assert quat_format in ('xyzw', 'wxyz'), "quat_format must be 'xyzw' or 'wxyz'"
+                    B = xyz_quat.shape[0]
+                    t = xyz_quat[:, :3]   # [B,3]
+                    quat = xyz_quat[:, 3:]  # [B,4]
+                    # Reorder quaternion for Kornia (expects w,x,y,z)
+                    if quat_format == 'xyzw':
+                        quat_wxyz = torch.cat([quat[:, 3:], quat[:, :3]], dim=-1)  # x,y,z,w -> w,x,y,z
+                    elif quat_format == 'wxyz':  # already wxyz
+                        quat_wxyz = quat
+                    else:
+                        assert 0, f'Unknown quat_format {quat_format}, should be one of [xyzw, wxyz]'
+
+                    # Convert quaternion to rotation matrix: [B,3,3]
+                    R = kornia.geometry.conversions.quaternion_to_rotation_matrix(quat_wxyz)
+
+                    # Build homogeneous matrices
+                    T = torch.eye(4, device=xyz_quat.device, dtype=xyz_quat.dtype).unsqueeze(0).repeat(B,1,1)
+                    T[:, :3, :3] = R
+                    T[:, :3, 3] = t
+
+                    return T
+
+                x3d_1, x2d_1, w2d_1, cam_mats_1, pose_init_1 = prepare_epropnp_input(pts3d_2in1view, K_2, B, H, W)
+                _, _, pose_opt_plus_1, _, pose_sample_logweights_1, cost_tgt_1, norm_factor_1 = self.epropnp_pose_head(
+                    x3d_1, x2d_1, w2d_1, cam_mats_1, pose_init_1)
+                # conver B 1 7 xyz_quat to B 4 4 matrix
+                # pose1['pose'] = pose_opt_plus_1
+                pose1['pose'] = xyz_quat_to_matrix_kornia(pose_opt_plus_1, quat_format='wxyz')
+                pose1['pose_sample_logweights'] = pose_sample_logweights_1
+                pose1['cost_tgt'] = cost_tgt_1
+                pose1['norm_factor'] = norm_factor_1
+
+                x3d_2, x2d_2, w2d_2, cam_mats_2, pose_init_2 = prepare_epropnp_input(pts3d_1in2view, K_1, B,H,W)
+                _, _, pose_opt_plus_2, _, pose_sample_logweights_2, cost_tgt_2, norm_factor_2 = self.epropnp_pose_head(
+                    x3d_2, x2d_2, w2d_2, cam_mats_2, pose_init_2)
+                # pose2['pose'] = pose_opt_plus_2
+                pose2['pose'] = xyz_quat_to_matrix_kornia(pose_opt_plus_2, quat_format='wxyz')
+                pose2['pose_sample_logweights'] = pose_sample_logweights_2
+                pose2['cost_tgt'] = cost_tgt_2
+                pose2['norm_factor'] = norm_factor_2
+            else:
+                assert 0, f'Unknown pose_estimation_mode {self.pose_estimation_mode}, should be one of [pose_head_regression, epropnp]'
+        
         return pose1, pose2
 
     def _wrap_output(self, pose1, pose2, 
@@ -918,12 +1083,12 @@ class Reloc3rRelpose(nn.Module, PyTorchModelHubMixin):
 
         # ifnerence pose
         pose1, pose2 = self.inference_pose(view1, view2, 
-                                           mask_1, mask_2, 
-                                           dec1, dec2, shape1, shape2, 
-                                           optic_flow1, optic_flow2,
-                                           depth1, depth2,
-                                           scene_flow1, scene_flow2
-                                           )
+                                        mask_1, mask_2, 
+                                        dec1, dec2, shape1, shape2, 
+                                        optic_flow1, optic_flow2,
+                                        depth1, depth2,
+                                        scene_flow1, scene_flow2
+                                        )
         # wrap up the output
         pose1, pose2 = self._wrap_output( 
                                     pose1, pose2,

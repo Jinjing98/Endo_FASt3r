@@ -156,7 +156,8 @@ def evaluate(opt):
     # pose_model = networks.Reloc3rX(reloc3r_ckpt_path)
     # we tested the framework should be correct as above when eval on pose_eval task.
     pose_model = networks.UniReloc3r(reloc3r_ckpt_path, 
-                                     update_pose_head_with_endofast3r_format=True)
+                                     opt,
+                                     )
     model_dict = pose_model.state_dict()
     
     # log in the layers that are overwritten or remain
