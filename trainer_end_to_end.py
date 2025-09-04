@@ -735,7 +735,7 @@ class Trainer:
         Returns:
             outputs: Updated outputs dictionary with transform results
         """
-        return self.conduct_calib(inputs, outputs, existing_motion_mask=False)
+        return self.conduct_brightness_calib(inputs, outputs, existing_motion_mask=False)
 
     def compute_transform(self, inputs, outputs):
         """Compute transform for all frame_ids.
@@ -747,11 +747,11 @@ class Trainer:
         Returns:
             outputs: Updated outputs dictionary with transform results
         """
-        return self.conduct_calib(inputs, outputs, 
+        return self.conduct_brightness_calib(inputs, outputs, 
                                       existing_motion_mask=self.opt.enable_motion_computation)
 
 
-    def conduct_calib(self, inputs, outputs, existing_motion_mask):
+    def conduct_brightness_calib(self, inputs, outputs, existing_motion_mask):
         """Compute transform for all frame_ids.
         
         Args:
@@ -1691,6 +1691,7 @@ class Trainer:
         motion_flow_imgs = []
         depth_imgs = []
         brightness_imgs = []
+        refined_tgt_imgs = []
 
         occlursion_mask_imgs = []
         motion_mask_imgs = []
@@ -1791,6 +1792,7 @@ class Trainer:
                         registered_tgt_imgs.append(outputs[("registration", s, frame_id)][j].data)
                         depth_imgs.append(outputs[("depth", self.opt.frame_ids[0], s)][j].data)
                         brightness_imgs.append(outputs[("transform","high", s, frame_id)][j].data)
+                        refined_tgt_imgs.append(outputs[("refined", s, frame_id)][j].data)
 
                         colored_tgt_imgs.append(outputs[("color", frame_id, s)][j].data)
                         optic_flow_imgs.append(outputs[("position", "high", s, frame_id)][j].data)
@@ -1820,6 +1822,7 @@ class Trainer:
             registered_tgt_imgs = [color_to_cv_img(img) for img in registered_tgt_imgs]
             depth_imgs = [gray_to_cv_img(normalize_image(img)).astype(np.uint8) for img in depth_imgs]
             brightness_imgs = [color_to_cv_img(img) for img in brightness_imgs]
+            refined_tgt_imgs = [color_to_cv_img(img) for img in refined_tgt_imgs]
             colored_tgt_imgs = [color_to_cv_img(img) for img in colored_tgt_imgs]
             # print('Optic flow:')
             optic_flow_imgs = [flow_to_cv_img(img) for img in optic_flow_imgs]
@@ -1840,17 +1843,21 @@ class Trainer:
             # concat src_imgs and tgt_imgs vertically
             src_concat_img = np.concatenate(src_imgs, axis=0)
             img_order_strs.append('Src-')
-            tgt_concat_img = np.concatenate(tgt_imgs, axis=0)
-            img_order_strs.append('Tgt-')
-
-            # add reproj_supervised_tgt_color_debug
-            reproj_supervised_tgt_color_debug_concat_img = np.concatenate(reproj_supervised_tgt_color_debug_imgs, axis=0)
-            img_order_strs.append('Reproj_Sup-')
-            
-            registered_tgt_concat_img = np.concatenate(registered_tgt_imgs, axis=0)
-            img_order_strs.append('Registered_Tgt-')
             colored_tgt_concat_img = np.concatenate(colored_tgt_imgs, axis=0)
             img_order_strs.append('Colored_Tgt-')
+            tgt_concat_img = np.concatenate(tgt_imgs, axis=0)
+            img_order_strs.append('Tgt-')
+            # add reproj_supervised_tgt_color_debug
+            # reproj_supervised_tgt_color_debug_concat_img = np.concatenate(reproj_supervised_tgt_color_debug_imgs, axis=0)
+            # img_order_strs.append('Reproj_Sup-')
+
+            registered_tgt_concat_img = np.concatenate(registered_tgt_imgs, axis=0)
+            img_order_strs.append('Registered_Tgt-')
+            refined_tgt_concat_img = np.concatenate(refined_tgt_imgs, axis=0)
+            img_order_strs.append('Refined_Tgt-')
+            colored_motion_tgt_concat_img = np.concatenate(colored_motion_tgt_imgs, axis=0)
+            img_order_strs.append('Colored_Motion_Tgt-')
+
             optic_flow_concat_img = np.concatenate(optic_flow_imgs, axis=0)
             img_order_strs.append('Optic_Flow-')
             pose_flow_concat_img = np.concatenate(pose_flow_imgs, axis=0)
@@ -1861,12 +1868,12 @@ class Trainer:
             img_order_strs.append('Depth-')
             brightness_concat_img = np.concatenate(brightness_imgs, axis=0)
             img_order_strs.append('Brightness-')
-            concat_img = np.concatenate([src_concat_img, tgt_concat_img, reproj_supervised_tgt_color_debug_concat_img, \
-                                         registered_tgt_concat_img, colored_tgt_concat_img, optic_flow_concat_img, \
+            concat_img = np.concatenate([src_concat_img, colored_tgt_concat_img, tgt_concat_img, \
+                                         registered_tgt_concat_img, refined_tgt_concat_img, colored_motion_tgt_concat_img, optic_flow_concat_img, \
                                             pose_flow_concat_img, occlursion_mask_concat_img, depth_concat_img, brightness_concat_img], axis=1)
             if self.opt.enable_motion_computation:
-                colored_motion_tgt_concat_img = np.concatenate(colored_motion_tgt_imgs, axis=0)
-                img_order_strs.append('Colored_Motion_Tgt-')
+                # colored_motion_tgt_concat_img = np.concatenate(colored_motion_tgt_imgs, axis=0)
+                # img_order_strs.append('Colored_Motion_Tgt-')
                 motion_flow_concat_img = np.concatenate(motion_flow_imgs, axis=0)
                 img_order_strs.append('Motion_Flow-')
                 motion_mask_concat_img = np.concatenate(motion_mask_imgs, axis=0)
@@ -1874,9 +1881,9 @@ class Trainer:
                 if self.opt.enable_mutual_motion:
                     motion_mask_s2t_concat_img = np.concatenate(motion_mask_s2t_imgs, axis=0)
                     img_order_strs.append('Motion_Mask_S2T-')
-                    concat_img = np.concatenate([concat_img, colored_motion_tgt_concat_img, motion_flow_concat_img, motion_mask_concat_img, motion_mask_s2t_concat_img], axis=1)
+                    concat_img = np.concatenate([concat_img, motion_flow_concat_img, motion_mask_concat_img, motion_mask_s2t_concat_img], axis=1)
                 else:
-                    concat_img = np.concatenate([concat_img, colored_motion_tgt_concat_img, motion_flow_concat_img, motion_mask_concat_img], axis=1)
+                    concat_img = np.concatenate([concat_img, motion_flow_concat_img, motion_mask_concat_img], axis=1)
 
             img_order_strs = ''.join(img_order_strs)
             
