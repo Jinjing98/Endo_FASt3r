@@ -27,6 +27,7 @@ from torchvision.transforms import ToPILImage
 import torchvision.transforms as tvf
 from PIL import Image
 from utils import color_to_cv_img, gray_to_cv_img, flow_to_cv_img
+from networks.utils.endofas3r_data_utils import prepare_images, resize_pil_image
 
 AF_PRETRAINED_ROOT = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/DARES/af_sfmlearner_weights"
 RELOC3R_PRETRAINED_ROOT = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/reloc3r/checkpoints/reloc3r-512"
@@ -35,46 +36,7 @@ RELOC3R_PRETRAINED_ROOT = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baseline
 def clamp_pose(pose, min_value=-1.0, max_value=1.0):
     return torch.clamp(pose, min=min_value, max=max_value)
 
-def prepare_images(x, device, size, square_ok=False):
-  to_pil = ToPILImage()
-  ImgNorm = tvf.Compose([tvf.ToTensor(), tvf.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
-  # ImgNorm = tvf.Compose([tvf.ToTensor()])
-  imgs = []
-  for idx in range(x.size(0)):
-      tensor = x[idx].cpu()  # Shape [3, 256, 320]
-      img = to_pil(tensor).convert("RGB")
-      W1, H1 = img.size
-      if size == 224:
-          # resize short side to 224 (then crop)
-          img = resize_pil_image(img, round(size * max(W1/H1, H1/W1)))
-      else:
-          # resize long side to 512
-          img = resize_pil_image(img, size)
-      W, H = img.size
-      cx, cy = W//2, H//2
-      if size == 224:
-          half = min(cx, cy)
-          img = img.crop((cx-half, cy-half, cx+half, cy+half))
-      else:
-          halfw, halfh = ((2*cx)//16)*8, ((2*cy)//16)*8
-          if not (square_ok) and W == H:
-              halfh = 3*halfw/4
-          img = img.crop((cx-halfw, cy-halfh, cx+halfw, cy+halfh))
-      imgs.append(ImgNorm(img)[None].to(device))
-#   print('img dim',imgs[0].shape)
-#   print('stack dim',torch.stack(imgs, dim=0).squeeze(1).shape)
-#   print('cat dim',torch.cat(imgs, dim=0).shape)
-  return torch.cat(imgs, dim=0)
-#   return torch.stack(imgs, dim=0).squeeze(1)# redundant: .squeeze(1) safer when batch_size = 1
 
-def resize_pil_image(img, long_edge_size):
-    S = max(img.size)
-    if S > long_edge_size:
-        interp = PIL.Image.LANCZOS
-    elif S <= long_edge_size:
-        interp = PIL.Image.BICUBIC
-    new_size = tuple(int(round(x*long_edge_size/S)) for x in img.size)
-    return img.resize(new_size, interp)
 
 def set_seed(seed=42):
     random.seed(seed)  # Python random seed
@@ -107,7 +69,7 @@ class Trainer:
             options.use_loss_reproj2_nomotion = True
             # options.use_soft_motion_mask = True
 
-            options.pose_model_type = "uni_reloc3r"
+            # options.pose_model_type = "uni_reloc3r"
 
             options.enable_grad_flow_motion_mask = True
             options.use_loss_motion_mask_reg = True
@@ -278,7 +240,10 @@ class Trainer:
             elif self.opt.pose_model_type == "uni_reloc3r":
                 reloc3r_ckpt_path = f"{RELOC3R_PRETRAINED_ROOT}/Reloc3r-512.pth"
                 from networks import UniReloc3r
-                self.models["pose"] = UniReloc3r(reloc3r_ckpt_path)
+                self.models["pose"] = UniReloc3r(reloc3r_ckpt_path, 
+                                                 update_pose_head_with_endofast3r_format=True,
+                                                #  update_pose_head_with_endofast3r_format=False,
+                                                 )
                 print('loaded UniReloc3r...')
             elif self.opt.pose_model_type == "shared":
                 self.models["pose"] = networks.PoseDecoder(
@@ -888,6 +853,9 @@ class Trainer:
         outputs = {}
         if self.num_pose_frames == 2:
             pose_feats = {f_i: inputs["color_aug", f_i, 0] for f_i in self.opt.frame_ids}
+            scale_k = 0
+            scale0_camera_intrinsics = {f_i: inputs["K", scale_k] for f_i in self.opt.frame_ids}
+
             assert len(self.opt.frame_ids) == 3, "frame_ids must be have 3 frames"
             assert self.opt.frame_ids[0] == 0, "frame_id 0 must be the first frame"
             for f_i in self.opt.frame_ids[1:]:
@@ -931,9 +899,14 @@ class Trainer:
                     # pose2, _ = self.models["pose"](view0,view1)# notice we save pose2to1 as usually saved by reloc3r/fast3r/mvp3r; dares saved rel pose1to2
                     # outputs[("cam_T_cam", 0, f_i)] = pose2["pose"] # it shoudl save transformation: tgt to src
 
+                    resized_img1, adapted_K1 = prepare_images(inputs["color_aug", f_i, 0],self.device, size = 512, Ks=scale0_camera_intrinsics[f_i])
+                    resized_img2, adapted_K2 = prepare_images(inputs["color_aug", 0, 0], self.device, size = 512, Ks=scale0_camera_intrinsics[0])
+                    view1 = {'img':resized_img1, 'camera_intrinsics':adapted_K1}
+                    view2 = {'img':resized_img2, 'camera_intrinsics':adapted_K2}
                     # udpate reloc3r_relpose forward returning and below to be consistent with original reloc3r
-                    view1 = {'img':prepare_images(pose_feats[f_i],self.device, size = 512)}
-                    view2 = {'img':prepare_images(pose_feats[0], self.device, size = 512)}
+                    # view1 = {'img':prepare_images(inputs["color_aug", f_i, 0],self.device, size = 512)}
+                    # view2 = {'img':prepare_images(inputs["color_aug", 0, 0], self.device, size = 512)}
+
                     # pose2 = self.models["pose"](view0,view1)
                     # pose2, _ = self.models["pose"](view0,view1)# notice we save pose2to1 as usually saved by reloc3r/fast3r/mvp3r; dares saved rel pose1to2
                     _ , pose2 = self.models["pose"](view1,view2)# 

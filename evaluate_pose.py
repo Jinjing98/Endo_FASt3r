@@ -18,46 +18,48 @@ import PIL.Image
 from torchvision.transforms import ToPILImage
 import torchvision.transforms as tvf
 from PIL import Image
+from networks.utils.endofas3r_data_utils import prepare_images, resize_pil_image
+
 warnings.filterwarnings('ignore')
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
-def prepare_images(x, device, size, square_ok=False):
-  to_pil = ToPILImage()
-  ImgNorm = tvf.Compose([tvf.ToTensor(), tvf.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
-  # ImgNorm = tvf.Compose([tvf.ToTensor()])
-  imgs = []
-  for idx in range(x.size(0)):
-      tensor = x[idx].cpu()  # Shape [3, 256, 320]
-      img = to_pil(tensor).convert("RGB")
-      W1, H1 = img.size
-      if size == 224:
-          # resize short side to 224 (then crop)
-          img = resize_pil_image(img, round(size * max(W1/H1, H1/W1)))
-      else:
-          # resize long side to 512
-          img = resize_pil_image(img, size)
-      W, H = img.size
-      cx, cy = W//2, H//2
-      if size == 224:
-          half = min(cx, cy)
-          img = img.crop((cx-half, cy-half, cx+half, cy+half))
-      else:
-          halfw, halfh = ((2*cx)//16)*8, ((2*cy)//16)*8
-          if not (square_ok) and W == H:
-              halfh = 3*halfw/4
-          img = img.crop((cx-halfw, cy-halfh, cx+halfw, cy+halfh))
-      imgs.append(ImgNorm(img)[None].to(device))
-  return torch.stack(imgs, dim=0).squeeze()
+# def prepare_images(x, device, size, square_ok=False):
+#   to_pil = ToPILImage()
+#   ImgNorm = tvf.Compose([tvf.ToTensor(), tvf.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+#   # ImgNorm = tvf.Compose([tvf.ToTensor()])
+#   imgs = []
+#   for idx in range(x.size(0)):
+#       tensor = x[idx].cpu()  # Shape [3, 256, 320]
+#       img = to_pil(tensor).convert("RGB")
+#       W1, H1 = img.size
+#       if size == 224:
+#           # resize short side to 224 (then crop)
+#           img = resize_pil_image(img, round(size * max(W1/H1, H1/W1)))
+#       else:
+#           # resize long side to 512
+#           img = resize_pil_image(img, size)
+#       W, H = img.size
+#       cx, cy = W//2, H//2
+#       if size == 224:
+#           half = min(cx, cy)
+#           img = img.crop((cx-half, cy-half, cx+half, cy+half))
+#       else:
+#           halfw, halfh = ((2*cx)//16)*8, ((2*cy)//16)*8
+#           if not (square_ok) and W == H:
+#               halfh = 3*halfw/4
+#           img = img.crop((cx-halfw, cy-halfh, cx+halfw, cy+halfh))
+#       imgs.append(ImgNorm(img)[None].to(device))
+#   return torch.stack(imgs, dim=0).squeeze()
 
-def resize_pil_image(img, long_edge_size):
-    S = max(img.size)
-    if S > long_edge_size:
-        interp = PIL.Image.LANCZOS
-    elif S <= long_edge_size:
-        interp = PIL.Image.BICUBIC
-    new_size = tuple(int(round(x*long_edge_size/S)) for x in img.size)
-    return img.resize(new_size, interp)
+# def resize_pil_image(img, long_edge_size):
+#     S = max(img.size)
+#     if S > long_edge_size:
+#         interp = PIL.Image.LANCZOS
+#     elif S <= long_edge_size:
+#         interp = PIL.Image.BICUBIC
+#     new_size = tuple(int(round(x*long_edge_size/S)) for x in img.size)
+#     return img.resize(new_size, interp)
     
 # from https://github.com/tinghuiz/SfMLearner
 def dump_xyz(source_to_target_transformations):
@@ -183,8 +185,8 @@ def evaluate(opt):
             # view0 = {'img':prepare_images(inputs[("color", 0, 0)], device, size = 512)}
             # pose2,_  = pose_model(view0,view1)
 
-            view1 = {'img':prepare_images(inputs[("color", 1, 0)] , device,  size = 512)}
-            view2 = {'img':prepare_images(inputs[("color", 0, 0)], device, size = 512)}
+            view1 = {'img':prepare_images(inputs[("color", 1, 0)], device, size = 512, Ks = None)}
+            view2 = {'img':prepare_images(inputs[("color", 0, 0)], device, size = 512, Ks = None)}
             _ , pose2 = pose_model(view1,view2)# 
 
             pred_poses.append(pose2["pose"].cpu().numpy())
