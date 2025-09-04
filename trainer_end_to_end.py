@@ -69,7 +69,21 @@ class Trainer:
             options.use_loss_reproj2_nomotion = True
             # options.use_soft_motion_mask = True
 
-            # options.pose_model_type = "uni_reloc3r"
+            # options.disable_pose_head_overwrite = True
+            # options.pretrain_ckpt_path = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/crocoflow.pth"
+            # options.pretrain_ckpt_path = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric.pth"
+            options.pretrain_ckpt_path = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/DUSt3R_ViTLarge_BaseDecoder_512_dpt.pth"
+            
+            options.pose_model_type = "uni_reloc3r"
+            options.init_3d_scene_flow = True
+            # options.scene_flow_estimator_type = "linear"
+            # options.init_2d_optic_flow = True
+            # options.optic_flow_estimator_type = "dpt"
+
+
+            # options.pose_estimation_mode = "epropnp"
+            # options.pose_regression_with_mask = True
+            # options.pose_regression_which_mask = "esti"
 
             options.enable_grad_flow_motion_mask = True
             options.use_loss_motion_mask_reg = True
@@ -238,11 +252,14 @@ class Trainer:
                 from networks import Reloc3rX
                 self.models["pose"] = Reloc3rX(reloc3r_ckpt_path)
             elif self.opt.pose_model_type == "uni_reloc3r":
-                reloc3r_ckpt_path = f"{RELOC3R_PRETRAINED_ROOT}/Reloc3r-512.pth"
+                # reloc3r_ckpt_path = f"{RELOC3R_PRETRAINED_ROOT}/Reloc3r-512.pth"
+                # pretrain_ckpt_path = self.opt.pretrain_ckpt_path#f"{RELOC3R_PRETRAINED_ROOT}/Reloc3r-512.pth"
+                assert os.path.exists(self.opt.pretrain_ckpt_path), f"pretrain_ckpt_path {pretrain_ckpt_path} does not exist"
                 from networks import UniReloc3r
-                self.models["pose"] = UniReloc3r(reloc3r_ckpt_path, 
-                                                 update_pose_head_with_endofast3r_format=True,
-                                                #  update_pose_head_with_endofast3r_format=False,
+                print('init UniReloc3r from', self.opt.pretrain_ckpt_path)
+                self.models["pose"] = UniReloc3r(self.opt.pretrain_ckpt_path, 
+                                                 self.opt,
+                                                 self.log_path
                                                  )
                 print('loaded UniReloc3r...')
             elif self.opt.pose_model_type == "shared":

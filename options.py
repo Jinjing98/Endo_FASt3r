@@ -125,6 +125,33 @@ class MonodepthOptions:
 
 
         #uni_reloc3r: PoseNet
+        # --pretrained "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/reloc3r/checkpoints/reloc3r-512/Reloc3r-512.pth" \
+        # --pretrained "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/crocoflow.pth" \
+        # --pretrained "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric.pth" \
+        # --pretrained "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/DUSt3R_ViTLarge_BaseDecoder_512_dpt.pth" \ 
+
+        self.parser.add_argument("--pretrain_ckpt_path",
+                                 type=str,
+                                 help="inti reloc3r from the pretrained_root",
+                                 default='/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/reloc3r/checkpoints/reloc3r-512/Reloc3r-512.pth')
+        #model arch
+        self.parser.add_argument("--init_3d_scene_flow",
+                                 help="if set, initializes the 3d scene flow",
+                                 action="store_true")
+        self.parser.add_argument("--scene_flow_estimator_type",
+                                 type=str,
+                                 help="scene flow estimator type",
+                                 default="dpt",
+                                 choices=["dpt", "linear"])
+        self.parser.add_argument("--init_2d_optic_flow",
+                                 help="if set, initializes the 2d optic flow",
+                                 action="store_true")
+        self.parser.add_argument("--optic_flow_estimator_type",
+                                 type=str,
+                                 help="optic flow estimator type",
+                                 default="linear",
+                                 choices=["dpt", "linear"])
+        
         self.parser.add_argument("--pose_estimation_mode",
                                  type=str,
                                  help="pose estimation mode",

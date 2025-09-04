@@ -91,6 +91,7 @@ class Reloc3rRelpose(nn.Module):
                 if key.startswith('dec_blocks2'):
                     new_ckpt[key.replace('dec_blocks2', 'dec_blocks')] = value
         if any(k.startswith('head4') for k in ckpt):
+            assert 0, "head4 is not supported"
             for key, value in ckpt.items():
                 if key.startswith('head4'):
                     new_ckpt[key.replace('head4', 'head')] = value
@@ -191,6 +192,7 @@ def load_model(ckpt_path, img_size, device):
         state_dict = ckpt  # Assume the checkpoint is directly the state dict
         
     # report keys not exist in the state_dict or not matching
+    # actual loading dec2
     missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
     # reloc3r_relpose.load_state_dict(state_dict)  # or adjust key if needed
     if missing_keys:

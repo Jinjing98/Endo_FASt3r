@@ -202,11 +202,13 @@ from networks.models.endofast3r_posehead import PoseHead, transpose_to_landscape
 #         return self.model
 
 
-def UniReloc3r(path: str, opt, ):
+def UniReloc3r(path: str, opt, output_dir = None):
     print("DoMoRA in UniReloc3r")
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     reloc3r_relpose = load_UniReloc3r_model(ckpt_path=path, img_size=512, device=device,
-                                            opt = opt)# internally control model init via opt.
+                                            opt = opt,
+                                            output_dir = output_dir,
+                                            )# internally control model init via opt.
     reloc3r_relpose = DoRAInitializer(reloc3r_relpose, [20, 20, 20, 18, 18, 18, 18, 18, 16, 16, 16, 16, 14,14,12,12,10,10,8,8,8,8,8,8], [14, 14, 12, 12, 10, 10, 8, 8, 8, 8, 8, 8]).initialize_dora()
     reloc3r_relpose = VectorMoRAInitializer(reloc3r_relpose, [20, 20, 20, 18, 18, 18, 18, 18, 16, 16, 16, 16, 14,14,12,12,10,10,8,8,8,8,8,8], [14, 14, 12, 12, 10, 10, 8, 8, 8, 8, 8, 8]).initialize_mora()
     # update with endofast3r pose_head

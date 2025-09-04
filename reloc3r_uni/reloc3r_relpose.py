@@ -53,58 +53,6 @@ import torch.nn.functional as F
 inf = float('inf')
 
 
-def load_UniReloc3r_model(ckpt_path, img_size, device, opt, output_dir = None):
-    model = Reloc3rRelpose(init_dynamic_mask_estimator=getattr(opt, 'init_dynamic_mask_estimator', False),
-                        shared_dynamic_mask_estimator=getattr(opt, 'shared_dynamic_mask_estimator', False),
-                        dynamic_mask_estimator_type=getattr(opt, 'dynamic_mask_estimator_type', False),
-                        #////////
-                        init_3d_scene_flow=getattr(opt, 'init_3d_scene_flow', False),
-                        scene_flow_estimator_type=getattr(opt, 'scene_flow_estimator_type', 'dpt'),
-                        init_3d_depth=getattr(opt, 'init_3d_depth', False),
-                        init_2d_optic_flow=getattr(opt, 'init_2d_optic_flow', False),
-                        init_another_dec_for_depth=getattr(opt, 'init_another_dec_for_depth', False),
-                        pose_head_seperate_scale=getattr(opt, 'pose_head_seperate_scale', False),
-                        #/////////
-                        pose_estimation_mode=getattr(opt, 'pose_estimation_mode', 'pose_head_regression'),
-                        pose_regression_with_mask=getattr(opt, 'pose_regression_with_mask', False),
-                        pose_regression_which_mask=getattr(opt, 'pose_regression_which_mask', 'gt'),
-                        pose_regression_head_input=getattr(opt, 'pose_regression_head_input', 'default'),
-                        mapero_pixel_pe_scheme=getattr(opt, 'mapero_pixel_pe_scheme', 'focal_norm'),
-                        #/////////
-                        img_size=img_size,
-                        output_dir=output_dir,
-                        # output_dir='/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/Endo_FASt3r-DE2D/results',
-                        exp_id='tmp_id',
-                        )  # pass required args if any
-    # model = Reloc3rRelpose(img_size=img_size)
-    model.to(device)
-    ckpt = torch.load(ckpt_path, map_location=device)
-    # /////////
-    if 'state_dict' in ckpt:
-        state_dict = ckpt['state_dict']
-    elif 'model' in ckpt:
-        state_dict = ckpt['model']
-    else:
-        state_dict = ckpt  # Assume the checkpoint is directly the state dict
-        
-    # report keys not exist in the state_dict or not matching
-    missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
-    # reloc3r_relpose.load_state_dict(state_dict)  # or adjust key if needed
-    if missing_keys:
-        missing_keys_sim = {k.split('.')[0].split('[')[0] for k in missing_keys}
-        print(f'Warning: Missing keys in the checkpoint: {missing_keys_sim}')
-    if unexpected_keys:
-        unexpected_keys_sim = {k.split('.')[0].split('[')[0] for k in unexpected_keys}
-        print(f'Warning: Unexpected keys in the checkpoint: {unexpected_keys_sim}')
-    #/////////
-    
-    print('Model loaded from ', ckpt_path)
-    del ckpt  # in case it occupies memory.
-    model.eval()
-    return model
-
-
-
 # parts of the code adapted from 
 # 'https://github.com/naver/croco/blob/743ee71a2a9bf57cea6832a9064a70a0597fcfcb/models/croco.py#L21'
 # 'https://github.com/naver/dust3r/blob/c9e9336a6ba7c1f1873f9295852cea6dffaf770d/dust3r/model.py#L46'
@@ -213,7 +161,7 @@ class Reloc3rRelpose(nn.Module, PyTorchModelHubMixin):
         # self.vis_pe_freq = 10000
         self.vis_all_freq = 1000  
         self.vis_all_freq = 100
-        # self.vis_all_freq = 1
+        self.vis_all_freq = 100
         self.vis_pe_freq = -1
         # self.vis_all_freq = -1
         self.iter_cnt = 0
@@ -272,7 +220,6 @@ class Reloc3rRelpose(nn.Module, PyTorchModelHubMixin):
         assert self.pose_estimation_mode in ['pose_head_regression', 'epropnp'], f'Unknown pose_estimation_mode {self.pose_estimation_mode}, should be one of [pose_head_regression, epropnp]'
         if self.pose_estimation_mode == 'epropnp':
             assert self.init_3d_scene_flow, f'pose_estimation_mode={self.pose_estimation_mode} requires init_3d_scene_flow to be True'
-            assert self.scene_flow_estimator_type == 'linear', f'pose_estimation_mode={self.pose_estimation_mode} requires scene_flow_estimator_type to be linear'
             # todo: implemented the flow based matching
             # assert self.init_2d_optic_flow, f'pose_estimation_mode={self.pose_estimation_mode} requires init_2d_optic_flow to be True'
             self.initialize_epropnp() # init: log_weight_scale, camera, cost_fun, epropnp
@@ -569,7 +516,55 @@ class Reloc3rRelpose(nn.Module, PyTorchModelHubMixin):
         print(f'Freezing {freeze} parameters')
 
     def load_state_dict(self, ckpt, **kw):
-        return super().load_state_dict(ckpt, **kw)
+        import copy
+        # new_ckpt = dict(ckpt)
+        new_ckpt = copy.deepcopy(dict(ckpt))
+
+        if any(k.startswith('dec_blocks2') for k in ckpt):
+            for key, value in ckpt.items():
+                if key.startswith('dec_blocks2'):
+                    new_ckpt[key.replace('dec_blocks2', 'dec_blocks')] = value
+
+        list_of_heads_reusing_pretrained_regression_head = []
+        # if args.use_pretrained_head_ego_flow:
+        # list_of_heads_reusing_pretrained_regression_head.append('downstream_head_ego_flow')
+        # if args.use_pretrained_head_motion_flow:
+        # list_of_heads_reusing_pretrained_regression_head.append('downstream_head_motion_flow')
+        if self.init_3d_scene_flow and self.scene_flow_estimator_type == 'dpt':
+            list_of_heads_reusing_pretrained_regression_head.append('downstream_head_scene_flow')
+        # if args.use_pretrained_head_depth:
+        # list_of_heads_reusing_pretrained_regression_head.append('downstream_head_depth')
+
+        for head_name in list_of_heads_reusing_pretrained_regression_head:
+            if any(k.startswith('downstream_head2') for k in ckpt):
+                for key, value in ckpt.items():
+                    if key.startswith('downstream_head2') and head_name != 'downstream_head_depth':
+                        new_ckpt[key.replace('downstream_head2',head_name)] = value 
+                        print(f'{key} loaded to {head_name}......')
+            if any(k.startswith('downstream_head1') for k in ckpt):
+                for key, value in ckpt.items():
+                    if key.startswith('downstream_head1') and head_name == 'downstream_head_depth':
+                        new_ckpt[key.replace('downstream_head1',head_name)] = value
+                        print(f'{key} loaded to {head_name}......')
+
+        del ckpt        # in case it occupies memory
+
+
+        return super().load_state_dict(new_ckpt, **kw)
+
+
+    # def load_state_dict(self, ckpt, **kw):
+    #     new_ckpt = dict(ckpt)
+    #     if any(k.startswith('dec_blocks2') for k in ckpt):
+    #         for key, value in ckpt.items():
+    #             if key.startswith('dec_blocks2'):
+    #                 new_ckpt[key.replace('dec_blocks2', 'dec_blocks')] = value
+    #     if any(k.startswith('head4') for k in ckpt):
+    #         assert 0, "head4 is not supported"
+    #         for key, value in ckpt.items():
+    #             if key.startswith('head4'):
+    #                 new_ckpt[key.replace('head4', 'head')] = value
+    #     return super().load_state_dict(new_ckpt, **kw)
 
     def _encode_image(self, image, true_shape):
         # embed the image into patches  (x has size B x Npatches x C)
@@ -1490,158 +1485,58 @@ class Reloc3rRelpose(nn.Module, PyTorchModelHubMixin):
         return vis_img   
             
 
-def setup_reloc3r_relpose_model(model_args, device, ckpt_path=None, output_dir=None, strict=True):
-    if ckpt_path is None:
-        if '224' in model_args:
-            ckpt_path = 'siyan824/reloc3r-224'
-        elif '512' in model_args:
-            ckpt_path = 'siyan824/reloc3r-512'
-        reloc3r_relpose = Reloc3rRelpose.from_pretrained(ckpt_path)
+
+def load_UniReloc3r_model(ckpt_path, img_size, device, opt, output_dir = None):
+    model = Reloc3rRelpose(init_dynamic_mask_estimator=getattr(opt, 'init_dynamic_mask_estimator', False),
+                        shared_dynamic_mask_estimator=getattr(opt, 'shared_dynamic_mask_estimator', False),
+                        dynamic_mask_estimator_type=getattr(opt, 'dynamic_mask_estimator_type', False),
+                        #////////
+                        init_3d_scene_flow=getattr(opt, 'init_3d_scene_flow', False),
+                        scene_flow_estimator_type=getattr(opt, 'scene_flow_estimator_type', 'linear'),
+                        init_3d_depth=getattr(opt, 'init_3d_depth', False),
+                        init_2d_optic_flow=getattr(opt, 'init_2d_optic_flow', False),
+                        init_another_dec_for_depth=getattr(opt, 'init_another_dec_for_depth', False),
+                        pose_head_seperate_scale=getattr(opt, 'pose_head_seperate_scale', False),
+                        #/////////
+                        pose_estimation_mode=getattr(opt, 'pose_estimation_mode', 'pose_head_regression'),
+                        pose_regression_with_mask=getattr(opt, 'pose_regression_with_mask', False),
+                        pose_regression_which_mask=getattr(opt, 'pose_regression_which_mask', 'gt'),
+                        pose_regression_head_input=getattr(opt, 'pose_regression_head_input', 'default'),
+                        mapero_pixel_pe_scheme=getattr(opt, 'mapero_pixel_pe_scheme', 'focal_norm'),
+                        #/////////
+                        img_size=img_size,
+                        output_dir=output_dir,
+                        exp_id='tmp_id',
+                        )  # pass required args if any
+    # model = Reloc3rRelpose(img_size=img_size)
+    model.to(device)
+    ckpt = torch.load(ckpt_path, map_location=device)
+    # /////////
+    if 'state_dict' in ckpt:
+        state_dict = ckpt['state_dict']
+    elif 'model' in ckpt:
+        state_dict = ckpt['model']
     else:
-        assert os.path.exists(ckpt_path), f'Checkpoint path {ckpt_path} does not exist.'
-        # reloc3r_relpose = Reloc3rRelpose.from_pretrained(ckpt_path)
-        ckpt = torch.load(ckpt_path, map_location=device)
-        ckpt_args = ckpt['args']
-
-        # pass all args from the checkpoint if exist
-        # find the overlap args present in Reloc3rRelpose
-        # overlap_args = {k: v for k, v in ckpt_args.__dict__.items() if hasattr(Reloc3rRelpose, k)}
-        # overlap_args = argparse.Namespace(**overlap_args)
-        # reloc3r_relpose = Reloc3rRelpose(**overlap_args.__dict__)  # pass all args
-        
-        reloc3r_relpose = Reloc3rRelpose(init_dynamic_mask_estimator=getattr(ckpt_args, 'init_dynamic_mask_estimator', False),
-                                         shared_dynamic_mask_estimator=getattr(ckpt_args, 'shared_dynamic_mask_estimator', False),
-                                         dynamic_mask_estimator_type=getattr(ckpt_args, 'dynamic_mask_estimator_type', False),
-                                            #////////
-                                            init_3d_scene_flow=getattr(ckpt_args, 'init_3d_scene_flow', False),
-                                            scene_flow_estimator_type=getattr(ckpt_args, 'scene_flow_estimator_type', 'dpt'),
-                                            init_3d_depth=getattr(ckpt_args, 'init_3d_depth', False),
-                                            init_2d_optic_flow=getattr(ckpt_args, 'init_2d_optic_flow', False),
-                                            init_another_dec_for_depth=getattr(ckpt_args, 'init_another_dec_for_depth', False),
-                                            pose_head_seperate_scale=getattr(ckpt_args, 'pose_head_seperate_scale', False),
-                                            #/////////
-                                            img_size=512,
-                                            output_dir=output_dir,
-                                            # output_dir='/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/Endo_FASt3r-DE2D/results',
-                                            exp_id='tmp_id',
-                                            # img_size=ckpt_args.img_size,
-                                         )  # pass required args if any
-        # Handle different checkpoint formats
-        if 'state_dict' in ckpt:
-            state_dict = ckpt['state_dict']
-        elif 'model' in ckpt:
-            state_dict = ckpt['model']
-        else:
-            state_dict = ckpt  # Assume the checkpoint is directly the state dict
-        # report keys not exist in the state_dict or not matching
-        if strict:
-            missing_keys, unexpected_keys = reloc3r_relpose.load_state_dict(state_dict, strict=True)
-            # reloc3r_relpose.load_state_dict(state_dict)  # or adjust key if needed
-            if missing_keys:
-                missing_keys_sim = {k.split('.')[0].split('[')[0] for k in missing_keys}
-                print(f'Warning: Missing keys in the checkpoint: {missing_keys_sim}')
-            if unexpected_keys:
-                unexpected_keys_sim = {k.split('.')[0].split('[')[0] for k in unexpected_keys}
-                print(f'Warning: Unexpected keys in the checkpoint: {unexpected_keys_sim}')
-        else:
-            reloc3r_relpose.load_state_dict(state_dict, strict=False)
-
-    reloc3r_relpose.to(device)
-    reloc3r_relpose.eval()
+        state_dict = ckpt  # Assume the checkpoint is directly the state dict
+    
+    print('model scene_flow_estimator_type:', model.scene_flow_estimator_type)
+    # report keys not exist in the state_dict or not matching
+    missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
+    # reloc3r_relpose.load_state_dict(state_dict)  # or adjust key if needed
+    if missing_keys:
+        missing_keys_sim = {k.split('.')[0].split('[')[0] for k in missing_keys}
+        print(f'Warning: Missing keys in the checkpoint: {missing_keys_sim}')
+    if unexpected_keys:
+        unexpected_keys_sim = {k.split('.')[0].split('[')[0] for k in unexpected_keys}
+        print(f'Warning: Unexpected keys in the checkpoint: {unexpected_keys_sim}')
+    #/////////
+    
     print('Model loaded from ', ckpt_path)
-    return reloc3r_relpose
+    del ckpt  # in case it occupies memory.
+    model.eval()
+    return model
 
-
-@torch.no_grad()
-def inference_relpose(batch, model, device, use_amp=False, attn_save_folder = None): 
-    # to device. 
-    for view in batch:
-        put_on_device_list = ['img', 'camera_intrinsics', 'camera_pose']
-        # for name in 'img camera_intrinsics camera_pose'.split():  
-        for name in put_on_device_list:  
-            if name not in view:
-                continue
-            view[name] = view[name].to(device, non_blocking=True)
-    # forward. 
-    view1, view2 = batch
-    with torch.cuda.amp.autocast(enabled=bool(use_amp)):
-
-        pose1, pose2 = model(view1, view2)
-
-        if attn_save_folder:
-            os.makedirs(attn_save_folder, exist_ok=True)
-            assert model.ret_atten_mask or model.dec_use_atten_mask, 'set either ret_atten_mask or dec_use_atten_mask to True to save attention maps'
-            assert 'cross_atten_maps_k' in pose1
-            assert 'cross_atten_maps_k' in pose2
-            # pose1['cross_atten_maps_k'] = model.cross_att_k_j_mean_fused
-            # pose2['cross_atten_maps_k'] = model.cross_att_k_j_mean_fused
-            # from baselines.Easi3R.dust3r.cloud_opt.base_opt import BasePCOptimizer
-            from mvp3r.utils.process_attn import vis_attention_masks, save_attention_maps, aggregate_attention_maps, cluster_attention_maps, fuse_attention_channels
-            from baselines.Easi3R.dust3r.cloud_opt.commons import get_imshapes
-            from baselines.Easi3R.dust3r.cloud_opt.commons import (edge_str, ALL_DISTS, NoGradParamDict, get_imshapes, signed_expm1, signed_log1p,
-                                                cosine_schedule, linear_schedule, cycled_linear_schedule, get_conf_trf)
-            # edges = [(int(i), int(j)) for i, j in zip(pose1['idx'], pose2['idx'])]
-            # imshapes = get_imshapes(edges, pose1['pts3d'], pose2['pts3d_in_other_view'])
-            #////////////////////////////
-            print('TODO: this can be wrong!')
-            try:
-                edges = [(int(i), int(j)) for i, j in zip(view1['idx'], view2['idx'])]
-            except:
-                edges = [(int(i), int(j)) for i, j in zip([view1['idx']], [view2['idx']])]
-            imshapes = get_imshapes(edges, pose1['cross_atten_maps_k'], pose2['cross_atten_maps_k'])
-            str_edges = [edge_str(i, j) for i, j in edges]
-            #////////////////////////////
-            print('TODO you might want to control this setting.')
-            aggregate_j_pred1 = True
-            # aggregate_j_pred1 = False
-            aggregate_j_pred2 = False
-            # aggregate_j_pred2 = True
-            cross_att_k_i_mean, cross_att_k_i_var, cross_att_k_j_mean, cross_att_k_j_var = \
-                aggregate_attention_maps(pose1, pose2, edges=edges, imshapes=imshapes, str_edges=str_edges,\
-                                         aggregate_j_pred1=aggregate_j_pred1,aggregate_j_pred2=aggregate_j_pred2)
-           
-            cross_att_k_i_mean, cross_att_k_i_mean_fused = fuse_attention_channels(cross_att_k_i_mean)
-            cross_att_k_i_var, cross_att_k_i_var_fused = fuse_attention_channels(cross_att_k_i_var)
-            cross_att_k_j_mean, cross_att_k_j_mean_fused = fuse_attention_channels(cross_att_k_j_mean)
-            cross_att_k_j_var, cross_att_k_j_var_fused = fuse_attention_channels(cross_att_k_j_var)
-
-            # create dynamic mask
-            dynamic_map = (1-cross_att_k_i_mean_fused) * cross_att_k_i_var_fused * cross_att_k_j_mean_fused * (1-cross_att_k_j_var_fused)
-            dynamic_map_min = dynamic_map.min(dim=1, keepdim=True)[0].min(dim=2, keepdim=True)[0] # B, 1, 1
-            dynamic_map_max = dynamic_map.max(dim=1, keepdim=True)[0].max(dim=2, keepdim=True)[0] # B, 1, 1
-            dynamic_map = (dynamic_map - dynamic_map_min) / (dynamic_map_max - dynamic_map_min + 1e-6)
-
-            # # feature
-            # pred1_feat = pose1['match_feature']
-            # feat_i = NoGradParamDict({ij: nn.Parameter(pred1_feat[n], requires_grad=False) for n, ij in enumerate(str_edges)})
-            # stacked_feat_i = [feat_i[k] for k in str_edges]
-            # stacked_feat = [None] * len(imshapes)
-            # for i, ei in enumerate(torch.tensor([i for i, j in edges])):
-            #     stacked_feat[ei]=stacked_feat_i[i]
-            # stacked_feat = torch.stack(stacked_feat).float().detach()
-
-            # refined_dynamic_map, dynamic_map_labels = cluster_attention_maps(stacked_feat, dynamic_map, n_clusters=64)
-
-            # save the attention maps
-            attn_vis_dict = {
-                'cross_att_k_i_mean': 1-cross_att_k_i_mean_fused,
-                # 'cross_att_k_i_var': cross_att_k_i_var_fused,
-                'cross_att_k_j_mean': 1-cross_att_k_j_mean_fused,
-                # 'cross_att_k_j_var': cross_att_k_j_var_fused,
-                # 'dynamic_map': dynamic_map,
-                # 'refined_dynamic_map': refined_dynamic_map,
-                # 'refined_dynamic_map_labels': (refined_dynamic_map, dynamic_map_labels),
-            }
-            save_attention_maps(attn_vis_dict=attn_vis_dict, 
-                                save_folder=attn_save_folder,)
-            if model.init_dynamic_mask_estimator:
-                save_dynamic_conf_masks(pose1, pose2, save_folder=attn_save_folder)
-
-
-    pose2to1 = pose2["pose"]# default
-    pose1to2 = pose1["pose"]# extend
-    return pose2to1, pose1to2
-
+ 
 if __name__ == '__main__':
     model = Reloc3rRelpose()
     model.eval()
