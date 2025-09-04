@@ -144,7 +144,10 @@ class MonodepthOptions:
                                  type=str,
                                  help="appendix to the split: DynaSCARED",
                                  default="",
-                                 choices=["", "_CaToTi000", "_CaToTi011"])
+                                 choices=["", "_CaToTi000", 
+                                          "_CaToTi011",
+                                          "_CaToTi010", #debug if tool move too fast break flow
+                                          ])
         self.parser.add_argument("--num_layers",
                                  type=int,
                                  help="number of resnet layers",
