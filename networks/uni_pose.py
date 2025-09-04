@@ -1,4 +1,4 @@
-from reloc3r_uni.reloc3r_relpose import load_uni_model
+from reloc3r_uni.reloc3r_relpose import load_UniReloc3r_model
 from transformers import AutoImageProcessor, AutoModelForDepthEstimation, DepthAnythingForDepthEstimation
 import torch
 from torchvision import transforms
@@ -199,11 +199,11 @@ class DoRAInitializer:
         return self.model
 
 
-def Reloc3rX(path: str
+def UniReloc3r(path: str
                        ):
-    print("DoMoRA in Reloc3rX")
+    print("DoMoRA in UniReloc3r")
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    reloc3r_relpose = load_model(ckpt_path=path, img_size=512, device=device)
+    reloc3r_relpose = load_UniReloc3r_model(ckpt_path=path, img_size=512, device=device)
     reloc3r_relpose = DoRAInitializer(reloc3r_relpose, [20, 20, 20, 18, 18, 18, 18, 18, 16, 16, 16, 16, 14,14,12,12,10,10,8,8,8,8,8,8], [14, 14, 12, 12, 10, 10, 8, 8, 8, 8, 8, 8]).initialize_dora()
     reloc3r_relpose = VectorMoRAInitializer(reloc3r_relpose, [20, 20, 20, 18, 18, 18, 18, 18, 16, 16, 16, 16, 14,14,12,12,10,10,8,8,8,8,8,8], [14, 14, 12, 12, 10, 10, 8, 8, 8, 8, 8, 8]).initialize_mora()
     reloc3r_relpose.pose_head = PoseHead(net=reloc3r_relpose)

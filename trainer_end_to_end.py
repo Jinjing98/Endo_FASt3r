@@ -274,7 +274,11 @@ class Trainer:
                 reloc3r_ckpt_path = f"{RELOC3R_PRETRAINED_ROOT}/Reloc3r-512.pth"
                 from networks import Reloc3rX
                 self.models["pose"] = Reloc3rX(reloc3r_ckpt_path)
-
+            elif self.opt.pose_model_type == "uni_reloc3r":
+                reloc3r_ckpt_path = f"{RELOC3R_PRETRAINED_ROOT}/Reloc3r-512.pth"
+                from networks import UniReloc3r
+                self.models["pose"] = UniReloc3r(reloc3r_ckpt_path)
+                print('loaded UniReloc3r...')
             elif self.opt.pose_model_type == "shared":
                 self.models["pose"] = networks.PoseDecoder(
                     self.models["encoder"].num_ch_enc, self.num_pose_frames)

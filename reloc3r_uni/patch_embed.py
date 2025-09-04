@@ -1,5 +1,5 @@
 import torch
-import utils.path_to_croco
+# import utils.path_to_croco
 from models.blocks import PatchEmbed  # noqa
 
 

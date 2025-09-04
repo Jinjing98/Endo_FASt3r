@@ -1,5 +1,3 @@
-import sys
-sys.path.append('/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/')
 
 from copy import deepcopy
 import os
@@ -8,11 +6,16 @@ import torch.nn as nn
 torch.backends.cuda.matmul.allow_tf32 = True  # for gpu >= Ampere and pytorch >= 1.12
 from functools import partial
 # import reloc3r_uni.utils.path_to_croco
-import utils.path_to_croco
-from patch_embed import ManyAR_PatchEmbed
+# import utils.path_to_croco
+# from patch_embed import ManyAR_PatchEmbed
+from reloc3r_uni.patch_embed import ManyAR_PatchEmbed
 from models.pos_embed import RoPE2D 
 # from models.blocks import Block, DecoderBlock
 from models.blocks import Block
+
+import sys
+sys.path.append('/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/')
+
 from mvp3r.models.croco_dec import DecoderBlock
 # from baselines.Easi3R.croco.models.blocks import DecoderBlock # facilicate use decoder attn
 # from reloc3r.pose_head import PoseHead
@@ -38,7 +41,7 @@ import torch.nn.functional as F
 inf = float('inf')
 
 
-def load_uni_model(ckpt_path, img_size, device):
+def load_UniReloc3r_model(ckpt_path, img_size, device):
     model = Reloc3rRelpose(img_size=img_size)
     model.to(device)
     ckpt = torch.load(ckpt_path, map_location=device)
@@ -67,6 +70,71 @@ def load_uni_model(ckpt_path, img_size, device):
     del ckpt  # in case it occupies memory.
     model.eval()
     return model
+
+def setup_reloc3r_relpose_model(model_args, device, ckpt_path=None, output_dir=None, strict=True):
+    '''
+    the one used in our mvp3r
+    '''
+    if ckpt_path is None:
+        if '224' in model_args:
+            ckpt_path = 'siyan824/reloc3r-224'
+        elif '512' in model_args:
+            ckpt_path = 'siyan824/reloc3r-512'
+        reloc3r_relpose = Reloc3rRelpose.from_pretrained(ckpt_path)
+    else:
+        assert os.path.exists(ckpt_path), f'Checkpoint path {ckpt_path} does not exist.'
+        # reloc3r_relpose = Reloc3rRelpose.from_pretrained(ckpt_path)
+        ckpt = torch.load(ckpt_path, map_location=device)
+        ckpt_args = ckpt['args']
+
+        # pass all args from the checkpoint if exist
+        # find the overlap args present in Reloc3rRelpose
+        # overlap_args = {k: v for k, v in ckpt_args.__dict__.items() if hasattr(Reloc3rRelpose, k)}
+        # overlap_args = argparse.Namespace(**overlap_args)
+        # reloc3r_relpose = Reloc3rRelpose(**overlap_args.__dict__)  # pass all args
+        
+        reloc3r_relpose = Reloc3rRelpose(init_dynamic_mask_estimator=getattr(ckpt_args, 'init_dynamic_mask_estimator', False),
+                                         shared_dynamic_mask_estimator=getattr(ckpt_args, 'shared_dynamic_mask_estimator', False),
+                                         dynamic_mask_estimator_type=getattr(ckpt_args, 'dynamic_mask_estimator_type', False),
+                                            #////////
+                                            init_3d_scene_flow=getattr(ckpt_args, 'init_3d_scene_flow', False),
+                                            scene_flow_estimator_type=getattr(ckpt_args, 'scene_flow_estimator_type', 'dpt'),
+                                            init_3d_depth=getattr(ckpt_args, 'init_3d_depth', False),
+                                            init_2d_optic_flow=getattr(ckpt_args, 'init_2d_optic_flow', False),
+                                            init_another_dec_for_depth=getattr(ckpt_args, 'init_another_dec_for_depth', False),
+                                            pose_head_seperate_scale=getattr(ckpt_args, 'pose_head_seperate_scale', False),
+                                            #/////////
+                                            img_size=512,
+                                            output_dir=output_dir,
+                                            # output_dir='/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/Endo_FASt3r-DE2D/results',
+                                            exp_id='tmp_id',
+                                            # img_size=ckpt_args.img_size,
+                                         )  # pass required args if any
+        # Handle different checkpoint formats
+        if 'state_dict' in ckpt:
+            state_dict = ckpt['state_dict']
+        elif 'model' in ckpt:
+            state_dict = ckpt['model']
+        else:
+            state_dict = ckpt  # Assume the checkpoint is directly the state dict
+        # report keys not exist in the state_dict or not matching
+        if strict:
+            missing_keys, unexpected_keys = reloc3r_relpose.load_state_dict(state_dict, strict=True)
+            # reloc3r_relpose.load_state_dict(state_dict)  # or adjust key if needed
+            if missing_keys:
+                missing_keys_sim = {k.split('.')[0].split('[')[0] for k in missing_keys}
+                print(f'Warning: Missing keys in the checkpoint: {missing_keys_sim}')
+            if unexpected_keys:
+                unexpected_keys_sim = {k.split('.')[0].split('[')[0] for k in unexpected_keys}
+                print(f'Warning: Unexpected keys in the checkpoint: {unexpected_keys_sim}')
+        else:
+            reloc3r_relpose.load_state_dict(state_dict, strict=False)
+
+    reloc3r_relpose.to(device)
+    reloc3r_relpose.eval()
+    print('Model loaded from ', ckpt_path)
+    return reloc3r_relpose
+
 
 # parts of the code adapted from 
 # 'https://github.com/naver/croco/blob/743ee71a2a9bf57cea6832a9064a70a0597fcfcb/models/croco.py#L21'
@@ -220,12 +288,12 @@ class Reloc3rRelpose(nn.Module, PyTorchModelHubMixin):
         # self.detach_token_grad_for_dyn_mask = False #default before
 
         self.pose_regression_with_mask = False
-        self.pose_regression_with_mask = True
+        # self.pose_regression_with_mask = True
         self.pose_regression_which_mask = 'gt'#'esti' 'detached_esti' 'gt' 
         self.pose_regression_which_mask = 'esti'#'esti' 'detached_esti' 'gt' 
         assert self.pose_regression_which_mask in ['detached_esti','esti','gt'], f'Unknown pose_regression_which_mask {self.pose_regression_which_mask}, should be one of [gt, esti]'
         self.pose_regression_head_input = 'default'#'mapero' 'optic_flow' 'default' 'corr' 'cat_feats' 'add_feats' 'optic_flow' default is raw_feat
-        self.pose_regression_head_input = 'mapero'#'mapero_2Dbv''default' 'corr' 'cat_feats' 'add_feats' 'optic_flow' 'optic_flow_detach' default is raw_feat
+        # self.pose_regression_head_input = 'mapero'#'mapero_2Dbv''default' 'corr' 'cat_feats' 'add_feats' 'optic_flow' 'optic_flow_detach' default is raw_feat
         self.mapero_pixel_pe_scheme = 'focal_norm' #focal_norm  focal_norm_OF_warped 
         #self.mapero_pixel_pe_scheme = 'focal_norm_OF_warped' #focal_norm  focal_norm_OF_warped 
         # 'focal_norm',  # use the pts3d_in_other_view+2D
