@@ -1,6 +1,6 @@
 from baselines.DAS3R.dynamic_predictor.dust3r.datasets.base.base_stereo_view_dataset import BaseStereoViewDataset
-import sys
-sys.path.append('.')
+# import sys
+# sys.path.append('.')
 import os
 import torch
 import numpy as np

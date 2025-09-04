@@ -5,34 +5,50 @@ import torch
 import torch.nn as nn
 torch.backends.cuda.matmul.allow_tf32 = True  # for gpu >= Ampere and pytorch >= 1.12
 from functools import partial
-# import reloc3r_uni.utils.path_to_croco
-# import utils.path_to_croco
+# we still reuse the other func under Endo_FASt3r/croco; while when refer module 'models', we refer easi3r croco
+from croco.stereoflow.datasets_flow import flowToColor 
+import sys
+import reloc3r_uni.utils.path_to_croco
+# we use easi3r croco models--the decoder already adapted by us
+# CROCO_REPO_PATH = '/mnt/cluster/workspaces/jinjingxu/proj/UniSfMLearner/submodule/Endo_FASt3r/croco'
+# assert os.path.exists(os.path.join(CROCO_REPO_PATH, 'models')), f"croco is not initialized, could not find: {CROCO_REPO_PATH}.\n "
+# sys.path.insert(0, CROCO_REPO_PATH)
+
 # from patch_embed import ManyAR_PatchEmbed
 from reloc3r_uni.patch_embed import ManyAR_PatchEmbed
 from models.pos_embed import RoPE2D 
-# from models.blocks import Block, DecoderBlock
-from models.blocks import Block
+# from models.blocks_unireloc3r import Block, DecoderBlock
+from models.blocks_unireloc3r import Block
 
-import sys
-sys.path.append('/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/')
 
-from mvp3r.models.croco_dec import DecoderBlock
+
 # from baselines.Easi3R.croco.models.blocks import DecoderBlock # facilicate use decoder attn
 # from reloc3r.pose_head import PoseHead
 # from reloc3r.utils.misc import freeze_all_params, transpose_to_landscape,transpose_to_landscape_with_mask
-from baselines.reloc3r.reloc3r.pose_head import PoseHead
-from baselines.reloc3r.reloc3r.utils.misc import freeze_all_params, transpose_to_landscape, transpose_to_landscape_with_mask
+# from reloc3r_uni.pose_head import PoseHead
+
+
 from pdb import set_trace as bb
 from huggingface_hub import PyTorchModelHubMixin
 from einops import rearrange
-from mvp3r.models.utils.attn_mask import resize_mask, get_attn_k
-from mvp3r.models.heads.linear_head import Linear_MaskEsti, LinearPts3d
-from mvp3r.models.heads.dpt_head import create_motion_mask_dpt_head, create_dpt_head
-from mvp3r.utils.process_mask import save_dynamic_conf_masks
-from mvp3r.models.utils.corr import global_correlation_softmax # for corr computation
-from baselines.reloc3r.croco.stereoflow.datasets_flow import flowToColor
-from mvp3r.utils.vis import flow3DToColor
-from baselines.Easi3R.dust3r.utils.geometry import inv, geotrf
+
+# import sys
+# # risky
+# sys.path.append('/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/')
+
+# from models.croco_dec import DecoderBlock
+from models.blocks_unireloc3r import DecoderBlock
+# from models.utils.attn_mask import resize_mask, get_attn_k
+from reloc3r_uni.models.linear_head import Linear_MaskEsti, LinearPts3d
+from reloc3r_uni.models.dpt_head import create_motion_mask_dpt_head, create_dpt_head
+
+# from mvp3r.utils.process_mask import save_dynamic_conf_masks
+# from mvp3r.models.utils.corr import global_correlation_softmax # for corr computation
+from reloc3r_uni.utils.vis import flow3DToColor
+
+from reloc3r_uni.pose_head import PoseHead
+from reloc3r_uni.utils.misc import freeze_all_params, transpose_to_landscape, transpose_to_landscape_with_mask
+from reloc3r_uni.utils.geometry import inv, geotrf
 
 import numpy as np
 import cv2
@@ -192,6 +208,7 @@ class Reloc3rRelpose(nn.Module, PyTorchModelHubMixin):
                  output_dir=None,
                 ):   
         super(Reloc3rRelpose, self).__init__()
+        print('uni Reloc3rRelpose init.....')
         self.exp_id = exp_id # used only for distingusible visulistion saved dir
         self.output_dir = output_dir # used only for distingusible visulistion saved dir
 

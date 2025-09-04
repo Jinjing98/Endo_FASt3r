@@ -199,15 +199,17 @@ class DoRAInitializer:
         return self.model
 
 
-def UniReloc3r(path: str
+def UniReloc3r(path: str, update_pose_head_with_endofast3r_format=True
                        ):
     print("DoMoRA in UniReloc3r")
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     reloc3r_relpose = load_UniReloc3r_model(ckpt_path=path, img_size=512, device=device)
     reloc3r_relpose = DoRAInitializer(reloc3r_relpose, [20, 20, 20, 18, 18, 18, 18, 18, 16, 16, 16, 16, 14,14,12,12,10,10,8,8,8,8,8,8], [14, 14, 12, 12, 10, 10, 8, 8, 8, 8, 8, 8]).initialize_dora()
     reloc3r_relpose = VectorMoRAInitializer(reloc3r_relpose, [20, 20, 20, 18, 18, 18, 18, 18, 16, 16, 16, 16, 14,14,12,12,10,10,8,8,8,8,8,8], [14, 14, 12, 12, 10, 10, 8, 8, 8, 8, 8, 8]).initialize_mora()
-    reloc3r_relpose.pose_head = PoseHead(net=reloc3r_relpose)
-    reloc3r_relpose.head = transpose_to_landscape(reloc3r_relpose.pose_head, activate=True)
+    # update with endofast3r pose_head
+    if update_pose_head_with_endofast3r_format:
+        reloc3r_relpose.pose_head = PoseHead(net=reloc3r_relpose)
+        reloc3r_relpose.head = transpose_to_landscape(reloc3r_relpose.pose_head, activate=True)
     return reloc3r_relpose
 
 
@@ -235,6 +237,7 @@ class ResConvBlock(nn.Module):
 
 
 # parts of the code adapted from 'https://github.com/nianticlabs/marepo/blob/9a45e2bb07e5bb8cb997620088d352b439b13e0e/transformer/transformer.py#L193'
+# class PoseHead(nn.Module):
 class PoseHead(nn.Module):
     """ 
     pose regression head
@@ -436,6 +439,9 @@ class PoseHead(nn.Module):
         out_r = self.fc_rot(feat)  # [B,3]
         pose = self.convert_pose_to_4x4(B, out_r, out_t, tokens.device)
         res = {"pose": pose}
+
+
+        print('the retunred pose from unireloc3r_pose is: ', pose)
 
         return res
 

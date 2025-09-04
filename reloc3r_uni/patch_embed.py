@@ -1,6 +1,6 @@
 import torch
 # import utils.path_to_croco
-from models.blocks import PatchEmbed  # noqa
+from models.blocks_unireloc3r import PatchEmbed  # noqa
 
 
 # code adapted from DUSt3R: 'https://github.com/naver/dust3r/blob/c9e9336a6ba7c1f1873f9295852cea6dffaf770d/dust3r/patch_embed.py#L32'
