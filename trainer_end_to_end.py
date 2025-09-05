@@ -66,6 +66,7 @@ class Trainer:
             options.log_dir = "/mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm_debug"
 
             options.enable_motion_computation = True
+            options.use_MF_network = True
             options.use_loss_reproj2_nomotion = True
             # options.use_soft_motion_mask = True
 
@@ -216,6 +217,13 @@ class Trainer:
             # RAFT is trainable, so add its parameters to training
             self.parameters_to_train_0 += list(self.models["raft_flow"].parameters())
             print("RAFT flow estimator initialized (trainable)")
+            
+            # enable motion_flow_net
+            if self.opt.use_MF_network:
+                self.models["motion_raft_flow"] = RAFT(self.device).model
+                self.parameters_to_train_0 += list(self.models["motion_raft_flow"].parameters())
+                print("Motion RAFT flow estimator initialized (trainable)")
+
         else:
             # Use original custom networks
             self.models["position_encoder"] = networks.ResnetEncoder(
@@ -231,6 +239,22 @@ class Trainer:
             
             self.models["position"].to(self.device)
             self.parameters_to_train_0 += list(self.models["position"].parameters())
+
+
+            # enable motion_flow_net
+            if self.opt.use_MF_network:
+                self.models["motion_position_encoder"] = networks.ResnetEncoder(
+                    self.opt.num_layers, self.opt.weights_init == "pretrained", num_input_images=2)
+                # INTI FROM OF encoder
+                self.models["motion_position_encoder"].load_state_dict(torch.load(f"{AF_PRETRAINED_ROOT}/position_encoder.pth"))
+                self.models["motion_position_encoder"].to(self.device)
+                self.parameters_to_train_0 += list(self.models["motion_position_encoder"].parameters())
+
+                self.models["motion_position"] = networks.PositionDecoder(
+                    self.models["motion_position_encoder"].num_ch_enc, self.opt.scales)
+                self.models["motion_position"].load_state_dict(torch.load(f"{AF_PRETRAINED_ROOT}/position.pth"))
+                self.models["motion_position"].to(self.device)
+                self.parameters_to_train_0 += list(self.models["motion_position"].parameters())
 
         self.models["transform_encoder"] = networks.ResnetEncoder(
             self.opt.num_layers, self.opt.weights_init == "pretrained", num_input_images=2)  # 18
@@ -441,12 +465,26 @@ class Trainer:
             param.requires_grad = False
         for param in self.models["transform"].parameters():
             param.requires_grad = False
-
+        
         self.models["depth_model"].eval()
         # self.models["pose_encoder"].eval()
         self.models["pose"].eval()
         self.models["transform_encoder"].eval()
         self.models["transform"].eval()
+
+        # MF is not trainable during train_0()
+        if self.opt.use_MF_network:
+            if self.opt.use_raft_flow:
+                for param in self.models["motion_raft_flow"].parameters():
+                    param.requires_grad = False
+                self.models["motion_raft_flow"].eval()
+            else:
+                for param in self.models["motion_position_encoder"].parameters():
+                    param.requires_grad = False
+                for param in self.models["motion_position"].parameters():
+                    param.requires_grad = False
+                self.models["motion_position_encoder"].eval()
+                self.models["motion_position"].eval()
 
     def freeze_params(self,keys = []):
         # no grad compuation: debug only
@@ -459,6 +497,7 @@ class Trainer:
 
     def set_train(self):
         """Convert all models to training mode
+        # motion flow net is trainable druing train(); OF is not trainable 
         """
         if self.opt.use_raft_flow:
             # RAFT models are frozen during main training
@@ -497,6 +536,20 @@ class Trainer:
         self.models["transform_encoder"].train()
         self.models["transform"].train()
     
+        if self.opt.use_MF_network:
+            if self.opt.use_raft_flow:
+                for param in self.models["motion_raft_flow"].parameters():
+                    param.requires_grad = True
+                self.models["motion_raft_flow"].train()
+            else:
+                for param in self.models["motion_position_encoder"].parameters():
+                    param.requires_grad = True
+                for param in self.models["motion_position"].parameters():
+                    param.requires_grad = True
+                self.models["motion_position_encoder"].train()
+                self.models["motion_position"].train()
+
+
     def set_eval(self):
         """Convert all models to testing/evaluation mode
         """

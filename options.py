@@ -35,11 +35,6 @@ class MonodepthOptions:
         self.parser.add_argument("--use_MF_network",
                                  help="if set, uses MF network",
                                  action="store_true")
-        self.parser.add_argument("--MF_netowork_type",
-                                 type=str,
-                                 help="type of MF network",
-                                 default="raft",
-                                 choices=["default", "raft"])
 
         self.parser.add_argument("--reproj_supervised_with_which",
                                  type=str,
@@ -367,7 +362,7 @@ class MonodepthOptions:
         
         # OPTICAL FLOW options
         self.parser.add_argument("--use_raft_flow",
-                                 help="use RAFT optical flow estimator instead of custom position_encoder/position networks",
+                                 help="use RAFT optical flow/motion_flow estimator instead of custom position_encoder/position networks",
                                  action="store_true")
  
 
