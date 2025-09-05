@@ -32,6 +32,15 @@ class MonodepthOptions:
                                  help="it will compute: motion_flow, pose_flow, motion_mask, color_motion_warped",
                                  action="store_true")
         
+        self.parser.add_argument("--use_MF_network",
+                                 help="if set, uses MF network",
+                                 action="store_true")
+        self.parser.add_argument("--MF_netowork_type",
+                                 type=str,
+                                 help="type of MF network",
+                                 default="raft",
+                                 choices=["default", "raft"])
+
         self.parser.add_argument("--reproj_supervised_with_which",
                                  type=str,
                                  help="which GT image to supervise with",
