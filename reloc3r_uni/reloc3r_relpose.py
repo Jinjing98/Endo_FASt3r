@@ -345,10 +345,18 @@ class Reloc3rRelpose(nn.Module, PyTorchModelHubMixin):
                     num_proposals=128,
                     num_iter=5)))
 
-    def epropnp_pose_head(self, x3d, x2d, w2d, cam_mats, pose_init):
+    def epropnp_pose_head(self, x3d, x2d, w2d, cam_mats, pose_init, matches_num = 64):
         '''
         adapt from epropnp demo notebook.
         '''
+        # if x3d.shape[1] > matches_num:
+        #     # randomly sample matches_num matches for x3d, x2d, w2d
+        #     # 1. randomly sample matches_num matches
+        #     matches_num = x3d.shape[1]
+        #     x3d = x3d[torch.randperm(x3d.shape[0])[:matches_num]]
+        #     x2d = x2d[torch.randperm(x2d.shape[0])[:matches_num]]
+        #     w2d = w2d[torch.randperm(w2d.shape[0])[:matches_num]]
+
         # x3d, x2d, w2d = self.forward_correspondence(in_pose)
         self.camera.set_param(cam_mats)
         self.cost_fun.set_param(x2d.detach(), w2d)  # compute dynamic delta
@@ -897,7 +905,7 @@ class Reloc3rRelpose(nn.Module, PyTorchModelHubMixin):
                 K_1 = view1['camera_intrinsics'] # B 4 4
                 K_2 = view2['camera_intrinsics'] # B 4 4
 
-                def prepare_epropnp_input(pts3d_2in1view, K_2, B,H,W):
+                def prepare_epropnp_input(pts3d_2in1view, K_2, B, H, W, matches_num = 8):
                     '''
                     return pose_init: xyz_wxyz
                     '''
@@ -907,8 +915,16 @@ class Reloc3rRelpose(nn.Module, PyTorchModelHubMixin):
                     self._init_base_grid(H=H, W=W, device=view1['img'].device)
                     x2d_1 = self._base_grid.repeat(B, 1, 1, 1)# B H W 2
                     x2d_1 = x2d_1.reshape(B, -1, 2)
-                    assert 0, f'can w2d use conf? means the same? check out paper epropnp'
+                    # assert 0, f'can w2d use conf? means the same? check out paper epropnp'
                     w2d_1 = torch.ones_like(x2d_1)
+                    # sample  matches_num tuples (x3d_1_i,x2d_1_i,w2d_1_i)
+                    # Generate a random permutation of indices
+                    if matches_num < x3d_1.shape[0]:
+                        idx = torch.randperm(x3d_1.shape[0])[:matches_num]
+                        x3d_1 = x3d_1[idx]
+                        x2d_1 = x2d_1[idx]
+                        w2d_1 = w2d_1[idx]
+
                     cam_mats_1 = K_2[:,:3,:3] 
                     # in Epropnp: pose are in XYZ_quat 7 dim format
                     # pose_init_1 = torch.eye(4).repeat(B, 1, 1).to(view1['img'].device) 

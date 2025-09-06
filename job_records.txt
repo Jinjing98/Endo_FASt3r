@@ -1,3 +1,46 @@
+pose_err reduce for static img with original method/ours?
+offline eval?
+error_map?
+check how the scaled depth and pose is setted up in the suppliments? checked, not well addressed. Hard reset depth scale--the learned pose scale is improper.
+enforce consistency via mutiple paird input or design map_latent when enbale mutual is on?
+predict_MM and reg_enforce_motion_flow_non_masked_area to be zero?---addtionally supervise of the pose.
+
+disp_to_depth? the scales for depth and pose are related
+enable_mutual(so that depth is computed for all the 3 imgs)+ST_head+ST_loss?---depth anything paper
+unidepth v2 paper? disambigulate pose flow and motion flow grad flow.
+use learned map latent? 3D mixer concept.
+
+
+
+raft proof to be better? Yes
+OF_curve pose reduced for dyn? Yes
+reg_mag_motion_flow and motion_mask? Yes, Works if not using_MF(not sure effect when use_MF)---which to detach(either is okay as mask is gen from MF--this term can be removed if we use_MF_net?)? detach_motion_mask? function: avoid being lazy(especially when not use_MF_net)
+loss_reproj_2? Yes, critial for supervise of the pose flow togther with effective motion_mask_with_grad
+loss_reproj(with motion correction) might be redundant with use loss_repoj_2?
+unfzD is necessary in the end? Yes. 
+ignore_motion_area_at_calib? Only safer(as a lot are supervised with refined_tgt) but improper(try to turn off later) --as we use registered img to calibrate.
+
+implement shared_MF_net? should be helpful.
+test if diff poser can OF properly?
+
+
+
+05.Sep: when 000=>010  reproj_err reduced further; pose err remains.
+the pose_flow, consequently motin_flow are neither good.
+(Done)95182: use seperate raft_like network to predict motion flow
+colored_MotionCorrected_loss2nomo_000_fzD_b4_hardmask_RegMask_ignoreMotionAreaAtCalib_OFgtSup_raft_useMFnet
+95256_b3: 95182+unfzD
+(OOM)95224: 95182+unfzD
+colored_MotionCorrected_loss2nomo_000_unfzD_b4_hardmask_RegMask_ignoreMotionAreaAtCalib_OFgtSup_raft_useMFnet
+
+
+
+04.Sep: RAFT looks much better; we check all the vis--as we expected; but only rare cases when tool move fast--failed anyway
+95012: pose_err not reduce; verify if the dataset issue: tool_motion break the OF application case
+colored_MotionCorrected_loss2nomo_000_fzD_b4_hardmask_RegMask_ignoreMotionAreaAtCalib_OFgtSup_raft_010
+XXX95181: use 011. Sanity_for_sure_should_reduce.  Nan. Why?
+
+#////////////////////////////////
 03.Sep: inspect calib process; 
 fzD; loss_0_using_gt_supervision; binarymask; regMask_on
 94924(10h) --model_name colored_MotionCorrected_loss2nomo_000_fzD_b4_hardmask_RegMask_ignoreMotionAreaAtCalib_OFgtSup \

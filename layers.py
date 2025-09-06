@@ -21,6 +21,13 @@ def disp_to_depth(disp, min_depth, max_depth):
     depth = 1 / scaled_disp
     return scaled_disp, depth
 
+def disp_to_depth_scaled(disp, min_depth, max_depth):
+    """
+    assume disp is already scaled.
+    """
+    pass
+
+
 
 def transformation_from_parameters(axisangle, translation, invert=False):
     """Convert the network's (axisangle, translation) output into a 4x4 matrix
