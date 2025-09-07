@@ -4,14 +4,26 @@ error_map?
 check how the scaled depth and pose is setted up in the suppliments? checked, not well addressed. Hard reset depth scale--the learned pose scale is improper.
 enforce consistency via mutiple paird input or design map_latent when enbale mutual is on?
 predict_MM and reg_enforce_motion_flow_non_masked_area to be zero?---addtionally supervise of the pose.
+AF_coorect_masked_mutual_is_safe? Yeah? the OF can be imperfect leading to bad register, do not risk applying bad refine img.
 
+OF: seems sample color from MF to get corrected color more robust than--warp PF+MF to get corrected color
+pose_flow is obtained in noisy state, considering the disp2depth func w.r.t T, the depth are badly supervised.
 disp_to_depth? the scales for depth and pose are related
 enable_mutual(so that depth is computed for all the 3 imgs)+ST_head+ST_loss?---depth anything paper
 unidepth v2 paper? disambigulate pose flow and motion flow grad flow.
 use learned map latent? 3D mixer concept.
+reg_pose_flow? the same_color_tone_no_need?
 
 
+the 95282 A is not properly stopped, still running.
+!!!
+3_method_to_obtain_color_correction?: A for the 1st time bring pose_err, but the depth get badly affect due to the noisy required pose_flow, now try 
+A.Src_img+(PF+MF.detach())  B.color+(MF.detach()) C. color.detach+MF D.color+(MF)
+reg_PF_From_DandT  and PF_from_OF_and_MF?
 
+
+train_MF_net? Yes. For the 1st time have chance to get reduced pose err.
+Shared_MF_OF? Yes, it is critical to avoid the MF being absurd---loss_0 will constraint it anyway.
 raft proof to be better? Yes
 OF_curve pose reduced for dyn? Yes
 reg_mag_motion_flow and motion_mask? Yes, Works if not using_MF(not sure effect when use_MF)---which to detach(either is okay as mask is gen from MF--this term can be removed if we use_MF_net?)? detach_motion_mask? function: avoid being lazy(especially when not use_MF_net)
@@ -20,7 +32,7 @@ loss_reproj(with motion correction) might be redundant with use loss_repoj_2?
 unfzD is necessary in the end? Yes. 
 ignore_motion_area_at_calib? Only safer(as a lot are supervised with refined_tgt) but improper(try to turn off later) --as we use registered img to calibrate.
 
-implement shared_MF_net? should be helpful.
+implement shared_MF_net? Did not verify but should be helpful, and take as default. ---Avoid the MF net being too free.
 test if diff poser can OF properly?
 
 

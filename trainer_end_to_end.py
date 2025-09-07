@@ -60,93 +60,103 @@ class Trainer:
             options.num_epochs = 50000
             options.batch_size = 1
             # options.batch_size = 2
-            options.accumulate_steps = 1  # Effective batch size = 1 * 12 = 12
+            options.accumulate_steps = 4  # Effective batch size = 1 * 12 = 12
             options.log_frequency = 10
             options.save_frequency = 100000# no save
-            options.log_dir = "/mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm_debug"
-
-            options.enable_motion_computation = True
-            options.use_MF_network = True
-            
-            options.use_loss_reproj2_nomotion = True
-            # options.use_soft_motion_mask = True
-
-            # options.disable_pose_head_overwrite = True
-            # options.pretrain_ckpt_path = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/crocoflow.pth"
-            # options.pretrain_ckpt_path = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric.pth"
-            options.pretrain_ckpt_path = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/DUSt3R_ViTLarge_BaseDecoder_512_dpt.pth"
-            
-            # options.pose_model_type = "uni_reloc3r"
-            # options.init_3d_scene_flow = True
+            # options.log_dir = "/mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm_debug"
 
 
-            # options.scene_flow_estimator_type = "linear"
-            # options.init_2d_optic_flow = True
-            # options.optic_flow_estimator_type = "dpt"
+            options.shared_MF_OF_network = False
 
-
-            # options.pose_estimation_mode = "epropnp"
-            # options.pose_regression_with_mask = True
-            # options.pose_regression_which_mask = "esti"
-
-            options.enable_grad_flow_motion_mask = True
-            options.use_loss_motion_mask_reg = True
-
+            # options.enable_motion_computation = True
+            # options.use_MF_network = True
+            # options.shared_MF_OF_network = True
             # options.enable_mutual_motion = True
+            # options.reg_mutual_raw_disp_based_OF_for_consistency_and_correctness = True
+            
+            # options.use_loss_reproj2_nomotion = True
+            # # options.use_soft_motion_mask = True
+
+            # # options.disable_pose_head_overwrite = True
+            # # options.pretrain_ckpt_path = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/crocoflow.pth"
+            # # options.pretrain_ckpt_path = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric.pth"
+            # options.pretrain_ckpt_path = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/DUSt3R_ViTLarge_BaseDecoder_512_dpt.pth"
+            
+            # # options.pose_model_type = "uni_reloc3r"
+            # # options.init_3d_scene_flow = True
 
 
-            # options.zero_pose_debug = True
+            # # options.scene_flow_estimator_type = "linear"
+            # # options.init_2d_optic_flow = True
+            # # options.optic_flow_estimator_type = "dpt"
 
-            # options.freeze_depth_debug = True
-            options.model_name = "debug_MF_of8_001"
 
-            options.ignore_motion_area_at_calib = True
+            # # options.pose_estimation_mode = "epropnp"
+            # # options.pose_regression_with_mask = True
+            # # options.pose_regression_which_mask = "esti"
 
-            options.use_raft_flow = True
+            # options.enable_grad_flow_motion_mask = True
+            # options.use_loss_motion_mask_reg = True
 
-            # options.zero_pose_flow_debug = True
-            # options.reproj_supervised_with_which = "raw_tgt_gt"
-            # options.reproj_supervised_which = "color_MotionCorrected"
 
-            # options.flow_reproj_supervised_with_which = "raw_tgt_gt"
 
-            # options.transform_constraint = 0.0
-            # options.transform_smoothness = 0.0
-            # options.disparity_smoothness = 0.0
+            # # options.zero_pose_debug = True
 
-            # options.freeze_as_much_debug = True #save mem # need to be on for OF exp
+            # # options.freeze_depth_debug = True
+            # options.model_name = "debug_MF_of8_001_samplefromcolor"
+
+            # options.ignore_motion_area_at_calib = True
+
+            # options.use_raft_flow = True
+
+            # # options.zero_pose_flow_debug = True
+            # # options.reproj_supervised_with_which = "raw_tgt_gt"
+            # # options.reproj_supervised_which = "color_MotionCorrected"
+
+            # # options.flow_reproj_supervised_with_which = "raw_tgt_gt"
+
+            # # options.transform_constraint = 0.0
+            # # options.transform_smoothness = 0.0
+            # # options.disparity_smoothness = 0.0
+
+            # # options.freeze_as_much_debug = True #save mem # need to be on for OF exp
 
             options.of_samples = True
-            options.of_samples_num = 100
+            # options.of_samples_num = 100
             options.of_samples_num = 8
-            options.is_train = True
-            options.is_train = False # no augmentation
+            # options.is_train = True
+            # options.is_train = False # no augmentation
 
-            options.frame_ids = [0, -1, 1]
-            # options.frame_ids = [0, -2, 2]
-            # options.frame_ids = [0, -14, 14]
+            # # big step might lead to inf?
+            # options.frame_ids = [0, -1, 1]
+            # # options.frame_ids = [0, -3, 3]
+            # # options.frame_ids = [0, -14, 14]
 
-            # # not okay to use: we did not adjust the init_K accordingly yet
-            # options.height = 192
-            # options.width = 224
+            # # # not okay to use: we did not adjust the init_K accordingly yet
+            # # options.height = 192
+            # # options.width = 224
 
-            options.dataset = "endovis"
-            options.data_path = "/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/"
-            options.split_appendix = ""
+            # options.dataset = "endovis"
+            # options.data_path = "/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/"
+            # options.split_appendix = ""
 
-            options.dataset = "DynaSCARED"
-            options.data_path = "/mnt/cluster/datasets/Surg_oclr_stereo/"
-            options.split_appendix = "_CaToTi000"
-            options.split_appendix = "_CaToTi001"
-            options.split_appendix = "_CaToTi010"
-            # options.split_appendix = "_CaToTi110"
-            # options.split_appendix = "_CaToTi101"
+            # options.dataset = "DynaSCARED"
+            # options.data_path = "/mnt/cluster/datasets/Surg_oclr_stereo/"
+            # options.split_appendix = "_CaToTi000"
+            # options.split_appendix = "_CaToTi001"
+            # # options.split_appendix = "_CaToTi010"
+            # # options.split_appendix = "_CaToTi110"
+            # # options.split_appendix = "_CaToTi101"
+            # # options.split_appendix = "_CaToTi011"
 
         self.opt = options
         
         # sanity check some params early
         if self.opt.use_loss_motion_mask_reg:
             assert self.opt.enable_grad_flow_motion_mask, "enable_grad_flow_motion_mask must be True when use_loss_motion_mask_reg is True"
+        if self.opt.reg_mutual_raw_disp_based_OF_for_consistency_and_correctness:
+            assert self.opt.enable_mutual_motion, "enable_mutual_motion must be True when reg_mutual_depth_based_OF_for_consistency_and_correctness is True"
+
 
         # #/////
         # if not self.opt.debug:
@@ -224,7 +234,10 @@ class Trainer:
             
             # enable motion_flow_net
             if self.opt.use_MF_network:
-                self.models["motion_raft_flow"] = RAFT(self.device).model
+                # self.models["motion_raft_flow"] = RAFT(self.device).model
+                self.models["motion_raft_flow"] = RAFT(self.device).model if not self.opt.shared_MF_OF_network \
+                    else self.models["raft_flow"]
+
                 self.parameters_to_train_0 += list(self.models["motion_raft_flow"].parameters())
                 print("Motion RAFT flow estimator initialized (trainable)")
 
@@ -247,18 +260,25 @@ class Trainer:
 
             # enable motion_flow_net
             if self.opt.use_MF_network:
-                self.models["motion_position_encoder"] = networks.ResnetEncoder(
-                    self.opt.num_layers, self.opt.weights_init == "pretrained", num_input_images=2)
-                # INTI FROM OF encoder
-                self.models["motion_position_encoder"].load_state_dict(torch.load(f"{AF_PRETRAINED_ROOT}/position_encoder.pth"))
-                self.models["motion_position_encoder"].to(self.device)
-                self.parameters_to_train_0 += list(self.models["motion_position_encoder"].parameters())
+                if self.opt.shared_MF_OF_network:
+                    self.models["motion_position_encoder"] = self.models["position_encoder"]
+                else:
+                    self.models["motion_position_encoder"] = networks.ResnetEncoder(
+                        self.opt.num_layers, self.opt.weights_init == "pretrained", num_input_images=2)
+                    # INTI FROM OF encoder
+                    self.models["motion_position_encoder"].load_state_dict(torch.load(f"{AF_PRETRAINED_ROOT}/position_encoder.pth"))
+                    self.models["motion_position_encoder"].to(self.device)
 
-                self.models["motion_position"] = networks.PositionDecoder(
-                    self.models["motion_position_encoder"].num_ch_enc, self.opt.scales)
-                self.models["motion_position"].load_state_dict(torch.load(f"{AF_PRETRAINED_ROOT}/position.pth"))
-                self.models["motion_position"].to(self.device)
-                self.parameters_to_train_0 += list(self.models["motion_position"].parameters())
+                    self.parameters_to_train += list(self.models["motion_position_encoder"].parameters())
+
+                if self.opt.shared_MF_OF_network:
+                    self.models["motion_position"] = self.models["position"]
+                else:
+                    self.models["motion_position"] = networks.PositionDecoder(
+                        self.models["motion_position_encoder"].num_ch_enc, self.opt.scales)
+                    self.models["motion_position"].load_state_dict(torch.load(f"{AF_PRETRAINED_ROOT}/position.pth"))
+                    self.models["motion_position"].to(self.device)
+                    self.parameters_to_train += list(self.models["motion_position"].parameters())
 
         self.models["transform_encoder"] = networks.ResnetEncoder(
             self.opt.num_layers, self.opt.weights_init == "pretrained", num_input_images=2)  # 18
@@ -477,7 +497,7 @@ class Trainer:
         self.models["transform"].eval()
 
         # MF is not trainable during train_0()
-        if self.opt.use_MF_network:
+        if self.opt.use_MF_network and not self.opt.shared_MF_OF_network:
             if self.opt.use_raft_flow:
                 for param in self.models["motion_raft_flow"].parameters():
                     param.requires_grad = False
@@ -541,6 +561,8 @@ class Trainer:
         self.models["transform"].train()
     
         if self.opt.use_MF_network:
+            # it will enable the OF net when shared_MF_OF_network is on
+            # we need to manually detach all the OF estimation during train() statge
             if self.opt.use_raft_flow:
                 for param in self.models["motion_raft_flow"].parameters():
                     param.requires_grad = True
@@ -559,9 +581,14 @@ class Trainer:
         """
         if self.opt.use_raft_flow:
             self.models["raft_flow"].eval()
+            if self.opt.use_MF_network:
+                self.models["motion_raft_flow"].eval()
         else:
             self.models["position_encoder"].eval()
             self.models["position"].eval()
+            if self.opt.use_MF_network:
+                self.models["motion_position_encoder"].eval()
+                self.models["motion_position"].eval()
             
         self.models["depth_model"].eval()
         self.models["transform_encoder"].eval()
@@ -704,7 +731,7 @@ class Trainer:
 
         return outputs, losses
 
-    def reformat_raft_output(self, num_flow_udpates, outputs_raw):
+    def reformat_raft_output(self, num_flow_udpates, outputs_raw, hard_detach_OF_grad = False):
         outputs = {}
         assert len(outputs_raw) == num_flow_udpates, f"outputs_raw length {len(outputs_raw)} != num_flow_udpates {num_flow_udpates}"
 
@@ -716,7 +743,8 @@ class Trainer:
             pyramid_resolution_width = self.opt.width // (2 ** scale)
             if scale!=0:
                 outputs[("position", scale)] = F.interpolate(
-                        outputs_raw[scale_raw], [pyramid_resolution_height, pyramid_resolution_width], mode="bilinear",
+                        outputs_raw[scale_raw].detach() if hard_detach_OF_grad else outputs_raw[scale_raw], # manually detach for safety as when shared_MF_OF_network is on, OF net is trainable during train() stage
+                        [pyramid_resolution_height, pyramid_resolution_width], mode="bilinear",
                         align_corners=True)
             else:
                 outputs[("position", scale)] = outputs_raw[scale_raw]
@@ -746,14 +774,14 @@ class Trainer:
                         num_flow_udpates = 12
                         outputs_0_raw = self.models["raft_flow"](pose_feats[f_i], pose_feats[0])
                         outputs_1_raw = self.models["raft_flow"](pose_feats[0], pose_feats[f_i])
-                        outputs_0 = self.reformat_raft_output(num_flow_udpates, outputs_0_raw)
-                        outputs_1 = self.reformat_raft_output(num_flow_udpates, outputs_1_raw)
+                        outputs_0 = self.reformat_raft_output(num_flow_udpates, outputs_0_raw, hard_detach_OF_grad=False)# there is alreay no grad in OF net
+                        outputs_1 = self.reformat_raft_output(num_flow_udpates, outputs_1_raw, hard_detach_OF_grad=False)# there is alreay no grad in OF net
                     else:
                         # Original custom networks
-                        position_inputs = self.models["position_encoder"](torch.cat(inputs_all, 1))
-                        position_inputs_reverse = self.models["position_encoder"](torch.cat(inputs_all_reverse, 1))
-                        outputs_0 = self.models["position"](position_inputs)
-                        outputs_1 = self.models["position"](position_inputs_reverse)
+                        position_inputs = self.models["position_encoder"](torch.cat(inputs_all, 1))# there is no grad in position_encoder
+                        position_inputs_reverse = self.models["position_encoder"](torch.cat(inputs_all_reverse, 1))# there is no grad in position_encoder
+                        outputs_0 = self.models["position"](position_inputs)# there is no grad in position
+                        outputs_1 = self.models["position"](position_inputs_reverse)# there is no grad in position
 
                     # for k, v in outputs_0.items():
                     #     print(f"{k}: {v.shape}")
@@ -950,15 +978,22 @@ class Trainer:
                         num_flow_udpates = 12
                         outputs_0_raw = self.models["raft_flow"](pose_feats[f_i], pose_feats[0])
                         outputs_1_raw = self.models["raft_flow"](pose_feats[0], pose_feats[f_i])
-                        outputs_0 = self.reformat_raft_output(num_flow_udpates, outputs_0_raw)
-                        outputs_1 = self.reformat_raft_output(num_flow_udpates, outputs_1_raw)
+                        outputs_0 = self.reformat_raft_output(num_flow_udpates, outputs_0_raw, hard_detach_OF_grad=self.opt.shared_MF_OF_network)# there will be grad in OF net if shared_MF_OF_network is on, therfore we need to hard detach
+                        outputs_1 = self.reformat_raft_output(num_flow_udpates, outputs_1_raw, hard_detach_OF_grad=self.opt.shared_MF_OF_network)# there will be grad in OF net if shared_MF_OF_network is on, therfore we need to hard detach
                         # RAFT expects separate image inputs, not concatenated features
                     else:
                         # Original custom networks
-                        position_inputs = self.models["position_encoder"](torch.cat(inputs_all, 1))
-                        position_inputs_reverse = self.models["position_encoder"](torch.cat(inputs_all_reverse, 1))
+                        position_inputs = self.models["position_encoder"](torch.cat(inputs_all, 1)) if not self.opt.shared_MF_OF_network \
+                            else self.models["position_encoder"](torch.cat(inputs_all, 1)).detach()
+                        position_inputs_reverse = self.models["position_encoder"](torch.cat(inputs_all_reverse, 1)) if not self.opt.shared_MF_OF_network \
+                            else self.models["position_encoder"](torch.cat(inputs_all_reverse, 1)).detach()
+
                         outputs_0 = self.models["position"](position_inputs)
                         outputs_1 = self.models["position"](position_inputs_reverse)
+                        if self.opt.shared_MF_OF_network:
+                            # detach the grad in outputs_0 and outputs_1
+                            outputs_0 = {k: v.detach() for k, v in outputs_0.items()}
+                            outputs_1 = {k: v.detach() for k, v in outputs_1.items()}
 
                     for scale in self.opt.scales:
 
@@ -1037,18 +1072,85 @@ class Trainer:
                             position_inputs_reverse = self.models["motion_position_encoder"](torch.cat(inputs_all_reverse, 1))
                             outputs_1 = self.models["motion_position"](position_inputs_reverse)
 
+                    solve_MF_issue_from_root_debug = True
+                    Solve_MF_issue_from_root_debug = False
                     for scale in self.opt.scales:
                         outputs[("motion_flow", f_i, scale)] = outputs_0[("position", scale)]# no grad anyway due to freeze OF net
+                        # solve MF ref issue from source
+                        if solve_MF_issue_from_root_debug:
+                            mf_ref_color = outputs[("motion_flow", f_i, scale)]
+                            mf_ref_src = self.spatial_transform(
+                                mf_ref_color,
+                                outputs[("pose_flow", f_i, scale)],
+                                # outputs[("pose_flow", f_i, scale)].detach(), 
+                                )
+                            outputs[("motion_flow", f_i, scale)] = mf_ref_src
+
                         outputs[("motion_flow", "high", f_i, scale)] = F.interpolate(
                             outputs[("motion_flow", f_i, scale)], [self.opt.height, self.opt.width], mode="bilinear", align_corners=True)
                         # spatial transform
+                        # A: perferred(nosiy depth, otherwise good) --at least known to get pose properly!
+                        # infact--no any constraint--below formula always exist no matter whatever pose_flow.
+                        # outputs[("color_MotionCorrected", f_i, scale)] = self.spatial_transform(
+                        #     inputs[("color", f_i, 0)],
+                        #     outputs[("motion_flow", "high", f_i, scale)].detach() + outputs[("pose_flow", f_i, scale)], 
+                        #     )
+                        
+                        # A''': perferred(nosiy depth, otherwise good) --at least known to get pose properly!
+                        # infact--no any constraint--below formula always exist no matter whatever pose_flow.
+                        # mf_ref_color = outputs[("motion_flow", "high", f_i, scale)].detach()
+                        # # mf_ref_src = # color + s2c
+                        # mf_ref_src = self.spatial_transform(
+                        #     mf_ref_color,
+                        #     outputs[("pose_flow", f_i, scale)], 
+                        #     )
+                        # outputs[("color_MotionCorrected", f_i, scale)] = self.spatial_transform(
+                        #     inputs[("color", f_i, 0)],
+                        #     # below is wrong!: the ref frame changes of motino
+                        #     # outputs[("motion_flow", "high", f_i, scale)].detach() + outputs[("pose_flow", f_i, scale)], 
+                        #     mf_ref_src + outputs[("pose_flow", f_i, scale)], 
+                        #     )
+
+                        # A''''
                         outputs[("color_MotionCorrected", f_i, scale)] = self.spatial_transform(
                             inputs[("color", f_i, 0)],
-                            outputs[("motion_flow", "high", f_i, scale)]+outputs[("pose_flow", f_i, scale)], 
+                            outputs[("motion_flow", "high", f_i, scale)] + outputs[("pose_flow", f_i, scale)].detach(), 
                             )
+
+                        #X: A': not known---affect pose_flow indirecly from motion_flow(computed from color img and real_img)
+                        # outputs[("color_MotionCorrected", f_i, scale)] = self.spatial_transform(
+                        #     inputs[("color", f_i, 0)],
+                        #     outputs[("motion_flow", "high", f_i, scale)] + outputs[("pose_flow", f_i, scale)].detach(), 
+                        #     )
+ 
+                         # A'':
+                        # outputs[("color_MotionCorrected", f_i, scale)] = self.spatial_transform(
+                        #     inputs[("color", f_i, 0)],
+                        #     outputs[("motion_flow", "high", f_i, scale)] + outputs[("pose_flow", f_i, scale)], 
+                        #     )
+
                         
+                        # B: robust_color_corrected: _no_noisy (wrong but good trend to let pose flow learn properly--seem to bring curve downer)More robust compared to the above: depth get less affected?
+                        # it also significantly affect depth:  it will enforce dy area to be extremely deep---reasonable. but not correct
+                        # here the major aim is still supervise pose_flow properly in a full frame regime, we already indirectly supervised MF by reused the OF net.
+                        # outputs[("color_MotionCorrected", f_i, scale)] = self.spatial_transform(
+                        #     outputs[("color", f_i, 0)],
+                        #     # outputs[("motion_flow", "high", f_i, scale)], 
+                        #     outputs[("motion_flow", "high", f_i, scale)].detach(), 
+                        #     )                        
+  
+
                         if self.opt.enable_mutual_motion:
-                            outputs[("motion_flow_s2t", f_i, scale)] = outputs_1[("position", scale)]# no grad anyway due to freeze OF net
+                            outputs[("motion_flow_s2t", f_i, scale)] = outputs_1[("position", scale)]# no grad anyway due to freeze OF net 
+                            if solve_MF_issue_from_root_debug:
+                                mf_ref_color = outputs[("motion_flow_s2t", f_i, scale)]
+                                mf_ref_src = self.spatial_transform(
+                                    mf_ref_color,
+                                    outputs[("pose_flow_s2t", f_i, scale)],
+                                    # outputs[("pose_flow_s2t", f_i, scale)].detach(),
+                                    )
+                                outputs[("motion_flow_s2t", f_i, scale)] = mf_ref_src
+                            
                             outputs[("motion_flow_s2t", "high", f_i, scale)] = F.interpolate(
                                 outputs[("motion_flow_s2t", f_i, scale)], [self.opt.height, self.opt.width], mode="bilinear", align_corners=True)
                     
@@ -1139,16 +1241,16 @@ class Trainer:
         
         if tgt_frame_id == 0:
             assert frame_id in self.opt.frame_ids[1:], f'frame_id {frame_id} is not in self.opt.frame_ids[1:]'
-            compute_tgt2src = True
+            compute_tgt2src_sampling = True
         else:
             assert frame_id == 0, f'src_frame_id {frame_id} is not 0'
             assert tgt_frame_id in self.opt.frame_ids[1:], f'tgt_frame_id {tgt_frame_id} is not in self.opt.frame_ids[1:]'
-            compute_tgt2src = False
+            compute_tgt2src_sampling = False
 
         if frame_id == "s":
             T = inputs["stereo_T"]
         else:
-            if compute_tgt2src:
+            if compute_tgt2src_sampling:
                 # print('/////!compute tgt2src')
                 T = outputs[("cam_T_cam", 0, frame_id)]
             else:
@@ -1187,7 +1289,7 @@ class Trainer:
         pix_coords = self.project_3d[source_scale](cam_points, inputs[("K", source_scale)], T)# 2D pxs; T: f0 -> f1  f0->f-1
         # print('pix_coords.shape:')
         # print(pix_coords.shape)
-        if compute_tgt2src:
+        if compute_tgt2src_sampling:
             outputs[("sample", frame_id, scale)] = pix_coords # b h w 2
         else:
             outputs[("sample_s2t", tgt_frame_id, scale)] = pix_coords # b h w 2
@@ -1195,7 +1297,7 @@ class Trainer:
         norm_width_source_scale = self.project_3d[scale].width
         norm_height_source_scale = self.project_3d[scale].height
         # compute the raw_unit value pix_coords_raw from pix_coords, leveraging the fact that pix_coords saves values in range [-1,1]
-        if compute_tgt2src:
+        if compute_tgt2src_sampling:
             pix_coords_raw = outputs[("sample", frame_id, scale)].clone()#.detach()
         else:
             pix_coords_raw = outputs[("sample_s2t", tgt_frame_id, scale)].clone()#.detach()
@@ -1204,7 +1306,7 @@ class Trainer:
         pix_coords_raw[..., 0] = pix_coords_raw[..., 0] * (norm_width_source_scale - 1)
         pix_coords_raw[..., 1] = pix_coords_raw[..., 1] * (norm_height_source_scale - 1)
         # tgt2src pose flow
-        if compute_tgt2src:
+        if compute_tgt2src_sampling:
             outputs[("pose_flow", frame_id, scale)] = pix_coords_raw.permute(0, 3, 1, 2) - mesh_gird_high_res # there is grad; B 2 H W 
         else:
             outputs[("pose_flow_s2t", tgt_frame_id, scale)] = pix_coords_raw.permute(0, 3, 1, 2) - mesh_gird_high_res # there is grad; B 2 H W 
@@ -1636,6 +1738,9 @@ class Trainer:
                 loss_reg_edge = 0
                 loss_reg_mag = 0
 
+            if self.opt.reg_mutual_raw_disp_based_OF_for_consistency_and_correctness:
+                loss_reg_mutual_raw_disp_based_OF = 0
+
             if self.opt.v1_multiscale:
                 source_scale = scale
             else:
@@ -1779,6 +1884,17 @@ class Trainer:
                         loss_reg_edge += loss_edge
                         loss_reg_mag += loss_mag
 
+                # if self.opt.reg_mutual_raw_disp_based_OF_for_consistency_and_correctness:
+                #     def compute_disp_loss(disp, target_disp):
+                #         return torch.abs(disp - target_disp).mean()
+                #     if scale == 0:
+                #         disp_tgt_img = outputs[("disp", scale)]
+                #         disp_src_img = outputs[("disp", scale, frame_id)]
+                #         # warp the src disp based on the optic flow
+                #         of_t2s = outputs[("position", 'high', scale, frame_id)].detach()
+                #         disp_tgt_img_esti = self.spatial_transform(disp_src_img, of_t2s)
+                #         loss_reg_mutual_raw_disp_based_OF += compute_disp_loss(disp_tgt_img_esti, disp_tgt_img)
+
             mean_disp = disp.mean(2, True).mean(3, True)
             norm_disp = disp / (mean_disp + 1e-7)
             smooth_loss = get_smooth_loss(norm_disp, color)
@@ -1787,6 +1903,9 @@ class Trainer:
             loss += self.opt.transform_constraint * (loss_transform / 2.0)
             loss += self.opt.transform_smoothness * (loss_cvt / 2.0) 
             loss += self.opt.disparity_smoothness * smooth_loss / (2 ** scale)
+
+            # if self.opt.reg_mutual_raw_disp_based_OF_for_consistency_and_correctness:
+            #     loss += loss_reg_mutual_raw_disp_based_OF / 2.0
             
             if self.opt.use_loss_motion_mask_reg:
                 weights = [1.0, 0.2, 0.05]
@@ -1821,6 +1940,9 @@ class Trainer:
 
             if self.opt.use_loss_reproj2_nomotion:
                 losses['loss/scale_{}_reproj2_nomotion'.format(scale)] = loss2_reprojection
+            
+            if self.opt.reg_mutual_raw_disp_based_OF_for_consistency_and_correctness:
+                losses['loss/scale_{}_reg_mutual_raw_disp_based_OF'.format(scale)] = loss_reg_mutual_raw_disp_based_OF
 
 
         total_loss /= self.num_scales

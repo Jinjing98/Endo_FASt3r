@@ -35,6 +35,9 @@ class MonodepthOptions:
         self.parser.add_argument("--use_MF_network",
                                  help="if set, uses MF network",
                                  action="store_true")
+        self.parser.add_argument("--shared_MF_OF_network",
+                                 help="if set, uses MF network",
+                                 action="store_true")
 
         self.parser.add_argument("--reproj_supervised_with_which",
                                  type=str,
@@ -105,6 +108,9 @@ class MonodepthOptions:
         self.parser.add_argument("--enable_mutual_motion",
                                  help="can be expensive as evertyhign including depth need to computer s2t version, it will compute: motion_flow, pose_flow, motion_mask, color_motion_warped",
                                  action="store_true")
+        self.parser.add_argument("--reg_mutual_raw_disp_based_OF_for_consistency_and_correctness",
+                                 help="inspired from VDA; hope to address noisy depth problem",
+                                 action="store_true")        
 
         #/////////
 
