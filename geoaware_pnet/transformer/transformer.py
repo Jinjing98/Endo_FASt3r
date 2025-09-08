@@ -7,8 +7,7 @@ import torch.nn.functional as F
 from .linear_attention import LinearAttention, FullAttention
 from einops.einops import rearrange, repeat
 from transformer.position_encoding import PositionEncodingSine
-import pytorch3d.transforms as transforms
-
+from geoaware_pnet.utils import rotation_6d_to_matrix
 import importlib.util
 if importlib.util.find_spec('flash_attn'):
     from flash_attn import flash_attn_func
@@ -314,7 +313,7 @@ class Transformer_Head(nn.Module):
         if self.rot_representation=='9D':
             out_r = self.svd_orthogonalize(out_r)  # [N,3,3]
         else:
-            out_r = transforms.rotation_6d_to_matrix(out_r)  # [N,3,3]
+            out_r = rotation_6d_to_matrix(out_r)  # [N,3,3]
         pose = torch.zeros((B, 4, 4), device=device)
         pose[:, :3, :3] = out_r
         pose[:, :3, 3] = out_t
@@ -359,7 +358,11 @@ class Transformer_Head(nn.Module):
         return:
             pose [N,4,4]
         """
+        # print('//////////////')
+        # print(sc.shape)
+        # print(intrinsics_B33.shape)
         B,C,H,W = sc.shape
+
         # subtract mapping mean
         sc_coords = sc - self.transformer_pose_mean # DO Not remove, used in testing
 

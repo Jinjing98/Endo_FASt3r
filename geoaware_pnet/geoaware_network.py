@@ -180,7 +180,7 @@ class Regressor(nn.Module):
         self.transformer_head = Transformer_Head(config)
 
     @classmethod
-    def create_from_encoder(cls, encoder_state_dict, mean, num_head_blocks, use_homogeneous):
+    def create_from_encoder(cls, encoder_state_dict, mean, num_head_blocks, use_homogeneous, num_encoder_features):
         """
         Create a regressor using a pretrained encoder, loading encoder-specific parameters from the state dict.
 
@@ -191,7 +191,7 @@ class Regressor(nn.Module):
         """
 
         # Number of output channels of the last encoder layer.
-        num_encoder_features = encoder_state_dict['res2_conv3.weight'].shape[0]
+        # num_encoder_features = encoder_state_dict['res2_conv3.weight'].shape[0]
 
         # Create a regressor.
         _logger.info(f"Creating Regressor using pretrained encoder with {num_encoder_features} feature size.")
@@ -217,11 +217,13 @@ class Regressor(nn.Module):
         pattern = re.compile(r"^heads\.\d+c0\.weight$")
         num_head_blocks = sum(1 for k in state_dict.keys() if pattern.match(k))
 
-        # Whether the network uses homogeneous coordinates.
-        use_homogeneous = state_dict["heads.fc3.weight"].shape[0] == 4
+        # # Whether the network uses homogeneous coordinates.
+        # use_homogeneous = state_dict["heads.fc3.weight"].shape[0] == 4
+        use_homogeneous = config["use_homogeneous"]
 
-        # Number of output channels of the last encoder layer.
-        num_encoder_features = state_dict['encoder.res2_conv3.weight'].shape[0]
+        # # Number of output channels of the last encoder layer.
+        # num_encoder_features = state_dict['encoder.res2_conv3.weight'].shape[0]
+        num_encoder_features = config["num_encoder_features"]
 
         # Create a regressor.
         _logger.info(f"Creating regressor from pretrained state_dict:"
@@ -282,5 +284,58 @@ class Regressor(nn.Module):
     def get_scene_coordinates(self, features):
         return self.heads(features)
 
-    def get_pose(self, sc, intrinsics_B33=None, sc_mask=None, random_rescale_sc=False):
+    # def get_pose(self, sc, intrinsics_B33=None, sc_mask=None, random_rescale_sc=False):
+    #     return self.transformer_head(sc, intrinsics_B33, sc_mask, random_rescale_sc)
+    
+
+    def forward(self, sc, intrinsics_B33=None, sc_mask=None, random_rescale_sc=False):
+        # exact the same as
         return self.transformer_head(sc, intrinsics_B33, sc_mask, random_rescale_sc)
+    
+
+
+
+if __name__ == "__main__":
+    import json
+    transformer_json = "/mnt/cluster/workspaces/jinjingxu/proj/UniSfMLearner/submodule/Endo_FASt3r/geoaware_pnet/transformer/config/nerf_focal_12T1R_256_homo_c2f.json"
+    # some configuration for the transformer
+    f = open(transformer_json)
+    config = json.load(f)
+    f.close()
+    mean_cam_center = torch.tensor([0.0, 0.0, 0.0])
+    default_img_H = 480
+    default_img_W = 640
+
+    # extend: not included in the json
+    # transformer_pose_mean will be applied internnally in pose_regression_head
+    config["transformer_pose_mean"] = mean_cam_center # for us, we set to zero as we predict only the relative pose.
+    config["default_img_HW"] = [default_img_H, default_img_W]
+    config["num_encoder_features"] = 512 # not used for us?
+    config["use_homogeneous"] = True
+
+    model = Regressor.create_from_split_state_dict(encoder_state_dict = {}, 
+                                                       head_state_dict = {}, 
+                                                       config = config)
+
+    from torchsummary import summary
+
+    # test the regressor model with simulated input data
+    input_data = torch.randn(1, 1, default_img_H, default_img_W)
+    intrinsics_B33 = torch.randn(1, 3, 3)
+    sc_mask = torch.randn(1, 1, int(default_img_H/8), int(default_img_W/8)) # use during training, else set to None
+    random_rescale_sc = True # on during traning
+
+
+    features = model.get_features(input_data)
+    sc = model.get_scene_coordinates(features)
+    print('sc.shape',sc.shape)
+    print('intrinsics_B33.shape',intrinsics_B33.shape)
+
+    # test pose regressor only
+    pose = model(sc.repeat(2, 1, 1, 1), intrinsics_B33.repeat(2, 1, 1),
+                        sc_mask=sc_mask.repeat(2, 1, 1, 1), random_rescale_sc=random_rescale_sc)
+    print('pose. len/shape',len(pose), pose[0].shape)
+    
+ 
+    
+    
