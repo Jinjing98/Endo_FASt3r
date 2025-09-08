@@ -307,21 +307,22 @@ class PoseRegressor(nn.Module):
 
 if __name__ == "__main__":
     import json
-    transformer_json = "/mnt/cluster/workspaces/jinjingxu/proj/UniSfMLearner/submodule/Endo_FASt3r/geoaware_pnet/transformer/config/nerf_focal_12T1R_256_homo_c2f.json"
+    transformer_json = "/mnt/cluster/workspaces/jinjingxu/proj/UniSfMLearner/submodule/Endo_FASt3r/geoaware_pnet/transformer/config/nerf_focal_12T1R_256_homo_c2f_geoaware.json"
     # some configuration for the transformer
     f = open(transformer_json)
     config = json.load(f)
     f.close()
     mean_cam_center = torch.tensor([0.0, 0.0, 0.0])
-    default_img_H = 480
-    default_img_W = 640
+    default_img_H = config["default_img_H"]#480
+    default_img_W = config["default_img_W"]#640
+
+    # default_img_H = 256
+    # default_img_W = 320    
 
     # extend: not included in the json
     # transformer_pose_mean will be applied internnally in pose_regression_head
     config["transformer_pose_mean"] = mean_cam_center # for us, we set to zero as we predict only the relative pose.
     config["default_img_HW"] = [default_img_H, default_img_W]
-    config["num_encoder_features"] = 512 # not used for us?
-    config["use_homogeneous"] = True
 
     # test original pose_regressor 
     # model = Regressor.create_from_split_state_dict(encoder_state_dict = {}, 
@@ -351,7 +352,10 @@ if __name__ == "__main__":
     #test pose regressor only
     model = PoseRegressor(config)
     sc = torch.randn(1, 3, int(default_img_H/8), int(default_img_W/8))
+    # sc = torch.randn(1, 3, 64, 80)
     intrinsics_B33 = torch.randn(1, 3, 3)
+    print('sc.shape',sc.shape)
+    print('intrinsics_B33.shape',intrinsics_B33.shape)
     sc_mask = torch.randn(1, 1, int(default_img_H/8), int(default_img_W/8)) # use during training, else set to None
     random_rescale_sc = True # on during traning
     pose = model(sc.repeat(2, 1, 1, 1), intrinsics_B33.repeat(2, 1, 1),
