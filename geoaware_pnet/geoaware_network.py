@@ -162,7 +162,7 @@ class Regressor(nn.Module):
 
     OUTPUT_SUBSAMPLE = 8
 
-    def __init__(self, mean, num_head_blocks, use_homogeneous, num_encoder_features=512, config={}):
+    def __init__(self, mean, num_head_blocks, use_homogeneous, num_encoder_features=512, config={}, transformer_head_only=False):
         """
         Constructor.
 
@@ -173,6 +173,7 @@ class Regressor(nn.Module):
         """
         super(Regressor, self).__init__()
 
+        self.transformer_head_only = transformer_head_only
         self.feature_dim = num_encoder_features
         self.encoder = Encoder(out_channels=self.feature_dim)
         self.heads = Head(mean, num_head_blocks, use_homogeneous, in_channels=self.feature_dim)
@@ -294,6 +295,15 @@ class Regressor(nn.Module):
     
 
 
+class PoseRegressor(nn.Module):
+    def __init__(self, config):
+        super(PoseRegressor, self).__init__()
+        self.config = config
+        self.transformer_head = Transformer_Head(config)
+    
+    def forward(self, sc, intrinsics_B33=None, sc_mask=None, random_rescale_sc=False):
+        return self.transformer_head(sc, intrinsics_B33, sc_mask, random_rescale_sc)
+
 
 if __name__ == "__main__":
     import json
@@ -313,29 +323,38 @@ if __name__ == "__main__":
     config["num_encoder_features"] = 512 # not used for us?
     config["use_homogeneous"] = True
 
-    model = Regressor.create_from_split_state_dict(encoder_state_dict = {}, 
-                                                       head_state_dict = {}, 
-                                                       config = config)
+    # test original pose_regressor 
+    # model = Regressor.create_from_split_state_dict(encoder_state_dict = {}, 
+    #                                                    head_state_dict = {}, 
+    #                                                    config = config)
 
-    from torchsummary import summary
+    # from torchsummary import summary
 
-    # test the regressor model with simulated input data
-    input_data = torch.randn(1, 1, default_img_H, default_img_W)
+    # # test the regressor model with simulated input data
+    # input_data = torch.randn(1, 1, default_img_H, default_img_W)
+    # intrinsics_B33 = torch.randn(1, 3, 3)
+    # sc_mask = torch.randn(1, 1, int(default_img_H/8), int(default_img_W/8)) # use during training, else set to None
+    # random_rescale_sc = True # on during traning
+
+
+    # features = model.get_features(input_data)
+    # sc = model.get_scene_coordinates(features)
+    # print('sc.shape',sc.shape)
+    # print('intrinsics_B33.shape',intrinsics_B33.shape)
+
+    # # test pose regressor only
+    # pose = model(sc.repeat(2, 1, 1, 1), intrinsics_B33.repeat(2, 1, 1),
+    #                     sc_mask=sc_mask.repeat(2, 1, 1, 1), random_rescale_sc=random_rescale_sc)
+    # print('pose. len/shape',len(pose), pose[0].shape)
+    
+ 
+    #test pose regressor only
+    model = PoseRegressor(config)
+    sc = torch.randn(1, 3, int(default_img_H/8), int(default_img_W/8))
     intrinsics_B33 = torch.randn(1, 3, 3)
     sc_mask = torch.randn(1, 1, int(default_img_H/8), int(default_img_W/8)) # use during training, else set to None
     random_rescale_sc = True # on during traning
-
-
-    features = model.get_features(input_data)
-    sc = model.get_scene_coordinates(features)
-    print('sc.shape',sc.shape)
-    print('intrinsics_B33.shape',intrinsics_B33.shape)
-
-    # test pose regressor only
     pose = model(sc.repeat(2, 1, 1, 1), intrinsics_B33.repeat(2, 1, 1),
                         sc_mask=sc_mask.repeat(2, 1, 1, 1), random_rescale_sc=random_rescale_sc)
     print('pose. len/shape',len(pose), pose[0].shape)
-    
- 
-    
     
