@@ -303,7 +303,7 @@ class Trainer:
             elif self.opt.pose_model_type == "uni_reloc3r":
                 # reloc3r_ckpt_path = f"{RELOC3R_PRETRAINED_ROOT}/Reloc3r-512.pth"
                 # pretrain_ckpt_path = self.opt.pretrain_ckpt_path#f"{RELOC3R_PRETRAINED_ROOT}/Reloc3r-512.pth"
-                assert os.path.exists(self.opt.pretrain_ckpt_path), f"pretrain_ckpt_path {pretrain_ckpt_path} does not exist"
+                assert os.path.exists(self.opt.pretrain_ckpt_path), f"pretrain_ckpt_path {self.opt.pretrain_ckpt_path} does not exist"
                 from networks import UniReloc3r
                 print('init UniReloc3r from', self.opt.pretrain_ckpt_path)
                 self.models["pose"] = UniReloc3r(self.opt.pretrain_ckpt_path, 
@@ -311,6 +311,10 @@ class Trainer:
                                                  self.log_path
                                                  )
                 print('loaded UniReloc3r...')
+            elif self.opt.pose_model_type == "geoaware_pnet":
+                from networks import GeoAwarePNet
+                self.models["pose"] = GeoAwarePNet(self.opt)
+                print('loaded GeoAwarePNet...scratch traning')
             elif self.opt.pose_model_type == "shared":
                 self.models["pose"] = networks.PoseDecoder(
                     self.models["encoder"].num_ch_enc, self.num_pose_frames)
@@ -1030,8 +1034,9 @@ class Trainer:
                     # view2 = {'img':prepare_images(inputs["color_aug", 0, 0], self.device, size = 512)}
 
                     # pose2 = self.models["pose"](view0,view1)
-                    # pose2, _ = self.models["pose"](view0,view1)# notice we save pose2to1 as usually saved by reloc3r/fast3r/mvp3r; dares saved rel pose1to2
-                    _ , pose2 = self.models["pose"](view1,view2)# 
+                    # pose2, _ = self.models["pose"](view0,view1)
+                    # # notice we save pose2to1 as usually saved by reloc3r/fast3r/mvp3r; dares saved rel pose1to2
+                    _ , pose2 = self.models["pose"](view1,view2)
                     # notice we save pose2to1 as usually saved by reloc3r/fast3r/mvp3r; dares saved rel pose1to2
                     outputs[("cam_T_cam", 0, f_i)] = pose2["pose"] # we need pose tgt2src, ie: pose2to1, i.e the pose2 in breif in reloc3r model.
 

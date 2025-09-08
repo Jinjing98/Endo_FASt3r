@@ -345,7 +345,26 @@ class MonodepthOptions:
                                  type=str,
                                  help="normal or shared",
                                  default="separate_resnet",
-                                 choices=["posecnn", "separate_resnet", "shared"])
+                                 choices=["posecnn", 
+                                          "separate_resnet", 
+                                          "shared",
+                                          "geoaware_pnet",
+                                          ])
+         # geoaware_pnet arch:
+        self.parser.add_argument("--use_pyramid",
+                                 help="if set disables CUDA",
+                                 action="store_true")         #         
+        self.parser.add_argument("--2d_pe_type",
+                                 type=str,
+                                 help="2d pe type, lofter is the original version, 2d_bv_nerf is the nerf version",
+                                 default="lofter",
+                                 choices=["lofter", '2d_bv_nerf'])
+        self.parser.add_argument("--3d_pe_type",
+                                 type=str,
+                                 help="nerf version use 3 chanel while lofer only use the 2 channels of bv",
+                                 default="3d_bv_lofter",
+                                 choices=["3d_bv_lofter", "nerf"])
+
 
         # SYSTEM options
         self.parser.add_argument("--no_cuda",

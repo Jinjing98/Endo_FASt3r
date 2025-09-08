@@ -1,3 +1,41 @@
+clear: A''  shared
+95397 colored_MotionCorrected_loss2nomo_101_unfzD_b4_accu1_hardmask_RegMask_ignoreMotionAreaAtCalib_OFgtSup_raft_useMFnet_sharedMOF_doubleA_scratch
+B'' b1_accu4:(best by far)
+95444  colored_MotionCorrected_loss2nomo_101_unfzD_b3_accu1_hardmask_RegMask_ignoreMotionAreaAtCalib_OFgtSup_raft_useMFnet_sharedMOF_doubleB_scratch
+(95399 b11 accu4 version) colored_MotionCorrected_loss2nomo_101_unfzD_b1_accu4_hardmask_RegMask_ignoreMotionAreaAtCalib_OFgtSup_raft_useMFnet_sharedMOF_doubleB_scratch
+B'' b1_accu4+mutual:(a100)
+95402(95404 b1accu4 version) colored_MotionCorrected_loss2nomo_101_unfzD_b4_accu1_hardmask_RegMask_ignoreMotionAreaAtCalib_OFgtSup_raft_useMFnet_sharedMOF_doubleB_mutual_scratch
+B'' b1_accu4+NOshared:(best by far)
+95403 colored_MotionCorrected_loss2nomo_101_unfzD_b1_accu4_hardmask_RegMask_ignoreMotionAreaAtCalib_OFgtSup_raft_useMFnet_NOsharedMOF_doubleB_scratch
+
+
+F A b1_accu4:
+95400 colored_MotionCorrected_loss2nomo_101_unfzD_b1_accu4_hardmask_RegMask_ignoreMotionAreaAtCalib_OFgtSup_raft_useMFnet_sharedMOF_A_scratch
+F A+mutual b1_accu4:
+95401 colored_MotionCorrected_loss2nomo_101_unfzD_b1_accu4_hardmask_RegMask_ignoreMotionAreaAtCalib_OFgtSup_raft_useMFnet_sharedMOF_A_mutual_scratch
+
+solve_MF_issue_from_root_debug have issue: tgt to src motion? start with target?
+learn 3D MF?
+REG: mf+pf=of
+disp2depth
+
+#fix by inverse MF computation order and negative pose_flow once used
+95363 woShard. quickbugfix. A''''
+OF_8. the same setting as the above. 95367
+OF_8. the same but shared OF net. 95358
+
+# wrong motion_flow before and include 95357
+x95345: full.  A+redfMF b1accu4
+x95347: OF 8  A+redfMF colored_MotionCorrected_loss2nomo_000_unfzD_OF8_b1_accu4_hardmask_RegMask_ignoreMotionAreaAtCalib_OFgtSup_raft_useMFnet_sharedMOF_A_redefMF
+x95346: OF 8  A'''(internnally redef) colored_MotionCorrected_loss2nomo_000_unfzD_OF8_b1_accu4_hardmask_RegMask_ignoreMotionAreaAtCalib_OFgtSup_raft_useMFnet_sharedMOF_A_triple_prime
+95357: OF 8  A''''+redef+no_shared (enforce mf supervise in loss_reproj_ori)
+
+! motion_flow and motion_mask ?: the base ref is changed? w.r.t src or color?
+
+
+A:95318
+A'':95317
+
 pose_err reduce for static img with original method/ours?
 offline eval?
 error_map?
@@ -16,6 +54,8 @@ reg_pose_flow? the same_color_tone_no_need?
 
 
 the 95282 A is not properly stopped, still running.
+!!! the disp2dpeth func can be a bootleneck
+
 !!!
 3_method_to_obtain_color_correction?: A for the 1st time bring pose_err, but the depth get badly affect due to the noisy required pose_flow, now try 
 A.Src_img+(PF+MF.detach())  B.color+(MF.detach()) C. color.detach+MF D.color+(MF)
