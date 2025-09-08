@@ -140,14 +140,15 @@ class Trainer:
             # options.data_path = "/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/"
             # options.split_appendix = ""
 
-            # options.dataset = "DynaSCARED"
-            # options.data_path = "/mnt/cluster/datasets/Surg_oclr_stereo/"
-            # options.split_appendix = "_CaToTi000"
+            options.dataset = "DynaSCARED"
+            options.data_path = "/mnt/cluster/datasets/Surg_oclr_stereo/"
+            options.split_appendix = "_CaToTi000"
             # options.split_appendix = "_CaToTi001"
             # # options.split_appendix = "_CaToTi010"
             # # options.split_appendix = "_CaToTi110"
-            options.split_appendix = "_CaToTi101"
-            # # options.split_appendix = "_CaToTi011"
+            # options.split_appendix = "_CaToTi101"
+            # options.split_appendix = "_CaToTi011"
+
 
         self.opt = options
         
