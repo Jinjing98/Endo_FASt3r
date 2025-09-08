@@ -60,16 +60,16 @@ class Trainer:
             options.num_epochs = 50000
             options.batch_size = 1
             # options.batch_size = 2
-            options.accumulate_steps = 4  # Effective batch size = 1 * 12 = 12
+            # options.accumulate_steps = 4  # Effective batch size = 1 * 12 = 12
             options.log_frequency = 10
             options.save_frequency = 100000# no save
             # options.log_dir = "/mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm_debug"
 
 
-            options.shared_MF_OF_network = False
+            options.shared_MF_OF_network = True
 
-            # options.enable_motion_computation = True
-            # options.use_MF_network = True
+            options.enable_motion_computation = True
+            options.use_MF_network = True
             # options.shared_MF_OF_network = True
             # options.enable_mutual_motion = True
             # options.reg_mutual_raw_disp_based_OF_for_consistency_and_correctness = True
@@ -100,14 +100,14 @@ class Trainer:
 
 
 
-            # # options.zero_pose_debug = True
+            # options.zero_pose_debug = True
 
             # # options.freeze_depth_debug = True
             # options.model_name = "debug_MF_of8_001_samplefromcolor"
 
             # options.ignore_motion_area_at_calib = True
 
-            # options.use_raft_flow = True
+            options.use_raft_flow = True
 
             # # options.zero_pose_flow_debug = True
             # # options.reproj_supervised_with_which = "raw_tgt_gt"
@@ -146,7 +146,7 @@ class Trainer:
             # options.split_appendix = "_CaToTi001"
             # # options.split_appendix = "_CaToTi010"
             # # options.split_appendix = "_CaToTi110"
-            # # options.split_appendix = "_CaToTi101"
+            options.split_appendix = "_CaToTi101"
             # # options.split_appendix = "_CaToTi011"
 
         self.opt = options
@@ -764,19 +764,22 @@ class Trainer:
                 if f_i != "s":
                     # ipdb.set_trace()
 
-                    inputs_all = [pose_feats[f_i], pose_feats[0]]# tgt to src flow
-                    inputs_all_reverse = [pose_feats[0], pose_feats[f_i]]
 
                     # position - handle both custom networks and RAFT
                     if self.opt.use_raft_flow:
+                        inputs_all = [pose_feats[0], pose_feats[f_i]]# tgt to src flow
+                        inputs_all_reverse = [pose_feats[f_i], pose_feats[0]]
                         # RAFT expects separate image inputs, not concatenated features
                         # we reformat raft 12 resolution output to 4 resolution output
                         num_flow_udpates = 12
-                        outputs_0_raw = self.models["raft_flow"](pose_feats[f_i], pose_feats[0])
-                        outputs_1_raw = self.models["raft_flow"](pose_feats[0], pose_feats[f_i])
+                        outputs_0_raw = self.models["raft_flow"](pose_feats[0], pose_feats[f_i])
+                        outputs_1_raw = self.models["raft_flow"](pose_feats[f_i], pose_feats[0])
                         outputs_0 = self.reformat_raft_output(num_flow_udpates, outputs_0_raw, hard_detach_OF_grad=False)# there is alreay no grad in OF net
                         outputs_1 = self.reformat_raft_output(num_flow_udpates, outputs_1_raw, hard_detach_OF_grad=False)# there is alreay no grad in OF net
                     else:
+                        # take care! the author network were trained in such an format
+                        inputs_all = [pose_feats[f_i], pose_feats[0]]# tgt to src flow
+                        inputs_all_reverse = [pose_feats[0], pose_feats[f_i]]
                         # Original custom networks
                         position_inputs = self.models["position_encoder"](torch.cat(inputs_all, 1))# there is no grad in position_encoder
                         position_inputs_reverse = self.models["position_encoder"](torch.cat(inputs_all_reverse, 1))# there is no grad in position_encoder
@@ -970,18 +973,21 @@ class Trainer:
 
                 if f_i != "s":
                     
-                    inputs_all = [pose_feats[f_i], pose_feats[0]]
-                    inputs_all_reverse = [pose_feats[0], pose_feats[f_i]]
 
                     # position - handle both custom networks and RAFT
                     if self.opt.use_raft_flow:
                         num_flow_udpates = 12
-                        outputs_0_raw = self.models["raft_flow"](pose_feats[f_i], pose_feats[0])
-                        outputs_1_raw = self.models["raft_flow"](pose_feats[0], pose_feats[f_i])
+                        # inputs_all = [pose_feats[f_i], pose_feats[0]]
+                        # inputs_all_reverse = [pose_feats[0], pose_feats[f_i]]
+                        outputs_0_raw = self.models["raft_flow"](pose_feats[0], pose_feats[f_i]) #t2s flow
+                        outputs_1_raw = self.models["raft_flow"](pose_feats[f_i], pose_feats[0]) #s2t flow
                         outputs_0 = self.reformat_raft_output(num_flow_udpates, outputs_0_raw, hard_detach_OF_grad=self.opt.shared_MF_OF_network)# there will be grad in OF net if shared_MF_OF_network is on, therfore we need to hard detach
                         outputs_1 = self.reformat_raft_output(num_flow_udpates, outputs_1_raw, hard_detach_OF_grad=self.opt.shared_MF_OF_network)# there will be grad in OF net if shared_MF_OF_network is on, therfore we need to hard detach
                         # RAFT expects separate image inputs, not concatenated features
                     else:
+                        inputs_all = [pose_feats[f_i], pose_feats[0]]
+                        inputs_all_reverse = [pose_feats[0], pose_feats[f_i]]
+
                         # Original custom networks
                         position_inputs = self.models["position_encoder"](torch.cat(inputs_all, 1)) if not self.opt.shared_MF_OF_network \
                             else self.models["position_encoder"](torch.cat(inputs_all, 1)).detach()
@@ -1047,14 +1053,18 @@ class Trainer:
             for f_i in self.opt.frame_ids[1:]:
 
                 if f_i != "s":
-                    # prepare to get motion flow (tgt_motion_status_2_src_motion_status): tgt(at tgt motion status) -> tgt_warped_from_src_with_PF(at src motion status)
-                    # as later, we warp src to tgt with PF(s2t) +MF (s2t) 
-                    inputs_all = [img_feats[0], img_feats[f_i]]# we need to place gt_tgt_in the front
-                    if self.opt.enable_mutual_motion:
-                        inputs_all_reverse = [img_feats[f_i], img_feats[0]]# src_motion_status_2_tgt_motion_status
 
                     # position - handle both custom networks and RAFT
                     if self.opt.use_raft_flow:
+                        # prepare to get motion flow (tgt_motion_status_2_src_motion_status): tgt(at tgt motion status) -> tgt_warped_from_src_with_PF(at src motion status)
+                        # as later, we warp src to tgt with PF(s2t) +MF (s2t) 
+                        inputs_all = [img_feats[0], img_feats[f_i]]# we need to place gt_tgt_in the front
+                        # bug fix: we saved s2t_motion_flow in 'motion_flow'---all the enable mutual is wrong!
+                        # inputs_all = [img_feats[f_i], img_feats[0]]# we need to place gt_tgt_in the front
+                        if self.opt.enable_mutual_motion:
+                            inputs_all_reverse = [img_feats[f_i], img_feats[0]]# src_motion_status_2_tgt_motion_status
+
+
                         num_flow_udpates = 12
                         outputs_0_raw = self.models["motion_raft_flow"](img_feats[0], img_feats[f_i])
                         # RAFT expects separate image inputs, not concatenated features
@@ -1064,6 +1074,13 @@ class Trainer:
                             outputs_1_raw = self.models["motion_raft_flow"](img_feats[f_i], img_feats[0])
                             outputs_1 = self.reformat_raft_output(num_flow_udpates, outputs_1_raw)
                     else:
+                        #we want to obtain t2s motion flow, when reuse author network.
+                        # the orignal network is trained to be like, given input (1,2), estimated flow(2to1)
+                            
+                        inputs_all = [img_feats[f_i], img_feats[0]]
+                        if self.opt.enable_mutual_motion:
+                            inputs_all_reverse = [img_feats[0], img_feats[f_i]]
+                            
                         # Original custom networks
                         position_inputs = self.models["motion_position_encoder"](torch.cat(inputs_all, 1))
                         outputs_0 = self.models["motion_position"](position_inputs)
@@ -1075,16 +1092,16 @@ class Trainer:
                     solve_MF_issue_from_root_debug = True
                     Solve_MF_issue_from_root_debug = False
                     for scale in self.opt.scales:
-                        outputs[("motion_flow", f_i, scale)] = outputs_0[("position", scale)]# no grad anyway due to freeze OF net
+                        outputs[("motion_flow", f_i, scale)] = outputs_0[("position", scale)]# saves t2s flow # no grad anyway due to freeze OF net
                         # solve MF ref issue from source
-                        if solve_MF_issue_from_root_debug:
-                            mf_ref_color = outputs[("motion_flow", f_i, scale)]
-                            mf_ref_src = self.spatial_transform(
-                                mf_ref_color,
-                                outputs[("pose_flow", f_i, scale)],
-                                # outputs[("pose_flow", f_i, scale)].detach(), 
-                                )
-                            outputs[("motion_flow", f_i, scale)] = mf_ref_src
+                        # if solve_MF_issue_from_root_debug:
+                        #     mf_ref_tgt = outputs[("motion_flow", f_i, scale)]
+                        #     mf_ref_color = self.spatial_transform(
+                        #         mf_ref_tgt,
+                        #         outputs[("pose_flow", f_i, scale)], #infact: tgt2src
+                        #         # outputs[("pose_flow", f_i, scale)].detach(), 
+                        #         )
+                        #     outputs[("motion_flow", f_i, scale)] = mf_ref_color
 
                         outputs[("motion_flow", "high", f_i, scale)] = F.interpolate(
                             outputs[("motion_flow", f_i, scale)], [self.opt.height, self.opt.width], mode="bilinear", align_corners=True)
@@ -1095,7 +1112,20 @@ class Trainer:
                         #     inputs[("color", f_i, 0)],
                         #     outputs[("motion_flow", "high", f_i, scale)].detach() + outputs[("pose_flow", f_i, scale)], 
                         #     )
-                        
+                         # A'': motion_flow: tgt2color    pose_flow: color2src
+                         # while we need OF: tgt2src
+                        # outputs[("color_MotionCorrected", f_i, scale)] = self.spatial_transform(
+                        #     inputs[("color", f_i, 0)],
+                        #     outputs[("motion_flow", "high", f_i, scale)] + outputs[("pose_flow", f_i, scale)], 
+                        #     )
+                        # B'': robust_color_corrected: _no_noisy (wrong but good trend to let pose flow learn properly--seem to bring curve downer)More robust compared to the above: depth get less affected?
+                        # it also significantly affect depth:  it will enforce dy area to be extremely deep---reasonable. but not correct
+                        # here the major aim is still supervise pose_flow properly in a full frame regime, we already indirectly supervised MF by reused the OF net.
+                        outputs[("color_MotionCorrected", f_i, scale)] = self.spatial_transform(
+                            outputs[("color", f_i, 0)],
+                            outputs[("motion_flow", "high", f_i, scale)].detach(), 
+                            )       
+
                         # A''': perferred(nosiy depth, otherwise good) --at least known to get pose properly!
                         # infact--no any constraint--below formula always exist no matter whatever pose_flow.
                         # mf_ref_color = outputs[("motion_flow", "high", f_i, scale)].detach()
@@ -1112,10 +1142,12 @@ class Trainer:
                         #     )
 
                         # A''''
-                        outputs[("color_MotionCorrected", f_i, scale)] = self.spatial_transform(
-                            inputs[("color", f_i, 0)],
-                            outputs[("motion_flow", "high", f_i, scale)] + outputs[("pose_flow", f_i, scale)].detach(), 
-                            )
+                        # outputs[("color_MotionCorrected", f_i, scale)] = self.spatial_transform(
+                        #     inputs[("color", f_i, 0)],
+                        #     # outputs[("motion_flow", "high", f_i, scale)] + outputs[("pose_flow", f_i, scale)].detach(), 
+                        #     # quick tmp fix--later deteaoe;d corrected. from define them, usage funtion.
+                        #     outputs[("motion_flow", "high", f_i, scale)] - outputs[("pose_flow", f_i, scale)].detach(), 
+                        #     )
 
                         #X: A': not known---affect pose_flow indirecly from motion_flow(computed from color img and real_img)
                         # outputs[("color_MotionCorrected", f_i, scale)] = self.spatial_transform(
@@ -1123,33 +1155,17 @@ class Trainer:
                         #     outputs[("motion_flow", "high", f_i, scale)] + outputs[("pose_flow", f_i, scale)].detach(), 
                         #     )
  
-                         # A'':
-                        # outputs[("color_MotionCorrected", f_i, scale)] = self.spatial_transform(
-                        #     inputs[("color", f_i, 0)],
-                        #     outputs[("motion_flow", "high", f_i, scale)] + outputs[("pose_flow", f_i, scale)], 
-                        #     )
+
 
                         
-                        # B: robust_color_corrected: _no_noisy (wrong but good trend to let pose flow learn properly--seem to bring curve downer)More robust compared to the above: depth get less affected?
-                        # it also significantly affect depth:  it will enforce dy area to be extremely deep---reasonable. but not correct
-                        # here the major aim is still supervise pose_flow properly in a full frame regime, we already indirectly supervised MF by reused the OF net.
-                        # outputs[("color_MotionCorrected", f_i, scale)] = self.spatial_transform(
-                        #     outputs[("color", f_i, 0)],
-                        #     # outputs[("motion_flow", "high", f_i, scale)], 
-                        #     outputs[("motion_flow", "high", f_i, scale)].detach(), 
-                        #     )                        
+                 
   
 
                         if self.opt.enable_mutual_motion:
                             outputs[("motion_flow_s2t", f_i, scale)] = outputs_1[("position", scale)]# no grad anyway due to freeze OF net 
                             if solve_MF_issue_from_root_debug:
-                                mf_ref_color = outputs[("motion_flow_s2t", f_i, scale)]
-                                mf_ref_src = self.spatial_transform(
-                                    mf_ref_color,
-                                    outputs[("pose_flow_s2t", f_i, scale)],
-                                    # outputs[("pose_flow_s2t", f_i, scale)].detach(),
-                                    )
-                                outputs[("motion_flow_s2t", f_i, scale)] = mf_ref_src
+                                pass
+
                             
                             outputs[("motion_flow_s2t", "high", f_i, scale)] = F.interpolate(
                                 outputs[("motion_flow_s2t", f_i, scale)], [self.opt.height, self.opt.width], mode="bilinear", align_corners=True)
