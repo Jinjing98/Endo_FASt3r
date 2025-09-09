@@ -355,6 +355,7 @@ if __name__ == "__main__":
     # sc = torch.randn(1, 3, 64, 80)
     intrinsics_B33 = torch.randn(1, 3, 3)
     print('sc.shape',sc.shape)
+    print('default HW',default_img_H, default_img_W)
     print('intrinsics_B33.shape',intrinsics_B33.shape)
     sc_mask = torch.randn(1, 1, int(default_img_H/8), int(default_img_W/8)) # use during training, else set to None
     random_rescale_sc = True # on during traning

@@ -7,7 +7,8 @@ import copy
 import matplotlib.pyplot as plt
 import os
 import os.path as osp
-from transformer.position_encoding_nerf import get_NeRF_embedder
+# from transformer.position_encoding_nerf import get_NeRF_embedder
+from .position_encoding_nerf import get_NeRF_embedder
 
 class PositionEncodingSine(nn.Module):
     """

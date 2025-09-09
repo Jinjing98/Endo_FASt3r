@@ -13,10 +13,11 @@
   "use_homogeneous_pose_t": "True",
   "c2f": "V0",
 
-  "default_img_W": 256,
-  "default_img_H": 320,
+  "default_img_W": 320,
+  "default_img_H": 256,
   "num_encoder_features": 512,
-  "use_homogeneous": "True"
+  "use_homogeneous": "True",
+  "rotation_representation": "9D"
 
 
 }

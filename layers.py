@@ -10,6 +10,52 @@ import torch.nn.functional as F
 
 from warnings import warn
 
+
+import torch
+
+def depth_to_3d(depth: torch.Tensor, K: torch.Tensor) -> torch.Tensor:
+    """
+    depth: (B, 1, H, W)
+    K: (B, 3, 3) camera intrinsics
+    returns: (B, 3, H, W) 3D coordinates in camera frame
+
+    """
+    #sanity check input dims
+    assert depth.dim() == 4, "depth must be 4D tensor"
+    assert K.dim() == 3, "K must be 3D tensor"
+    assert K.shape[2] == 3, "K must be 3x3"
+
+
+    B, _, H, W = depth.shape
+    
+    # Generate pixel grid
+    device = depth.device
+    y, x = torch.meshgrid(
+        torch.arange(H, device=device),
+        torch.arange(W, device=device),
+        indexing="ij"
+    )
+    # (H, W, 3)
+    ones = torch.ones_like(x)
+    pix_coords = torch.stack([x, y, ones], dim=-1).float()  # (H, W, 3)
+    pix_coords = pix_coords.unsqueeze(0).repeat(B, 1, 1, 1)  # (B, H, W, 3)
+    
+    # Inverse intrinsics
+    Kinv = torch.inverse(K)  # (B, 3, 3)
+    
+    # Flatten for batched matmul
+    pix_coords = pix_coords.view(B, -1, 3).transpose(1, 2)  # (B, 3, H*W)
+    cam_coords = Kinv @ pix_coords                          # (B, 3, H*W)
+    
+    # Scale by depth
+    depth_flat = depth.view(B, 1, -1)                       # (B, 1, H*W)
+    cam_coords = cam_coords * depth_flat                    # (B, 3, H*W)
+    
+    # Reshape back
+    cam_coords = cam_coords.view(B, 3, H, W)                # (B, 3, H, W)
+    return cam_coords
+
+
 def disp_to_depth(disp, min_depth, max_depth):
     """Convert network's sigmoid output into depth prediction
     The formula for this conversion is given in the 'additional considerations'
@@ -187,6 +233,10 @@ class Project3D(nn.Module):
         P = torch.matmul(K, T)[:, :3, :]
 
         cam_points = torch.matmul(P, points)
+        # print('transformed cam_points_raw_3rd_dim:')
+        # print(cam_points[:,2,:].max())
+        # print(cam_points[:,2,:].min())  
+        # print('eps',self.eps)
 
         pix_coords = cam_points[:, :2, :] / (cam_points[:, 2, :].unsqueeze(1) + self.eps)
         pix_coords = pix_coords.view(self.batch_size, 2, self.height, self.width)
@@ -477,10 +527,30 @@ class get_occu_mask_backward(nn.Module):
         grid = grid.type(torch.FloatTensor)
         self.register_buffer('grid', grid)
 
-    def forward(self, flow, th=0.95):
-        
+    def forward(self, flow, th=0.95):        
         new_locs = self.grid + flow
         new_locs = new_locs[:, [1,0], ...]
+        # check if there is Nan or inf in flow
+        if torch.isnan(flow).any() or torch.isinf(flow).any():
+            print('flow is Nan or inf')
+            assert 0, 'flow is Nan or inf'
+            # print('flow',flow)
+            # print('flow max',flow.max())
+            # print('flow min',flow.min())
+            # return flow
+        # print('flow max',flow.max())
+        # print('flow min',flow.min())
+        
+        # check if there is Nan or inf in new_locs
+        if torch.isnan(new_locs).any() or torch.isinf(new_locs).any():
+            print('new_locs is Nan or inf')
+            assert 0, 'new_locs is Nan or inf'
+            # print('new_locs max',new_locs.max())
+            # print('new_locs min',new_locs.min())
+            # return new_locs
+        # print('new_locs max',new_locs.max())
+        # print('new_locs min',new_locs.min())
+        
         corr_map = get_corresponding_map(new_locs)
         occu_map = corr_map
         occu_mask = (occu_map > th).float()
@@ -503,6 +573,14 @@ class get_occu_mask_bidirection(nn.Module):
         self.mode = mode
 
     def forward(self, flow12, flow21, scale=0.01, bias=0.5):
+        # check if ther is Nan or inf in flow12 or flow21
+        if torch.isnan(flow12).any() or torch.isinf(flow12).any():
+            print('flow12 is Nan or inf')
+            assert 0, 'flow12 is Nan or inf'
+        if torch.isnan(flow21).any() or torch.isinf(flow21).any():
+            print('flow21 is Nan or inf')
+            assert 0, 'flow21 is Nan or inf'
+
         
         new_locs = self.grid + flow12
         shape = flow12.shape[2:]
@@ -511,7 +589,10 @@ class get_occu_mask_bidirection(nn.Module):
         # Need to normalize grid values to [-1, 1] for resampler
         for i in range(len(shape)):
             new_locs[:, i, ...] = 2*(new_locs[:, i, ...]/(shape[i]-1) - 0.5)
-        
+
+        # # Clamp coordinates to valid range to avoid CUDA errors
+        # new_locs = torch.clamp(new_locs, -1.0, 1.0)
+
         if len(shape) == 2:
             new_locs = new_locs.permute(0, 2, 3, 1)
             new_locs = new_locs[..., [1, 0]]

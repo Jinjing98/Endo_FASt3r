@@ -6,7 +6,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from .linear_attention import LinearAttention, FullAttention
 from einops.einops import rearrange, repeat
-from transformer.position_encoding import PositionEncodingSine
+# from transformer.position_encoding import PositionEncodingSine
+from .position_encoding import PositionEncodingSine
 from geoaware_pnet.utils import rotation_6d_to_matrix
 import importlib.util
 if importlib.util.find_spec('flash_attn'):
@@ -309,7 +310,102 @@ class Transformer_Head(nn.Module):
         )
         return r
 
-    def convert_pose_to_4x4(self, B, out_r, out_t, device):
+    def rot_from_axisangle(self, vec):
+        """Convert an axisangle rotation into a 4x4 transformation matrix
+        (adapted from https://github.com/Wallacoloo/printipi)
+        Input 'vec' has to be Bx1x3
+        """
+        angle = torch.norm(vec, 2, 2, True)
+        axis = vec / (angle + 1e-7)
+
+        ca = torch.cos(angle)
+        sa = torch.sin(angle)
+        C = 1 - ca
+
+        x = axis[..., 0].unsqueeze(1)
+        y = axis[..., 1].unsqueeze(1)
+        z = axis[..., 2].unsqueeze(1)
+
+        xs = x * sa
+        ys = y * sa
+        zs = z * sa
+        xC = x * C
+        yC = y * C
+        zC = z * C
+        xyC = x * yC
+        yzC = y * zC
+        zxC = z * xC
+
+        rot = torch.zeros((vec.shape[0], 4, 4)).to(device=vec.device)
+
+        rot[:, 0, 0] = torch.squeeze(x * xC + ca)
+        rot[:, 0, 1] = torch.squeeze(xyC - zs)
+        rot[:, 0, 2] = torch.squeeze(zxC + ys)
+        rot[:, 1, 0] = torch.squeeze(xyC + zs)
+        rot[:, 1, 1] = torch.squeeze(y * yC + ca)
+        rot[:, 1, 2] = torch.squeeze(yzC - xs)
+        rot[:, 2, 0] = torch.squeeze(zxC - ys)
+        rot[:, 2, 1] = torch.squeeze(yzC + xs)
+        rot[:, 2, 2] = torch.squeeze(z * zC + ca)
+        rot[:, 3, 3] = 1
+
+        return rot
+
+    def transformation_from_parameters(self, axisangle, translation, invert=False):
+        """Convert the network's (axisangle, translation) output into a 4x4 matrix
+        """
+        R = self.rot_from_axisangle(axisangle)
+        t = translation.clone()
+
+        if invert:
+            R = R.transpose(1, 2)
+            t *= -1
+
+        T = self.get_translation_matrix(t)
+
+        if invert:
+            M = torch.matmul(R, T)
+        else:
+            M = torch.matmul(T, R)
+
+        return M
+    
+    def get_translation_matrix(self, translation_vector):
+        """Convert a translation vector into a 4x4 transformation matrix
+        """
+        T = torch.zeros(translation_vector.shape[0], 4, 4).to(device=translation_vector.device)
+
+        t = translation_vector.contiguous().view(-1, 3, 1)
+
+        T[:, 0, 0] = 1
+        T[:, 1, 1] = 1
+        T[:, 2, 2] = 1
+        T[:, 3, 3] = 1
+        T[:, :3, 3, None] = t
+
+        return T
+
+    def convert_pose_to_4x4(self, B, out_r, out_t, device, addtional_scale=0.001):
+        out_r = addtional_scale * out_r
+        out_t = addtional_scale * out_t
+
+
+        # if self.rot_representation=='9D':
+        #     out_r = self.svd_orthogonalize(out_r)  # [N,3,3]
+        # else:
+        #     out_r = rotation_6d_to_matrix(out_r)  # [N,3,3]
+        # pose = torch.zeros((B, 4, 4), device=device)
+        # pose[:, :3, :3] = out_r
+        # pose[:, :3, 3] = out_t
+        # pose[:, 3, 3] = 1.
+        # return pose
+        pose = self.transformation_from_parameters(out_r.unsqueeze(1), out_t)
+        return pose
+    
+    def convert_pose_to_4x4_ori(self, B, out_r, out_t, device, addtional_scale=1.0):
+        # out_r = addtional_scale * out_r
+        # out_t = addtional_scale * out_t
+
         if self.rot_representation=='9D':
             out_r = self.svd_orthogonalize(out_r)  # [N,3,3]
         else:
@@ -376,12 +472,13 @@ class Transformer_Head(nn.Module):
             sc_mask = sc_mask[:,0].view(B,H*W)
             mask_c0 = mask_c1 = sc_mask
 
+        addtional_scale = 0.001
         if self.coarse_to_fine_prediction:
             feat_list = self.transformer(feat, None, mask_c0, None)
             pose_list = []
             for block_idx, feat in enumerate(feat_list):
                 out_t, out_r = self.pose_regression_head(feat, [B, C, H, W])
-                pose = self.convert_pose_to_4x4(B, out_r, out_t, sc_coords.device)
+                pose = self.convert_pose_to_4x4(B, out_r, out_t, sc_coords.device, addtional_scale)
                 pose_list.append(pose)
             return pose_list
         else:
@@ -389,7 +486,7 @@ class Transformer_Head(nn.Module):
         out_t, out_r = self.pose_regression_head(feat, [B,C,H,W])
 
         # convert rotation to SO(3), precision is fp32 from this point
-        pose = self.convert_pose_to_4x4(B, out_r, out_t, sc_coords.device)
+        pose = self.convert_pose_to_4x4(B, out_r, out_t, sc_coords.device, addtional_scale)
         return pose
 
 

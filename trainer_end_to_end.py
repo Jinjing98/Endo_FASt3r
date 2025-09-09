@@ -66,6 +66,8 @@ class Trainer:
             # options.log_dir = "/mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm_debug"
 
 
+            options.pose_model_type = "geoaware_pnet"
+
             options.shared_MF_OF_network = True
 
             options.enable_motion_computation = True
@@ -103,11 +105,11 @@ class Trainer:
             # options.zero_pose_debug = True
 
             # # options.freeze_depth_debug = True
-            # options.model_name = "debug_MF_of8_001_samplefromcolor"
 
             # options.ignore_motion_area_at_calib = True
 
             options.use_raft_flow = True
+            # options.use_raft_flow = False
 
             # # options.zero_pose_flow_debug = True
             # # options.reproj_supervised_with_which = "raw_tgt_gt"
@@ -143,11 +145,35 @@ class Trainer:
             options.dataset = "DynaSCARED"
             options.data_path = "/mnt/cluster/datasets/Surg_oclr_stereo/"
             options.split_appendix = "_CaToTi000"
+
+
             # options.split_appendix = "_CaToTi001"
-            # # options.split_appendix = "_CaToTi010"
-            # # options.split_appendix = "_CaToTi110"
+            # options.split_appendix = "_CaToTi010"
+            # options.split_appendix = "_CaToTi110"
             # options.split_appendix = "_CaToTi101"
             # options.split_appendix = "_CaToTi011"
+
+
+            #debug nan present in geoaware with static scene traning
+            options.model_name = "debug_aware_011_s1_of8_noraft_disable_motion"
+            # options.shared_MF_OF_network = False # still not working
+            options.split_appendix = "_CaToTi000" #critical
+            options.split_appendix = "_CaToTi011" #critical reason for nan raft flow
+
+
+            #////////////////// default endofast3r setting //////////////////
+            options.use_raft_flow = False # here is the only issue? raft especially non robust when no scene motion for both pose models when enable_motion_etc (we only test on b1)?
+            # options.pose_model_type = "separate_resnet"
+
+            # options.enable_motion_computation = False
+            options.use_MF_network = False
+            options.ignore_motion_area_at_calib = False
+            options.reproj_supervised_which = 'color'
+            options.use_loss_motion_mask_reg = False #not checked this factor
+            options.use_loss_reproj2_nomotion = False #not checked this factor
+            options.enable_grad_flow_motion_mask = False #not checked this factor
+
+            # motion_flow net predict all nan after grads update when the there is no scene dynamics?
 
 
         self.opt = options
@@ -312,9 +338,26 @@ class Trainer:
                                                  )
                 print('loaded UniReloc3r...')
             elif self.opt.pose_model_type == "geoaware_pnet":
-                from networks import GeoAwarePNet
-                self.models["pose"] = GeoAwarePNet(self.opt)
-                print('loaded GeoAwarePNet...scratch traning')
+                from geoaware_pnet.geoaware_network import PoseRegressor
+                import json
+                transformer_json = "/mnt/cluster/workspaces/jinjingxu/proj/UniSfMLearner/submodule/Endo_FASt3r/geoaware_pnet/transformer/config/nerf_focal_12T1R_256_homo_c2f_geoaware.json"
+                f = open(transformer_json)
+                config = json.load(f)
+                f.close()
+                mean_cam_center = torch.tensor([0.0, 0.0, 0.0])
+                default_img_H = config["default_img_H"]#480
+                default_img_W = config["default_img_W"]#640
+                # default_img_H = 256
+                # default_img_W = 320    
+
+                # extend: not included in the json
+                # transformer_pose_mean will be applied internnally in pose_regression_head
+                config["transformer_pose_mean"] = mean_cam_center # for us, we set to zero as we predict only the relative pose.
+                config["default_img_HW"] = [default_img_H, default_img_W]
+
+                self.models["pose"] = PoseRegressor(config)
+                print('loaded GeoAwarePNet pose regressor with default img HW {}'.format(config["default_img_HW"]))
+
             elif self.opt.pose_model_type == "shared":
                 self.models["pose"] = networks.PoseDecoder(
                     self.models["encoder"].num_ch_enc, self.num_pose_frames)
@@ -427,6 +470,11 @@ class Trainer:
 
         self.spatial_transform = SpatialTransformer((self.opt.height, self.opt.width))
         self.spatial_transform.to(self.device)
+        if self.opt.pose_model_type == "geoaware_pnet":
+            print('using spatial_transform_used_to_warp_sc_3d.....')
+            self.spatial_transform_used_to_warp_sc_3d = SpatialTransformer((int(self.opt.height/8), 
+                                                                            int(self.opt.width/8)))
+            self.spatial_transform_used_to_warp_sc_3d.to(self.device)
 
         self.get_occu_mask_backward = get_occu_mask_backward((self.opt.height, self.opt.width))
         self.get_occu_mask_backward.to(self.device)
@@ -728,7 +776,7 @@ class Trainer:
             inputs[key] = ipt.to(self.device)
 
         outputs = {}
-        outputs.update(self.predict_poses_0(inputs))
+        outputs.update(self.predict_poses_0(inputs, outputs))
         # detach compute_transfrom from predict_pose for better extention
         outputs.update(self.compute_brightness_transform_0(inputs, outputs))
 
@@ -739,6 +787,21 @@ class Trainer:
     def reformat_raft_output(self, num_flow_udpates, outputs_raw, hard_detach_OF_grad = False):
         outputs = {}
         assert len(outputs_raw) == num_flow_udpates, f"outputs_raw length {len(outputs_raw)} != num_flow_udpates {num_flow_udpates}"
+        # sanity check if outputs_raw contains nan or inf. if does,
+        # give warning, and sanitize these flow values
+        def sanitize_flow_values(outputs_raw):
+            for scale, scale_raw in enumerate([11,8,5,2]):
+                if torch.isnan(outputs_raw[scale_raw]).any() or torch.isinf(outputs_raw[scale_raw]).any():
+                    print('!!!!**************!!!!')
+                    # print the number of num/inf
+                    num_nan = torch.isnan(outputs_raw[scale_raw]).sum()
+                    num_inf = torch.isinf(outputs_raw[scale_raw]).sum()
+                    print(f"Warning: outputs_raw contains nan or inf at scale {scale}: {num_nan} nan, {num_inf} inf")
+                    assert 0, f"outputs_raw contains nan or inf at scale {scale}: {num_nan} nan, {num_inf} inf"
+                    outputs_raw[scale_raw] = torch.nan_to_num(outputs_raw[scale_raw], nan=0.0, posinf=0.0, neginf=0.0)
+            return outputs_raw
+        outputs_raw = sanitize_flow_values(outputs_raw)
+
 
         for scale, scale_raw in enumerate([11,8,5,2]):
             #high to low
@@ -757,10 +820,10 @@ class Trainer:
 
         return outputs
 
-    def predict_poses_0(self, inputs):
+    def predict_poses_0(self, inputs, outputs = {}):
         """Predict poses between input frames for monocular sequences.
         """
-        outputs = {}
+        # outputs = {}
         if self.num_pose_frames == 2:
             pose_feats = {f_i: inputs["color_aug", f_i, 0] for f_i in self.opt.frame_ids}
             assert len(self.opt.frame_ids) == 3, "frame_ids must be have 3 frames"
@@ -779,6 +842,7 @@ class Trainer:
                         num_flow_udpates = 12
                         outputs_0_raw = self.models["raft_flow"](pose_feats[0], pose_feats[f_i])
                         outputs_1_raw = self.models["raft_flow"](pose_feats[f_i], pose_feats[0])
+                        # print('inference optic flow in train_0()...')
                         outputs_0 = self.reformat_raft_output(num_flow_udpates, outputs_0_raw, hard_detach_OF_grad=False)# there is alreay no grad in OF net
                         outputs_1 = self.reformat_raft_output(num_flow_udpates, outputs_1_raw, hard_detach_OF_grad=False)# there is alreay no grad in OF net
                     else:
@@ -936,6 +1000,9 @@ class Trainer:
             inputs[key] = ipt.to(self.device)
         outputs = self.models["depth_model"](inputs["color_aug", 0, 0])
 
+        # for scale in self.opt.scales:
+            # print(f'disp dim: {outputs["disp", scale].shape}')
+
         if self.opt.enable_mutual_motion:
             # extend the depth prediction for srcs
             for frame_id in self.opt.frame_ids[1:]:
@@ -943,13 +1010,17 @@ class Trainer:
                 for scale in self.opt.scales:
                     outputs["disp", scale, frame_id] = outputs_i["disp", scale]
 
+        outputs.update(self.generate_depth_pred_from_disp(outputs))
 
         if self.use_pose_net:
             outputs.update(self.predict_poses(inputs, outputs))# img is warp from optic_flow, save as "registration" 
 
         # img is warp from pose_flow('sample'), save as "color"
         # motion masks is computed below
+        # outputs.update(self.generate_images_pred(inputs, outputs)) # break down and put depth early before predict poses
+
         outputs.update(self.generate_images_pred(inputs, outputs))
+
         if self.opt.enable_motion_computation:
             if self.opt.use_MF_network:
                 outputs.update(self.predict_motion_flow_with_MF_net(inputs, outputs))
@@ -963,10 +1034,10 @@ class Trainer:
         return outputs, losses
 
 
-    def predict_poses(self, inputs, disps):
+    def predict_poses(self, inputs, outputs = {}):
         """Predict poses between input frames for monocular sequences.
         """
-        outputs = {}
+        # outputs = {}
         if self.num_pose_frames == 2:
             pose_feats = {f_i: inputs["color_aug", f_i, 0] for f_i in self.opt.frame_ids}
             scale_k = 0
@@ -986,6 +1057,8 @@ class Trainer:
                         # inputs_all_reverse = [pose_feats[0], pose_feats[f_i]]
                         outputs_0_raw = self.models["raft_flow"](pose_feats[0], pose_feats[f_i]) #t2s flow
                         outputs_1_raw = self.models["raft_flow"](pose_feats[f_i], pose_feats[0]) #s2t flow
+                        # print('inference optic flow in train()...')
+
                         outputs_0 = self.reformat_raft_output(num_flow_udpates, outputs_0_raw, hard_detach_OF_grad=self.opt.shared_MF_OF_network)# there will be grad in OF net if shared_MF_OF_network is on, therfore we need to hard detach
                         outputs_1 = self.reformat_raft_output(num_flow_udpates, outputs_1_raw, hard_detach_OF_grad=self.opt.shared_MF_OF_network)# there will be grad in OF net if shared_MF_OF_network is on, therfore we need to hard detach
                         # RAFT expects separate image inputs, not concatenated features
@@ -993,11 +1066,17 @@ class Trainer:
                         inputs_all = [pose_feats[f_i], pose_feats[0]]
                         inputs_all_reverse = [pose_feats[0], pose_feats[f_i]]
 
-                        # Original custom networks
-                        position_inputs = self.models["position_encoder"](torch.cat(inputs_all, 1)) if not self.opt.shared_MF_OF_network \
-                            else self.models["position_encoder"](torch.cat(inputs_all, 1)).detach()
-                        position_inputs_reverse = self.models["position_encoder"](torch.cat(inputs_all_reverse, 1)) if not self.opt.shared_MF_OF_network \
-                            else self.models["position_encoder"](torch.cat(inputs_all_reverse, 1)).detach()
+                        # # Original custom networks
+                        # position_inputs = self.models["position_encoder"](torch.cat(inputs_all, 1)) if not self.opt.shared_MF_OF_network \
+                        #     else self.models["position_encoder"](torch.cat(inputs_all, 1)).detach()
+                        # position_inputs_reverse = self.models["position_encoder"](torch.cat(inputs_all_reverse, 1)) if not self.opt.shared_MF_OF_network \
+                        #     else self.models["position_encoder"](torch.cat(inputs_all_reverse, 1)).detach()
+                        
+                        position_inputs = self.models["position_encoder"](torch.cat(inputs_all, 1))
+                        position_inputs_reverse = self.models["position_encoder"](torch.cat(inputs_all_reverse, 1))
+                        if self.opt.shared_MF_OF_network:
+                            position_inputs = [item.detach() for item in position_inputs]
+                            position_inputs_reverse = [item.detach() for item in position_inputs_reverse]
 
                         outputs_0 = self.models["position"](position_inputs)
                         outputs_1 = self.models["position"](position_inputs_reverse)
@@ -1019,28 +1098,107 @@ class Trainer:
                         outputs[("occu_mask_backward", scale, f_i)],  outputs[("occu_map_backward", scale, f_i)]= self.get_occu_mask_backward(outputs[("position_reverse", "high", scale, f_i)])
                         outputs[("occu_map_bidirection", scale, f_i)] = self.get_occu_mask_bidirection(outputs[("position", "high", scale, f_i)],
                                                                                                           outputs[("position_reverse", "high", scale, f_i)])
-                    # view0 = {'img':prepare_images(pose_feats[f_i],self.device, size = 512)}
-                    # view1 = {'img':prepare_images(pose_feats[0], self.device, size = 512)}
-                    # # pose2 = self.models["pose"](view0,view1)
-                    # pose2, _ = self.models["pose"](view0,view1)# notice we save pose2to1 as usually saved by reloc3r/fast3r/mvp3r; dares saved rel pose1to2
-                    # outputs[("cam_T_cam", 0, f_i)] = pose2["pose"] # it shoudl save transformation: tgt to src
+                    if self.opt.pose_model_type == "geoaware_pnet":
+                        from layers import disp_to_depth, depth_to_3d
+                        # we need estimated t2s
+                        # sc_3d_f0 = torch.randn(1, 3, 
+                        #                     int(self.models["pose"].config["default_img_H"]/8), 
+                        #                     int(self.models["pose"].config["default_img_W"]/8)) # tgt depth
+                        # print('test depth shape',sc_3d_f0.shape)
+                        #/////////////
+                        def disp_to_sc_3d(disp, intrinsics, ret_mutilscale, scale_depth = 1.0):
+                            assert isinstance(ret_mutilscale, bool), "ret_mutilscale must be a bool"
+                            if not ret_mutilscale:
+                                disp = F.interpolate(
+                                    disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=True)
+                            _, depth = disp_to_depth(disp, self.opt.min_depth, self.opt.max_depth) #muti-scale
+                            # print('min depth', torch.min(depth))
+                            # print('max depth', torch.max(depth))
+                            depth = depth * scale_depth
+                            pts_3d = depth_to_3d(depth, intrinsics)
+                            return pts_3d, depth
+                        
+                        sc_scale = 3 # lowest 
+                        k_for_f0_3D = inputs["K", sc_scale][:,:3,:3]
+                        # K is shared acroos all the frames per frame_ids
+                        scale_depth = 1.0
+                        # scale_depth = 0.000001
+                        sc_3d_f0, _ = disp_to_sc_3d(
+                                                    outputs[("disp", sc_scale)], 
+                                                    k_for_f0_3D,
+                                                    ret_mutilscale=True,
+                                                    scale_depth=scale_depth,
+                                                    )
+                        # critical: we need to warp sc_3d_f0 as matches of px_2d_fi
+                        # using sc_3d_f0 , flow_f1_to_f0 (sc_scale)
+                        # print('of shape', outputs[("position", sc_scale, f_i)].shape)
+                        # print('sc_3d_f0 shape', sc_3d_f0.shape)
+                        of_fi_to_f0 = outputs[("position", sc_scale, f_i)].detach() 
+                        sc_3d_f0_matched = self.spatial_transform_used_to_warp_sc_3d(sc_3d_f0,
+                                                                 of_fi_to_f0)
+                        
+                        # in trinsics is from src img 
+                        # notice for 2D we provide the scale0 intrinsics, as internally it will gen px_pe_raw with 
+                        # raw_resolution then subsample the px_pe with 8
+                        px_K_scale = 0
+                        K_for_fi_2D = inputs["K", px_K_scale][:,:3,:3]
+                        # sanity check if sc_3d_f0_matched contains nan or inf.
+                        if torch.isnan(sc_3d_f0_matched).any() or torch.isinf(sc_3d_f0_matched).any():
+                            print('!!!!**************!!!!')
+                            print('sc_3d_f0_matched contains nan or inf')
+                            print('!!!!**************!!!!')
+                            assert 0, f"sc_3d_f0_matched contains nan or inf"
+                            # sc_3d_f0_matched = torch.nan_to_num(sc_3d_f0_matched, nan=0.0, posinf=0.0, neginf=0.0)
+                        poses_list = self.models["pose"](sc_3d_f0_matched, intrinsics_B33=K_for_fi_2D)
 
-                    resized_img1, adapted_K1 = prepare_images(inputs["color_aug", f_i, 0],self.device, size = 512, Ks=scale0_camera_intrinsics[f_i])
-                    resized_img2, adapted_K2 = prepare_images(inputs["color_aug", 0, 0], self.device, size = 512, Ks=scale0_camera_intrinsics[0])
-                    view1 = {'img':resized_img1, 'camera_intrinsics':adapted_K1}
-                    view2 = {'img':resized_img2, 'camera_intrinsics':adapted_K2}
-                    # udpate reloc3r_relpose forward returning and below to be consistent with original reloc3r
-                    # view1 = {'img':prepare_images(inputs["color_aug", f_i, 0],self.device, size = 512)}
-                    # view2 = {'img':prepare_images(inputs["color_aug", 0, 0], self.device, size = 512)}
 
-                    # pose2 = self.models["pose"](view0,view1)
-                    # pose2, _ = self.models["pose"](view0,view1)
-                    # # notice we save pose2to1 as usually saved by reloc3r/fast3r/mvp3r; dares saved rel pose1to2
-                    _ , pose2 = self.models["pose"](view1,view2)
-                    # notice we save pose2to1 as usually saved by reloc3r/fast3r/mvp3r; dares saved rel pose1to2
-                    outputs[("cam_T_cam", 0, f_i)] = pose2["pose"] # we need pose tgt2src, ie: pose2to1, i.e the pose2 in breif in reloc3r model.
+                        scale_down_trans = 0.001
+                        # scale_down_trans = 1.0#0001
+                        def scale_down_pose(pose, scale_down_trans):
+                            # only scale the translation part
+                            pose[:,:3,3] *= scale_down_trans
+                            return pose
+                        def scale_down_xyz(pose, scale_xyz = [0.001,1.0,1.0]):
+                            scale_down_x = scale_xyz[0]
+                            scale_down_y = scale_xyz[1]
+                            scale_down_z = scale_xyz[2]
+                            pose[:,:3,0] *= scale_down_x
+                            pose[:,:3,1] *= scale_down_y
+                            pose[:,:3,2] *= scale_down_z
+                            return pose
+                        scale_xyz = [0.00001,0.001,0.001]
+                        scale_xyz = [1.0,1.0,1.0]
+                        # poses_list = [scale_down_pose(pose, scale_down_trans) for pose in poses_list]
+                        poses_list = [scale_down_xyz(pose, scale_xyz) for pose in poses_list]
+                        # we need pose tgt2src, ie: pose2to1, i.e the pose2 in breif in reloc3r model.
+                        outputs[("cam_T_cam", 0, f_i)] = poses_list[-1] # extract the last pose with high quality
+                        # outputs[("cam_T_cam", 0, f_i)] = torch.eye(4).to(self.device).repeat(poses_list[-1].shape[0], 1, 1)
+                        
+                        
 
-                    
+                    else:
+                        # view0 = {'img':prepare_images(pose_feats[f_i],self.device, size = 512)}
+                        # view1 = {'img':prepare_images(pose_feats[0], self.device, size = 512)}
+                        # # pose2 = self.models["pose"](view0,view1)
+                        # pose2, _ = self.models["pose"](view0,view1)# notice we save pose2to1 as usually saved by reloc3r/fast3r/mvp3r; dares saved rel pose1to2
+                        # outputs[("cam_T_cam", 0, f_i)] = pose2["pose"] # it shoudl save transformation: tgt to src
+
+                        resized_img1, adapted_K1 = prepare_images(inputs["color_aug", f_i, 0],self.device, size = 512, Ks=scale0_camera_intrinsics[f_i])
+                        resized_img2, adapted_K2 = prepare_images(inputs["color_aug", 0, 0], self.device, size = 512, Ks=scale0_camera_intrinsics[0])
+                        view1 = {'img':resized_img1, 'camera_intrinsics':adapted_K1}
+                        view2 = {'img':resized_img2, 'camera_intrinsics':adapted_K2}
+                        # udpate reloc3r_relpose forward returning and below to be consistent with original reloc3r
+                        # view1 = {'img':prepare_images(inputs["color_aug", f_i, 0],self.device, size = 512)}
+                        # view2 = {'img':prepare_images(inputs["color_aug", 0, 0], self.device, size = 512)}
+
+                        # pose2 = self.models["pose"](view0,view1)
+                        # pose2, _ = self.models["pose"](view0,view1)
+                        # # notice we save pose2to1 as usually saved by reloc3r/fast3r/mvp3r; dares saved rel pose1to2
+                        _ , pose2 = self.models["pose"](view1,view2)
+                        # notice we save pose2to1 as usually saved by reloc3r/fast3r/mvp3r; dares saved rel pose1to2
+                        outputs[("cam_T_cam", 0, f_i)] = pose2["pose"] # we need pose tgt2src, ie: pose2to1, i.e the pose2 in breif in reloc3r model.
+
+                        
         return outputs
 
 
@@ -1074,6 +1232,7 @@ class Trainer:
                         num_flow_udpates = 12
                         outputs_0_raw = self.models["motion_raft_flow"](img_feats[0], img_feats[f_i])
                         # RAFT expects separate image inputs, not concatenated features
+                        # print('inference motion flow...')
                         outputs_0 = self.reformat_raft_output(num_flow_udpates, outputs_0_raw)
 
                         if self.opt.enable_mutual_motion:
@@ -1098,6 +1257,16 @@ class Trainer:
                     solve_MF_issue_from_root_debug = True
                     Solve_MF_issue_from_root_debug = False
                     for scale in self.opt.scales:
+                        # check if there is nan or inf in outputs_0[("position", scale)]
+                        if torch.isnan(outputs_0[("position", scale)]).any() or torch.isinf(outputs_0[("position", scale)]).any():
+                            print('!!!!**************!!!!')
+                            # count the number of nan or inf
+                            num_nan = torch.isnan(outputs_0[("position", scale)]).sum()
+                            num_inf = torch.isinf(outputs_0[("position", scale)]).sum()
+                            print(f'Motion_flow outputs_0[("position", scale)] contains nan or inf: {num_nan} nan, {num_inf} inf')
+                            print('!!!!**************!!!!')
+                            assert 0, f"Motion_flow outputs_0[('position', scale)] contains nan or inf: {num_nan} nan, {num_inf} inf"
+                            # outputs_0[("position", scale)] = torch.nan_to_num(outputs_0[("position", scale)], nan=0.0, posinf=0.0, neginf=0.0)
                         outputs[("motion_flow", f_i, scale)] = outputs_0[("position", scale)]# saves t2s flow # no grad anyway due to freeze OF net
                         # solve MF ref issue from source
                         # if solve_MF_issue_from_root_debug:
@@ -1308,9 +1477,16 @@ class Trainer:
         # Project3D: it saves values in range [-1,1] for direct sampling
         # pix_coords saves values in range [-1,1]
         # print('compute pix_coords')
+        # print('////////////////////////')
+        # print('process scale', scale)
         pix_coords = self.project_3d[source_scale](cam_points, inputs[("K", source_scale)], T)# 2D pxs; T: f0 -> f1  f0->f-1
         # print('pix_coords.shape:')
-        # print(pix_coords.shape)
+        # print(pix_coords.shape, pix_coords.norm(dim=-1, keepdim=True).shape)
+        # print('pix_coords l2 norm:')
+        # print(pix_coords.norm(dim=-1, keepdim=True))
+        # print('max',pix_coords.norm(dim=-1, keepdim=True).max())
+        # print('min',pix_coords.norm(dim=-1, keepdim=True).min())
+
         if compute_tgt2src_sampling:
             outputs[("sample", frame_id, scale)] = pix_coords # b h w 2
         else:
@@ -1396,7 +1572,67 @@ class Trainer:
         
         return outputs
 
+
     def generate_images_pred(self, inputs, outputs):
+        """Generate the warped (reprojected) color images for a minibatch.
+        Generated images are saved into the `outputs` dictionary.
+        """
+        for scale in self.opt.scales:
+            
+            # disp = outputs[("disp", scale)]
+            # if self.opt.v1_multiscale:
+            #     source_scale = scale
+            # else:
+            #     disp = F.interpolate(
+            #         disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=True)
+
+            # _, depth = disp_to_depth(disp, self.opt.min_depth, self.opt.max_depth)
+            # outputs[("depth", 0, scale)] = depth
+
+            # if self.opt.enable_mutual_motion and self.opt.enable_motion_computation:
+            #     # collected depth--prepared for mutual pose flow, finally mutual motion_mask
+            #     for frame_id in self.opt.frame_ids[1:]:
+            #         assert frame_id != 0,f'frame_id == 0 already computed'
+            #         disp_i = outputs[("disp", scale, frame_id)]
+
+            #         assert not self.opt.v1_multiscale,f'v1_multiscale is not supported for mutual motion'
+            #         disp_i = F.interpolate(
+            #             disp_i, [self.opt.height, self.opt.width], mode="bilinear", align_corners=True)
+                    
+            #         _, depth_i = disp_to_depth(disp_i, self.opt.min_depth, self.opt.max_depth)
+            #         outputs[("depth", frame_id, scale)] = depth_i
+
+            source_scale = 0
+
+            # # Create sampling grid
+            # use pose_flow(sample-img_grid) and optic_flow(position)
+            # implement mem effecient mesh_gird_high_res 
+            x = torch.linspace(0, self.opt.width - 1, self.opt.width, device=self.device)
+            y = torch.linspace(0, self.opt.height - 1, self.opt.height, device=self.device)
+            grid_y, grid_x = torch.meshgrid(y, x, indexing='ij')  # (H, W)
+            mesh_gird_high_res = torch.stack((grid_x, grid_y), dim=-1)  # (H, W, 2)
+            mesh_gird_high_res = mesh_gird_high_res.unsqueeze(0)  # (1, H, W, 2)
+            mesh_gird_high_res = mesh_gird_high_res.permute(0, 3, 1, 2)  # (B, 2, H, W)            
+            
+            for i, frame_id in enumerate(self.opt.frame_ids[1:]):
+
+                outputs = self.gen_sample_and_pose_flow(inputs, outputs, mesh_gird_high_res, scale, source_scale = 0, 
+                                                        tgt_frame_id = 0, frame_id = frame_id)
+
+                if self.opt.enable_mutual_motion and self.opt.enable_motion_computation:
+                    # it will update: samples_s2t and pose_flow_s2t in outputs
+                    outputs = self.gen_sample_and_pose_flow(inputs, outputs, mesh_gird_high_res, scale, source_scale = 0, 
+                                                        tgt_frame_id = frame_id, frame_id = 0)
+
+                outputs[("color", frame_id, scale)] = F.grid_sample(
+                    inputs[("color", frame_id, source_scale)],
+                    outputs[("sample", frame_id, scale)],
+                    padding_mode="border",
+                    align_corners=True)
+                
+        return outputs
+
+    def generate_images_pred_ori(self, inputs, outputs):
         """Generate the warped (reprojected) color images for a minibatch.
         Generated images are saved into the `outputs` dictionary.
         """
@@ -1447,71 +1683,73 @@ class Trainer:
                     outputs = self.gen_sample_and_pose_flow(inputs, outputs, mesh_gird_high_res, scale, source_scale = 0, 
                                                         tgt_frame_id = frame_id, frame_id = 0)
 
-                # if self.opt.enable_motion_computation:
-                #     # If you want to warp the source image src to the target view tgt, you need the flow that maps pixels from the target frame to the source frame, i.e., tgt → src.
-                #     # assert 0,f'use color is correct! not need to use color_motion_corrected! considering the pose_flow now is computed from tgt depth+pose'
-                #     # tgt2src motion flow
-                #     # avoid grad in motion_flow! elsewise the sample_motion_corrected will loss grad at all.
-                #     # outputs[("motion_flow", frame_id, scale)] = - outputs[("pose_flow", frame_id, scale)].detach() + outputs[("position", "high", 0, frame_id)]#.detach() # 
-                #     # we enable grad in motion_flow, can be latered used to reg motion mask
-                #     # there is no grad in OF anyway in for 2nd statge traning
-                #     outputs[("motion_flow", frame_id, scale)] = - outputs[("pose_flow", frame_id, scale)] + outputs[("position", "high", 0, frame_id)]#.detach() # 
-                    
-
-                #     if scale == 0:
-                #         if self.opt.use_soft_motion_mask:
-                #             outputs[("motion_mask_backward", 0, frame_id)] = self.get_motion_mask_soft(outputs[("position", 0, frame_id)], 
-                #                                                   outputs[("pose_flow", frame_id, 0)],
-                #                                                   detach=(not self.opt.enable_grad_flow_motion_mask), 
-                #                                                   thre_px=self.opt.motion_mask_thre_px)
-                #         else:
-                #             outputs[("motion_mask_backward", 0, frame_id)] = self.get_motion_mask(
-                #                                                                             #  do not use outputs[("motion_flow", frame_id, 0)], depend on what is set to it, the grad might get lost!
-                #                                                                             # use below to make sure grad exists. 
-                #                                                                               - outputs[("pose_flow", frame_id, scale)] + outputs[("position", "high", 0, frame_id)], # there is grad_flow here! differ from motion_flow
-                #                                                                               detach=(not self.opt.enable_grad_flow_motion_mask), 
-                #                                                                               thre_px=self.opt.motion_mask_thre_px)
-                    
-                #     if self.opt.enable_mutual_motion:
-                #         # compute s2t motion_flow and s2t_motion_mask
-                #         # we enable grad in motion_flow, can be latered used to reg motion mask
-                #         outputs[("motion_flow_s2t", frame_id, 0)] = - outputs[("pose_flow_s2t", frame_id, 0)] + outputs[("position_reverse", "high", 0, frame_id)]#.detach() # 
-                #         if scale == 0:
-                #             if self.opt.use_soft_motion_mask:
-                #                 outputs[("motion_mask_s2t_backward", 0, frame_id)] = self.get_motion_mask_soft(optic_flow = outputs[("position_reverse", 0, frame_id)], 
-                #                                                   pose_flow = outputs[("pose_flow_s2t", frame_id, 0)],
-                #                                                   detach=(not self.opt.enable_grad_flow_motion_mask), 
-                #                                                   thre_px=self.opt.motion_mask_thre_px)
-                #             else:
-                #                 # static area will be set to 1
-                #                 outputs[("motion_mask_s2t_backward", 0, frame_id)] = self.get_motion_mask(
-                #                                                                                     # outputs[("motion_flow_s2t", frame_id, 0)], 
-                #                                                                                     # desipte there is grad in motion_flow, we readd for safety.
-                #                                                                                     motion_flow = - outputs[("pose_flow_s2t", frame_id, 0)] + outputs[("position_reverse", "high", 0, frame_id)], # there is grad_flow here! differ from motion_flow
-                #                                                                                     detach=(not self.opt.enable_grad_flow_motion_mask), 
-                #                                                                                     thre_px=self.opt.motion_mask_thre_px)
-
-                
                 outputs[("color", frame_id, scale)] = F.grid_sample(
                     inputs[("color", frame_id, source_scale)],
                     outputs[("sample", frame_id, scale)],
                     padding_mode="border",
                     align_corners=True)
                 
-                # if self.opt.enable_motion_computation:
-                #     # gen sample_motion_corrected from pose_flow and motion_flow, then sample image with sample_motion_corrected
-                #     # sample_motion_corrected = (outputs[("pose_flow", frame_id, scale)] + outputs[("motion_flow", frame_id, scale)])#.permute(0, 2, 3, 1)
-                #     # do not use motion_flow, but use below to make sure grad exists. 
-                #     sample_motion_corrected = outputs[("pose_flow", frame_id, scale)] + \
-                #         (- outputs[("pose_flow", frame_id, scale)].detach() + outputs[("position", "high", scale, frame_id)])
-                #     #use self.spatial_transform to sample
-
-                #     outputs[("color_MotionCorrected", frame_id, scale)] = self.spatial_transform(
-                #         inputs[("color", frame_id, 0)],
-                #         # inputs[("color", 0, source_scale)],
-                #         sample_motion_corrected)
-        
         return outputs
+
+    def generate_depth_pred_from_disp(self, outputs):
+        """Generate the warped (reprojected) color images for a minibatch.
+        Generated images are saved into the `outputs` dictionary.
+        """
+        for scale in self.opt.scales:
+            
+            disp = outputs[("disp", scale)]
+            if self.opt.v1_multiscale:
+                source_scale = scale
+            else:
+                disp = F.interpolate(
+                    disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=True)
+
+            _, depth = disp_to_depth(disp, self.opt.min_depth, self.opt.max_depth)
+            outputs[("depth", 0, scale)] = depth
+
+            if self.opt.enable_mutual_motion and self.opt.enable_motion_computation:
+                # collected depth--prepared for mutual pose flow, finally mutual motion_mask
+                for frame_id in self.opt.frame_ids[1:]:
+                    assert frame_id != 0,f'frame_id == 0 already computed'
+                    disp_i = outputs[("disp", scale, frame_id)]
+
+                    assert not self.opt.v1_multiscale,f'v1_multiscale is not supported for mutual motion'
+                    disp_i = F.interpolate(
+                        disp_i, [self.opt.height, self.opt.width], mode="bilinear", align_corners=True)
+                    
+                    _, depth_i = disp_to_depth(disp_i, self.opt.min_depth, self.opt.max_depth)
+                    outputs[("depth", frame_id, scale)] = depth_i
+
+            # source_scale = 0
+
+            # # # Create sampling grid
+            # # use pose_flow(sample-img_grid) and optic_flow(position)
+            # # implement mem effecient mesh_gird_high_res 
+            # x = torch.linspace(0, self.opt.width - 1, self.opt.width, device=self.device)
+            # y = torch.linspace(0, self.opt.height - 1, self.opt.height, device=self.device)
+            # grid_y, grid_x = torch.meshgrid(y, x, indexing='ij')  # (H, W)
+            # mesh_gird_high_res = torch.stack((grid_x, grid_y), dim=-1)  # (H, W, 2)
+            # mesh_gird_high_res = mesh_gird_high_res.unsqueeze(0)  # (1, H, W, 2)
+            # mesh_gird_high_res = mesh_gird_high_res.permute(0, 3, 1, 2)  # (B, 2, H, W)            
+            
+            # for i, frame_id in enumerate(self.opt.frame_ids[1:]):
+
+            #     outputs = self.gen_sample_and_pose_flow(inputs, outputs, mesh_gird_high_res, scale, source_scale = 0, 
+            #                                             tgt_frame_id = 0, frame_id = frame_id)
+
+            #     if self.opt.enable_mutual_motion and self.opt.enable_motion_computation:
+            #         # it will update: samples_s2t and pose_flow_s2t in outputs
+            #         outputs = self.gen_sample_and_pose_flow(inputs, outputs, mesh_gird_high_res, scale, source_scale = 0, 
+            #                                             tgt_frame_id = frame_id, frame_id = 0)
+
+            #     outputs[("color", frame_id, scale)] = F.grid_sample(
+            #         inputs[("color", frame_id, source_scale)],
+            #         outputs[("sample", frame_id, scale)],
+            #         padding_mode="border",
+            #         align_corners=True)
+                
+        return outputs
+
 
 
 
@@ -2018,10 +2256,14 @@ class Trainer:
         if self.opt.predictive_mask:
             outputs["predictive_mask"] = self.models["predictive_mask"](features)
 
-        if self.use_pose_net:
-            outputs.update(self.predict_poses(inputs, features, outputs))
+        outputs.update(self.generate_depth_pred_from_disp(outputs))
 
+        if self.use_pose_net:
+            outputs.update(self.predict_poses(inputs, outputs))
+
+        # outputs.update(self.generate_images_pred(inputs, outputs))
         outputs.update(self.generate_images_pred(inputs, outputs))
+
         if self.opt.enable_motion_computation:
             if self.opt.use_MF_network:
                 outputs.update(self.predict_motion_flow_with_MF_net(inputs, outputs))
