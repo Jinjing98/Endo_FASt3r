@@ -1,3 +1,9 @@
+////geoaware_net
+98159: 95580 + soft_mask colored_MotionCorrected_loss2nomo_000_unfzD_b3_accu1_hardmask_RegMask_ignoreMotionAreaAtCalib_OFgtSup_raft_useMFnet_sharedMOF_doubleB_geoaware32_40Wfast3rPose_softmask_scratch
+95579: 95444 + freezedepth+use_32,40(scale 3)_geoawarenet_with_fast3r_head_adaptation, keep grad in disp
+95580(okay): 95444 + use_32,40(scale 3)_geoawarenet_with_fast3r_head_adaptation; keep grad in disp
+
+
 clear: A''  shared
 95397 colored_MotionCorrected_loss2nomo_101_unfzD_b4_accu1_hardmask_RegMask_ignoreMotionAreaAtCalib_OFgtSup_raft_useMFnet_sharedMOF_doubleA_scratch
 B'' b1_accu4:(best by far)

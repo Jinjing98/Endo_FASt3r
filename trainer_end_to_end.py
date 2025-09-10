@@ -134,17 +134,18 @@ class Trainer:
             # # options.frame_ids = [0, -3, 3]
             # # options.frame_ids = [0, -14, 14]
 
-            # # # not okay to use: we did not adjust the init_K accordingly yet
+            # # # # not okay to use: we did not adjust the init_K accordingly yet
+            # DYNASCARED IS FINE?
             options.height = 192
             options.width = 224
 
-            # options.dataset = "endovis"
-            # options.data_path = "/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/"
-            # options.split_appendix = ""
+            options.dataset = "endovis"
+            options.data_path = "/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/"
+            options.split_appendix = ""
 
-            options.dataset = "DynaSCARED"
-            options.data_path = "/mnt/cluster/datasets/Surg_oclr_stereo/"
-            options.split_appendix = "_CaToTi000"
+            # options.dataset = "DynaSCARED"
+            # options.data_path = "/mnt/cluster/datasets/Surg_oclr_stereo/"
+            # options.split_appendix = "_CaToTi000"
 
 
             # options.split_appendix = "_CaToTi001"
@@ -153,17 +154,21 @@ class Trainer:
             # options.split_appendix = "_CaToTi101"
             # options.split_appendix = "_CaToTi011"
 
+            # options.split_appendix = "_CaToTi000" #critical
+            # options.split_appendix = "_CaToTi001" #critical reason for nan raft flow
 
             #debug nan present in geoaware with static scene traning
-            options.model_name = "debug_epropnp"
+            options.model_name = "debug_epropnp_pretrainedMetricMast3r"
             options.pose_model_type = "uni_reloc3r"
             options.init_3d_scene_flow = True
             options.scene_flow_estimator_type = "dpt"
+            options.pretrain_ckpt_path = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/DUSt3R_ViTLarge_BaseDecoder_512_dpt.pth"
+            options.pretrain_ckpt_path = '/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric.pth'
+            options.use_soft_motion_mask = True
             options.pose_estimation_mode = "epropnp"
 
             # options.shared_MF_OF_network = False # still not working
-            options.split_appendix = "_CaToTi000" #critical
-            options.split_appendix = "_CaToTi001" #critical reason for nan raft flow
+
 
 
             # #////////////////// default endofast3r setting //////////////////
@@ -1192,6 +1197,14 @@ class Trainer:
                         resized_img2, adapted_K2 = prepare_images(inputs["color_aug", 0, 0], self.device, size = 512, Ks=scale0_camera_intrinsics[0])
                         view1 = {'img':resized_img1, 'camera_intrinsics':adapted_K1}
                         view2 = {'img':resized_img2, 'camera_intrinsics':adapted_K2}
+                        # we need to scale back to the dim where reloc3r need?
+                        # print('resized_img1.shape:', resized_img1.shape)
+                        # print('adapted_K1:', adapted_K1)
+                        # print('', adapted_K1)
+                        # assert 0, f"view1['camera_intrinsics'].shape: {view1['camera_intrinsics'].shape}"
+
+
+
                         # udpate reloc3r_relpose forward returning and below to be consistent with original reloc3r
                         # view1 = {'img':prepare_images(inputs["color_aug", f_i, 0],self.device, size = 512)}
                         # view2 = {'img':prepare_images(inputs["color_aug", 0, 0], self.device, size = 512)}
@@ -1203,7 +1216,17 @@ class Trainer:
                         # notice we save pose2to1 as usually saved by reloc3r/fast3r/mvp3r; dares saved rel pose1to2
                         outputs[("cam_T_cam", 0, f_i)] = pose2["pose"] # we need pose tgt2src, ie: pose2to1, i.e the pose2 in breif in reloc3r model.
 
-                        
+                        # debug with GT pose
+                        debug_with_GT_pose = True
+                        debug_with_GT_pose = False
+                        if debug_with_GT_pose:
+                            gt_tgt_abs_poses = inputs[("gt_c2w_poses", 0)]  # (B, 4, 4)
+                            gt_src_abs_poses = inputs[("gt_c2w_poses", f_i)]  # (B, 4, 4)
+                            gt_tgt2src_rel_poses = torch.inverse(gt_src_abs_poses) @ gt_tgt_abs_poses
+                            outputs[("cam_T_cam", 0, f_i)] = gt_tgt2src_rel_poses
+
+                            # infact the disp2depth gives improper supervision for scale----what about given stereo metric depth or GT depth?
+                            # simple disp2depth control the min depth to be big (8 RATHER 0.1)
         return outputs
 
 

@@ -885,6 +885,7 @@ class Reloc3rRelpose(nn.Module, PyTorchModelHubMixin):
 
                 pose1 = self._downstream_head('', [tok.float() for tok in pose_regress_input1], shape1, pose_esti_mask1)  
                 pose2 = self._downstream_head('', [tok.float() for tok in pose_regress_input2], shape2, pose_esti_mask2)  # relative camera pose from 2 to 1. 
+                return pose1, pose2
             elif self.pose_estimation_mode == 'epropnp':
                 '''
                 # return pose1(pose1to2), pose2(pose2to1)
@@ -909,24 +910,47 @@ class Reloc3rRelpose(nn.Module, PyTorchModelHubMixin):
                 K_1 = view1['camera_intrinsics'] # B 4 4
                 K_2 = view2['camera_intrinsics'] # B 4 4
 
-                def prepare_epropnp_input(pts3d_2in1view, pts3d_1in2view_conf, K_2, B, H, W, matches_num = 64):
+
+                def disp_to_depth(disp, min_depth = 0.1, max_depth = 150):
+                    """Convert network's sigmoid output into depth prediction
+                    The formula for this conversion is given in the 'additional considerations'
+                    section of the paper.
+                    """
+                    min_disp = 1 / max_depth
+                    max_disp = 1 / min_depth
+                    scaled_disp = min_disp + (max_disp - min_disp) * disp
+                    depth = 1 / scaled_disp
+                    return scaled_disp, depth
+
+                # def rescale_depth(pts3d, min_depth = 0.0001, max_depth = 0.15):
+                def rescale_depth(pts3d, min_depth = 0.0001, max_depth = 0.15):
+                    """Rescale pts3d so that the depth is in the range of [min_depth, max_depth]"""
+                    # pts3d dim B N 3 where the 3 saved x y depth
+                    B, N, _ = pts3d.shape
+                    print('original SC scale:')
+                    print('max depth:', pts3d[:, :, 2].max())
+                    print('min depth:', pts3d[:, :, 2].min())
+                    # rescale the pts3d so that the max depth is max_depth
+                    pts3d[:, :, 2] = pts3d[:, :, 2] * max_depth / pts3d[:, :, 2].max()
+                    print('rescaled SC scale with max depth:', max_depth)
+                    print('max depth:', pts3d[:, :, 2].max())
+                    print('min depth:', pts3d[:, :, 2].min())
+                    return pts3d
+
+
+
+
+                def prepare_epropnp_input(pts3d_2in1view, pts3d_2in1view_conf, K_2, B, H, W, matches_num = 640):
                     '''
                     return pose_init: xyz_wxyz
                     '''
-                    # x3d_1,x2d_1,w2d_1 = 
                     x3d_1 = pts3d_2in1view.reshape(B, -1, 3)
-                    x3d_1_conf = pts3d_1in2view_conf.reshape(B, -1, 1)
+                    x3d_1_conf = pts3d_2in1view_conf.reshape(B, -1, 1)
                     # reset self._base_grid for various image size
                     self._init_base_grid(H=H, W=W, device=view1['img'].device)
                     x2d_1 = self._base_grid.repeat(B, 1, 1, 1)# B H W 2
                     x2d_1 = x2d_1.reshape(B, -1, 2)
-                    # assert 0, f'can w2d use conf? means the same? check out paper epropnp'
-                    # w2d_1 = torch.ones_like(x2d_1)
                     w2d_1 = x3d_1_conf.repeat(1, 1, 2).detach()
-                    # print('w2d_1.shape:', w2d_1.shape)
-                    # print('x3d_1_conf.shape:', x3d_1_conf.shape)
-                    # w2d_1 = x3d_1_conf.detach()
-                    
                     # sample  matches_num tuples (x3d_1_i,x2d_1_i,w2d_1_i)
                     # Generate a random permutation of indices
                     if matches_num < x3d_1.shape[0]:
@@ -934,29 +958,17 @@ class Reloc3rRelpose(nn.Module, PyTorchModelHubMixin):
                         x3d_1 = x3d_1[idx]
                         x2d_1 = x2d_1[idx]
                         w2d_1 = w2d_1[idx]
-
                     cam_mats_1 = K_2[:,:3,:3] 
                     # in Epropnp: pose are in XYZ_quat 7 dim format
                     # pose_init_1 = torch.eye(4).repeat(B, 1, 1).to(view1['img'].device) 
-
                     import warnings 
-                    warnings.warn('pose_init_1 need to be tested...')
-                    # pose_init_1 = torch.randn([B, 7], device=view1['img'].device)
-                    # pose_init_1[:, 3:] = F.normalize(pose_init_1[:, 3:], dim=-1)  # normalize to unit quaternion
-                    # pose_init_1[:, :3] *= 0.0 # set translation to 0
-                    
+                    # warnings.warn('pose_init_1 need to be tested...')
                     # xyz_wxyz
                     pose_init_1 = torch.zeros([B, 7], device=view1['img'].device)
                     # set quat as 1,0,0,0
                     pose_init_1[:, 3:] = torch.tensor([1,0,0,0], device=view1['img'].device).repeat(B, 1)
-
-                    # #print dim of inputs
-                    # print('x3d_1.shape:', x3d_1.shape)
-                    # print('x2d_1.shape:', x2d_1.shape)
-                    # print('w2d_1.shape:', w2d_1.shape)
-                    # print('cam_mats_1.shape:', cam_mats_1.shape)
-                    # print('pose_init_1.shape:', pose_init_1.shape)
                     return x3d_1, x2d_1, w2d_1, cam_mats_1, pose_init_1
+                    # return rescale_depth(x3d_1), x2d_1, w2d_1, cam_mats_1, pose_init_1
 
                 def xyz_quat_to_matrix_kornia(
                     xyz_quat: torch.Tensor, 
@@ -996,6 +1008,9 @@ class Reloc3rRelpose(nn.Module, PyTorchModelHubMixin):
                     T[:, :3, 3] = t
 
                     return T
+                # print('pts3d_2in1view.shape:', pts3d_2in1view.shape)
+                # print('K_2.shape:', K_2.shape)
+                # print('K_2:', K_2)
 
                 x3d_1, x2d_1, w2d_1, cam_mats_1, pose_init_1 = prepare_epropnp_input(pts3d_2in1view,pts3d_2in1view_conf, K_2, B, H, W)
                 _, _, pose_opt_plus_1, _, pose_sample_logweights_1, cost_tgt_1, norm_factor_1 = self.epropnp_pose_head(
@@ -1015,10 +1030,12 @@ class Reloc3rRelpose(nn.Module, PyTorchModelHubMixin):
                 pose2['pose_sample_logweights'] = pose_sample_logweights_2
                 pose2['cost_tgt'] = cost_tgt_2
                 pose2['norm_factor'] = norm_factor_2
+                # return pose2, pose1 #debug_only
+                return pose1, pose2
+
             else:
                 assert 0, f'Unknown pose_estimation_mode {self.pose_estimation_mode}, should be one of [pose_head_regression, epropnp]'
         
-        return pose1, pose2
 
     def _wrap_output(self, pose1, pose2, 
                      scene_flow1, scene_flow2, 
@@ -1419,12 +1436,12 @@ class Reloc3rRelpose(nn.Module, PyTorchModelHubMixin):
         for which in vis_which:
             if which not in view1 :
                 assert which not in view2, f'view1 and view2 should have are both from gt or esti to be consistent'
-                print('', f'Warning: {which} not in view, set as black')
+                # print('', f'Warning: {which} not in view, set as black')
                 #use self.img_size to create a black image
                 vis_img1 = torch.zeros(self.vis_placeholder_shape).detach().cpu().numpy()
                 vis_img2 = torch.zeros(self.vis_placeholder_shape).detach().cpu().numpy()
             else:
-                print(f'exist and plot: {vis_title}:', which)
+                # print(f'exist and plot: {vis_title}:', which)
                 if which == 'pts3d':
                     # need to project the pts3d based on cam---the raw pts3d is w.r.t world
                     assert 'gt' in vis_title, f'vis_title should contain gt for pts3d, but got {vis_title}'
