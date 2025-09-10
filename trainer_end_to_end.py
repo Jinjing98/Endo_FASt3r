@@ -66,7 +66,7 @@ class Trainer:
             # options.log_dir = "/mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm_debug"
 
 
-            options.pose_model_type = "geoaware_pnet"
+            # options.pose_model_type = "geoaware_pnet"
 
             options.shared_MF_OF_network = True
 
@@ -121,7 +121,7 @@ class Trainer:
             # # options.transform_smoothness = 0.0
             # # options.disparity_smoothness = 0.0
 
-            # # options.freeze_as_much_debug = True #save mem # need to be on for OF exp
+            options.freeze_as_much_debug = True #save mem # need to be on for OF exp
 
             options.of_samples = True
             # options.of_samples_num = 100
@@ -135,8 +135,8 @@ class Trainer:
             # # options.frame_ids = [0, -14, 14]
 
             # # # not okay to use: we did not adjust the init_K accordingly yet
-            # # options.height = 192
-            # # options.width = 224
+            options.height = 192
+            options.width = 224
 
             # options.dataset = "endovis"
             # options.data_path = "/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/"
@@ -155,25 +155,30 @@ class Trainer:
 
 
             #debug nan present in geoaware with static scene traning
-            options.model_name = "debug_aware_011_s1_of8_noraft_disable_motion"
+            options.model_name = "debug_epropnp"
+            options.pose_model_type = "uni_reloc3r"
+            options.init_3d_scene_flow = True
+            options.scene_flow_estimator_type = "dpt"
+            options.pose_estimation_mode = "epropnp"
+
             # options.shared_MF_OF_network = False # still not working
             options.split_appendix = "_CaToTi000" #critical
-            options.split_appendix = "_CaToTi011" #critical reason for nan raft flow
+            options.split_appendix = "_CaToTi001" #critical reason for nan raft flow
 
 
-            #////////////////// default endofast3r setting //////////////////
-            options.use_raft_flow = False # here is the only issue? raft especially non robust when no scene motion for both pose models when enable_motion_etc (we only test on b1)?
-            # options.pose_model_type = "separate_resnet"
+            # #////////////////// default endofast3r setting //////////////////
+            # options.use_raft_flow = False # here is the only issue? raft especially non robust when no scene motion for both pose models when enable_motion_etc (we only test on b1)?
+            # # options.pose_model_type = "separate_resnet"
 
-            # options.enable_motion_computation = False
-            options.use_MF_network = False
-            options.ignore_motion_area_at_calib = False
-            options.reproj_supervised_which = 'color'
-            options.use_loss_motion_mask_reg = False #not checked this factor
-            options.use_loss_reproj2_nomotion = False #not checked this factor
-            options.enable_grad_flow_motion_mask = False #not checked this factor
+            # # options.enable_motion_computation = False
+            # options.use_MF_network = False
+            # options.ignore_motion_area_at_calib = False
+            # options.reproj_supervised_which = 'color'
+            # options.use_loss_motion_mask_reg = False #not checked this factor
+            # options.use_loss_reproj2_nomotion = False #not checked this factor
+            # options.enable_grad_flow_motion_mask = False #not checked this factor
 
-            # motion_flow net predict all nan after grads update when the there is no scene dynamics?
+            # # motion_flow net predict all nan after grads update when the there is no scene dynamics?
 
 
         self.opt = options

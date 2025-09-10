@@ -902,21 +902,31 @@ class Reloc3rRelpose(nn.Module, PyTorchModelHubMixin):
                 pts3d_2 = depth2['pts3d']
                 pts3d_1in2view = scene_flow1['pts3d']
                 pts3d_2in1view = scene_flow2['pts3d']# B H W 3
+                pts3d_1in2view_conf = scene_flow1['conf']
+                pts3d_2in1view_conf = scene_flow2['conf']
+                # print('key in scene_flow1:', scene_flow1.keys())
+                # print('key in scene_flow2:', scene_flow2.keys())
                 K_1 = view1['camera_intrinsics'] # B 4 4
                 K_2 = view2['camera_intrinsics'] # B 4 4
 
-                def prepare_epropnp_input(pts3d_2in1view, K_2, B, H, W, matches_num = 8):
+                def prepare_epropnp_input(pts3d_2in1view, pts3d_1in2view_conf, K_2, B, H, W, matches_num = 64):
                     '''
                     return pose_init: xyz_wxyz
                     '''
                     # x3d_1,x2d_1,w2d_1 = 
                     x3d_1 = pts3d_2in1view.reshape(B, -1, 3)
+                    x3d_1_conf = pts3d_1in2view_conf.reshape(B, -1, 1)
                     # reset self._base_grid for various image size
                     self._init_base_grid(H=H, W=W, device=view1['img'].device)
                     x2d_1 = self._base_grid.repeat(B, 1, 1, 1)# B H W 2
                     x2d_1 = x2d_1.reshape(B, -1, 2)
                     # assert 0, f'can w2d use conf? means the same? check out paper epropnp'
-                    w2d_1 = torch.ones_like(x2d_1)
+                    # w2d_1 = torch.ones_like(x2d_1)
+                    w2d_1 = x3d_1_conf.repeat(1, 1, 2).detach()
+                    # print('w2d_1.shape:', w2d_1.shape)
+                    # print('x3d_1_conf.shape:', x3d_1_conf.shape)
+                    # w2d_1 = x3d_1_conf.detach()
+                    
                     # sample  matches_num tuples (x3d_1_i,x2d_1_i,w2d_1_i)
                     # Generate a random permutation of indices
                     if matches_num < x3d_1.shape[0]:
@@ -940,7 +950,7 @@ class Reloc3rRelpose(nn.Module, PyTorchModelHubMixin):
                     # set quat as 1,0,0,0
                     pose_init_1[:, 3:] = torch.tensor([1,0,0,0], device=view1['img'].device).repeat(B, 1)
 
-                    #print dim of inputs
+                    # #print dim of inputs
                     # print('x3d_1.shape:', x3d_1.shape)
                     # print('x2d_1.shape:', x2d_1.shape)
                     # print('w2d_1.shape:', w2d_1.shape)
@@ -987,7 +997,7 @@ class Reloc3rRelpose(nn.Module, PyTorchModelHubMixin):
 
                     return T
 
-                x3d_1, x2d_1, w2d_1, cam_mats_1, pose_init_1 = prepare_epropnp_input(pts3d_2in1view, K_2, B, H, W)
+                x3d_1, x2d_1, w2d_1, cam_mats_1, pose_init_1 = prepare_epropnp_input(pts3d_2in1view,pts3d_2in1view_conf, K_2, B, H, W)
                 _, _, pose_opt_plus_1, _, pose_sample_logweights_1, cost_tgt_1, norm_factor_1 = self.epropnp_pose_head(
                     x3d_1, x2d_1, w2d_1, cam_mats_1, pose_init_1)
                 # conver B 1 7 xyz_quat to B 4 4 matrix
@@ -997,7 +1007,7 @@ class Reloc3rRelpose(nn.Module, PyTorchModelHubMixin):
                 pose1['cost_tgt'] = cost_tgt_1
                 pose1['norm_factor'] = norm_factor_1
 
-                x3d_2, x2d_2, w2d_2, cam_mats_2, pose_init_2 = prepare_epropnp_input(pts3d_1in2view, K_1, B,H,W)
+                x3d_2, x2d_2, w2d_2, cam_mats_2, pose_init_2 = prepare_epropnp_input(pts3d_1in2view,pts3d_1in2view_conf, K_1, B,H,W)
                 _, _, pose_opt_plus_2, _, pose_sample_logweights_2, cost_tgt_2, norm_factor_2 = self.epropnp_pose_head(
                     x3d_2, x2d_2, w2d_2, cam_mats_2, pose_init_2)
                 # pose2['pose'] = pose_opt_plus_2
