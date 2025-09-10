@@ -104,12 +104,12 @@ class Trainer:
 
             # options.zero_pose_debug = True
 
-            # # options.freeze_depth_debug = True
+            options.freeze_depth_debug = True
 
             # options.ignore_motion_area_at_calib = True
 
             options.use_raft_flow = True
-            # options.use_raft_flow = False
+            options.use_raft_flow = False
 
             # # options.zero_pose_flow_debug = True
             # # options.reproj_supervised_with_which = "raw_tgt_gt"
@@ -121,11 +121,12 @@ class Trainer:
             # # options.transform_smoothness = 0.0
             # # options.disparity_smoothness = 0.0
 
-            options.freeze_as_much_debug = True #save mem # need to be on for OF exp
+            # options.freeze_as_much_debug = True #save mem # need to be on for OF exp
 
             options.of_samples = True
             # options.of_samples_num = 100
             options.of_samples_num = 8
+            options.of_samples_num = 1
             # options.is_train = True
             # options.is_train = False # no augmentation
 
@@ -138,6 +139,12 @@ class Trainer:
             # DYNASCARED IS FINE?
             options.height = 192
             options.width = 224
+
+
+            # raft can use this?
+            options.height = 192
+            options.width = 192
+
 
             options.dataset = "endovis"
             options.data_path = "/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/"
@@ -166,14 +173,17 @@ class Trainer:
             options.pretrain_ckpt_path = '/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric.pth'
             options.use_soft_motion_mask = True
             options.pose_estimation_mode = "epropnp"
+            options.depth_model_type = "endofast3r_depth_trained_dbg" #critical! we better init with optimized DAM
 
-            options.pose_model_type = "endofast3r_pose_trained_dbg"
-            options.depth_model_type = "endofast3r_depth_trained_dbg"
-            options.min_depth = 0.1 # bigger safer
-            # options.min_depth = 10.0 # bigger safer
-            options.max_depth = 150.0 # bigger safer
-            # options.enable_motion_computation = False
-            options.enable_motion_computation = True
+
+            # # # debug trained fast3r (understand its learned scale)
+            # options.pose_model_type = "endofast3r_pose_trained_dbg"
+            # options.depth_model_type = "endofast3r_depth_trained_dbg" #critical! we better init with optimized DAM
+            # # options.gt_metric_rel_pose_as_estimates_debug = True
+            # options.min_depth = 0.1 # bigger safer
+            # options.max_depth = 150.0 # bigger safer
+            # # options.enable_motion_computation = False
+            # options.enable_motion_computation = True
 
             # options.enable_mutual_motion = True
             # options.use_soft_motion_mask = True
@@ -232,7 +242,7 @@ class Trainer:
 
         # checking height and width are multiples of 32
         assert self.opt.height % 32 == 0, "'height' must be a multiple of 32"
-        assert self.opt.width % 32 == 0, "'width' must be a multiple of 32"
+        # assert self.opt.width % 32 == 0, "'width' must be a multiple of 32"
 
         set_seed(self.opt.seed)
         # self.scaler = GradScaler()
@@ -1267,9 +1277,8 @@ class Trainer:
                         outputs[("cam_T_cam", 0, f_i)] = pose2["pose"] # we need pose tgt2src, ie: pose2to1, i.e the pose2 in breif in reloc3r model.
 
                         # debug with GT pose
-                        debug_with_GT_pose = True
-                        debug_with_GT_pose = False
-                        if debug_with_GT_pose:
+                        if self.opt.gt_metric_rel_pose_as_estimates_debug:
+                            print('Debug: use GT metric rel pose as estimates!!!')
                             gt_tgt_abs_poses = inputs[("gt_c2w_poses", 0)]  # (B, 4, 4)
                             gt_src_abs_poses = inputs[("gt_c2w_poses", f_i)]  # (B, 4, 4)
                             gt_tgt2src_rel_poses = torch.inverse(gt_src_abs_poses) @ gt_tgt_abs_poses
@@ -1548,7 +1557,12 @@ class Trainer:
         # print(tgt_frame_id)
         # print('frame id:')
         # print(frame_id)
-        # print('Compute cam_points')
+        print('////*****Compute cam_points based in inv_K and depth****/////')
+        print('max depth:', outputs[("depth", tgt_frame_id, scale)].max())
+        print('min depth:', outputs[("depth", tgt_frame_id, scale)].min())
+        print('mean depth:', outputs[("depth", tgt_frame_id, scale)].mean())
+        # print('used K:')
+        # print(inputs[("K", source_scale)])
         cam_points = self.backproject_depth[source_scale](
             outputs[("depth", tgt_frame_id, scale)], inputs[("inv_K", source_scale)])# 3D pts
         # print('cam_points.shape:')
@@ -1564,9 +1578,17 @@ class Trainer:
             # print(T)
             print('Used cam_points shape:')
             print(cam_points.shape)
-            print('Used cam_points max min depth:')
-            print(cam_points[:,:,2].max())
-            print(cam_points[:,:,2].min())
+            print('Used cam_points max min z:')
+            print(cam_points[:,2,:].max())
+            print(cam_points[:,2,:].min())
+            print('Used cam_points mean x:')
+            print(cam_points[:,0,:].mean())
+            print('Used cam_points mean y:')
+            print(cam_points[:,1,:].mean())
+            print('Used cam_points mean z:')
+            print(cam_points[:,2,:].mean())
+            # print('Used cam_points mean 4:')
+            # print(cam_points[:,3,:].mean())
         pix_coords = self.project_3d[source_scale](cam_points, inputs[("K", source_scale)], T)# 2D pxs; T: f0 -> f1  f0->f-1
         if compute_tgt2src_sampling:
             outputs[("sample", frame_id, scale)] = pix_coords # b h w 2
@@ -2018,7 +2040,9 @@ class Trainer:
             # print(gt_tgt2src_rel_poses.shape)
             # print('pred_rel_poses_batch shape:')
             # print(pred_rel_poses_batch.shape)
-            if frame_id == self.opt.frame_ids[1]:
+            # if frame_id == self.opt.frame_ids[1]:
+            if frame_id in self.opt.frame_ids[1:]:
+                print('////frame_id as src:', frame_id)
                 print('gt_tgt2src_rel_poses trans:')
                 print(gt_tgt2src_rel_poses[:, :3, 3])
                 print('pred_rel_poses_batch trans:')
@@ -2480,8 +2504,16 @@ class Trainer:
 
         # for j in range(min(4, self.opt.batch_size)):  # write a maxmimum of four images
         tgt_scale_to_vis = [0]
-        tgt_scale_to_vis = [0,1]
-        tgt_scale_to_vis = [0,1,2,3]
+        tgt_frame_id_to_vis = self.opt.frame_ids[1:2]
+        # tgt_scale_to_vis = [0,1]
+        # tgt_scale_to_vis = [0,1,2,3]
+        # tgt_scale_to_vis = [0,3]
+        debug_only = True
+        if debug_only:
+            #vis more
+            tgt_scale_to_vis = [0,3]
+            tgt_frame_id_to_vis = [-1,1]
+
         # motion_flow and motion_mask will have adapted shape at various level while the others are all on the level0 shape
         for j in range(min(1, self.opt.batch_size)):  # write a maxmimum of 2 images
             # for s in self.opt.scales:
@@ -2498,7 +2530,8 @@ class Trainer:
                 writer.add_image(
                     'Depth/depth_{}/{}'.format(s, j),
                     normalize_image(outputs[("depth", 0, s)][j]), self.step)                
-                for frame_id in self.opt.frame_ids[1:2]:  # only for one is enough for debug
+                # for frame_id in self.opt.frame_ids[1:2]:  # only for one is enough for debug
+                for frame_id in tgt_frame_id_to_vis:  # only for one is enough for debug
                     # if s in tgt_scale_to_vis:
 
                     writer.add_image(

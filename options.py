@@ -126,6 +126,9 @@ class MonodepthOptions:
         self.parser.add_argument("--zero_pose_flow_debug",
                                  help="it will compute: motion_flow, pose_flow, motion_mask, color_motion_warped",
                                  action="store_true")
+        self.parser.add_argument("--gt_metric_rel_pose_as_estimates_debug",
+                                 help="it will compute: motion_flow, pose_flow, motion_mask, color_motion_warped",
+                                 action="store_true")        
         self.parser.add_argument("--zero_pose_debug",
                                  help="it will set T as eye",
                                  action="store_true")

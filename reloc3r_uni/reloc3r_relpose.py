@@ -866,6 +866,42 @@ class Reloc3rRelpose(nn.Module, PyTorchModelHubMixin):
             coord[0, ..., 1] = hh
             self._base_grid = coord.to(device)
 
+    def prepare_epropnp_input(self, pts3d_2in1view, pts3d_2in1view_conf, 
+                                K_2, B, H, W, device, 
+                                # matches_num = 8,
+                                matches_num = 48,
+                                ):
+        '''
+        return pose_init: xyz_wxyz
+        '''
+        x3d = pts3d_2in1view.reshape(B, -1, 3)
+        x3d_conf = pts3d_2in1view_conf.reshape(B, -1, 1)
+        # reset self._base_grid for various image size
+        self._init_base_grid(H=H, W=W, device=device)
+        x2d = self._base_grid.repeat(B, 1, 1, 1)# B H W 2
+        x2d = x2d.reshape(B, -1, 2)
+        w2d = x3d_conf.repeat(1, 1, 2).detach()
+        # sample  matches_num tuples (x3d_1_i,x2d_1_i,w2d_1_i)
+        # Generate a random permutation of indices
+        
+        if matches_num < x3d.shape[0]:
+            idx = torch.randperm(x3d.shape[0])[:matches_num]
+            x3d = x3d[idx]
+            x2d = x2d[idx]
+            w2d = w2d[idx]
+
+        cam_mats = K_2[:,:3,:3] 
+        # in Epropnp: pose are in XYZ_quat 7 dim format
+        # pose_init_1 = torch.eye(4).repeat(B, 1, 1).to(view1['img'].device) 
+        # xyz_wxyz
+        pose_init = torch.zeros([B, 7], device=device)
+        # set quat as 1,0,0,0
+        pose_init[:, 3:] = torch.tensor([0,0,0,1], device=device).repeat(B, 1)
+        pose_init = None
+
+        return x3d, x2d, w2d, cam_mats, pose_init
+
+
     def inference_pose(self, view1, view2, mask_1, mask_2, dec1, dec2, shape1, shape2, 
                        optic_flow1, optic_flow2,
                        depth1, depth2,
@@ -905,74 +941,48 @@ class Reloc3rRelpose(nn.Module, PyTorchModelHubMixin):
                 pts3d_2in1view = scene_flow2['pts3d']# B H W 3
                 pts3d_1in2view_conf = scene_flow1['conf']
                 pts3d_2in1view_conf = scene_flow2['conf']
+
                 # print('key in scene_flow1:', scene_flow1.keys())
                 # print('key in scene_flow2:', scene_flow2.keys())
                 K_1 = view1['camera_intrinsics'] # B 4 4
                 K_2 = view2['camera_intrinsics'] # B 4 4
 
-
-                def disp_to_depth(disp, min_depth = 0.1, max_depth = 150):
-                    """Convert network's sigmoid output into depth prediction
-                    The formula for this conversion is given in the 'additional considerations'
-                    section of the paper.
+                def quaternion_wxyz_to_matrix_pytorch3d(quaternions: torch.Tensor) -> torch.Tensor:
                     """
-                    min_disp = 1 / max_depth
-                    max_disp = 1 / min_depth
-                    scaled_disp = min_disp + (max_disp - min_disp) * disp
-                    depth = 1 / scaled_disp
-                    return scaled_disp, depth
+                    Convert rotations given as quaternions to rotation matrices.
 
-                # def rescale_depth(pts3d, min_depth = 0.0001, max_depth = 0.15):
-                def rescale_depth(pts3d, min_depth = 0.0001, max_depth = 0.15):
-                    """Rescale pts3d so that the depth is in the range of [min_depth, max_depth]"""
-                    # pts3d dim B N 3 where the 3 saved x y depth
-                    B, N, _ = pts3d.shape
-                    print('original SC scale:')
-                    print('max depth:', pts3d[:, :, 2].max())
-                    print('min depth:', pts3d[:, :, 2].min())
-                    # rescale the pts3d so that the max depth is max_depth
-                    pts3d[:, :, 2] = pts3d[:, :, 2] * max_depth / pts3d[:, :, 2].max()
-                    print('rescaled SC scale with max depth:', max_depth)
-                    print('max depth:', pts3d[:, :, 2].max())
-                    print('min depth:', pts3d[:, :, 2].min())
-                    return pts3d
+                    Args:
+                        quaternions(wxyz): quaternions with real part first,
+                            as tensor of shape (..., 4).
 
+                    Returns:
+                        Rotation matrices as tensor of shape (..., 3, 3).
+                    """
+                    r, i, j, k = torch.unbind(quaternions, -1)
+                    # pyre-fixme[58]: `/` is not supported for operand types `float` and `Tensor`.
+                    two_s = 2.0 / (quaternions * quaternions).sum(-1)
 
-
-
-                def prepare_epropnp_input(pts3d_2in1view, pts3d_2in1view_conf, K_2, B, H, W, matches_num = 640):
-                    '''
-                    return pose_init: xyz_wxyz
-                    '''
-                    x3d_1 = pts3d_2in1view.reshape(B, -1, 3)
-                    x3d_1_conf = pts3d_2in1view_conf.reshape(B, -1, 1)
-                    # reset self._base_grid for various image size
-                    self._init_base_grid(H=H, W=W, device=view1['img'].device)
-                    x2d_1 = self._base_grid.repeat(B, 1, 1, 1)# B H W 2
-                    x2d_1 = x2d_1.reshape(B, -1, 2)
-                    w2d_1 = x3d_1_conf.repeat(1, 1, 2).detach()
-                    # sample  matches_num tuples (x3d_1_i,x2d_1_i,w2d_1_i)
-                    # Generate a random permutation of indices
-                    if matches_num < x3d_1.shape[0]:
-                        idx = torch.randperm(x3d_1.shape[0])[:matches_num]
-                        x3d_1 = x3d_1[idx]
-                        x2d_1 = x2d_1[idx]
-                        w2d_1 = w2d_1[idx]
-                    cam_mats_1 = K_2[:,:3,:3] 
-                    # in Epropnp: pose are in XYZ_quat 7 dim format
-                    # pose_init_1 = torch.eye(4).repeat(B, 1, 1).to(view1['img'].device) 
-                    import warnings 
-                    # warnings.warn('pose_init_1 need to be tested...')
-                    # xyz_wxyz
-                    pose_init_1 = torch.zeros([B, 7], device=view1['img'].device)
-                    # set quat as 1,0,0,0
-                    pose_init_1[:, 3:] = torch.tensor([1,0,0,0], device=view1['img'].device).repeat(B, 1)
-                    return x3d_1, x2d_1, w2d_1, cam_mats_1, pose_init_1
-                    # return rescale_depth(x3d_1), x2d_1, w2d_1, cam_mats_1, pose_init_1
+                    o = torch.stack(
+                        (
+                            1 - two_s * (j * j + k * k),
+                            two_s * (i * j - k * r),
+                            two_s * (i * k + j * r),
+                            two_s * (i * j + k * r),
+                            1 - two_s * (i * i + k * k),
+                            two_s * (j * k - i * r),
+                            two_s * (i * k - j * r),
+                            two_s * (j * k + i * r),
+                            1 - two_s * (i * i + j * j),
+                        ),
+                        -1,
+                    )
+                    return o.reshape(quaternions.shape[:-1] + (3, 3))
 
                 def xyz_quat_to_matrix_kornia(
                     xyz_quat: torch.Tensor, 
-                    quat_format: str = 'wxyz'
+                    quat_format: str = 'wxyz',
+                    soft_clamp_quat: bool = False,
+                    max_angle_rad: float = 0.1,
                 ) -> torch.Tensor:
                     """
                     Convert [B, 7] tensor (tx,ty,tz,qx,qy,qz,qw or wxyz) to [B,4,4] homogeneous matrices.
@@ -999,38 +1009,158 @@ class Reloc3rRelpose(nn.Module, PyTorchModelHubMixin):
                     else:
                         assert 0, f'Unknown quat_format {quat_format}, should be one of [xyzw, wxyz]'
 
+                    def clamp_quaternion_angle(q: torch.Tensor, max_angle_rad: float) -> torch.Tensor:
+                        """
+                        Clamp quaternion rotations by maximum angle.
+                        
+                        Args:
+                            q: (B, 4) tensor of quaternions (w, x, y, z), not necessarily normalized
+                            max_angle_rad: float, maximum allowed rotation angle in radians
+
+                        Returns:
+                            (B, 4) tensor of clamped, normalized quaternions
+                        """
+                        # normalize in case of drift
+                        q = q / q.norm(dim=-1, keepdim=True)
+
+                        w, xyz = q[:, 0], q[:, 1:]
+                        theta = 2 * torch.acos(torch.clamp(w, -1.0, 1.0))  # (B,)
+
+                        # scale factor = sin(new_theta/2) / sin(theta/2)
+                        scale = torch.ones_like(theta)
+                        mask = theta > max_angle_rad
+                        if mask.any():
+                            new_theta = torch.full_like(theta[mask], max_angle_rad)
+                            scale_val = torch.sin(new_theta / 2) / torch.sin(theta[mask] / 2)
+                            scale[mask] = scale_val
+
+                        # apply scaling to xyz
+                        xyz = xyz * scale.unsqueeze(-1)
+
+                        # recompute w for clamped ones
+                        w = torch.where(mask, torch.cos(max_angle_rad / 2).expand_as(w), w)
+
+                        q_clamped = torch.cat([w.unsqueeze(-1), xyz], dim=-1)
+                        # normalize again for safety
+                        return q_clamped / q_clamped.norm(dim=-1, keepdim=True)
+
+                    def soft_clamp_quaternion_angle(q: torch.Tensor, max_angle_rad: float) -> torch.Tensor:
+                        """
+                        Softly clamp quaternion rotations by max_angle_rad using a smooth squash.
+                        
+                        Args:
+                            q: (B, 4) quaternions (w, x, y, z), not necessarily normalized
+                            max_angle_rad: float, maximum allowed rotation angle in radians
+                        
+                        Returns:
+                            (B, 4) softly clamped, normalized quaternions
+                        """
+                        # normalize in case of drift
+                        q = q / q.norm(dim=-1, keepdim=True)
+
+                        w, xyz = q[:, 0], q[:, 1:]
+                        theta = 2 * torch.acos(torch.clamp(w, -1.0, 1.0))  # (B,)
+
+                        # avoid div by zero: if theta ~ 0, just keep axis as xyz
+                        axis = torch.zeros_like(xyz)
+                        mask = theta > 1e-8
+                        axis[mask] = xyz[mask] / torch.sin(theta[mask] / 2).unsqueeze(-1)
+
+                        # squash angle smoothly
+                        theta_clamped = max_angle_rad * torch.tanh(theta / max_angle_rad)
+
+                        # rebuild quaternion
+                        w_new = torch.cos(theta_clamped / 2)
+                        xyz_new = axis * torch.sin(theta_clamped / 2).unsqueeze(-1)
+
+                        q_new = torch.cat([w_new.unsqueeze(-1), xyz_new], dim=-1)
+                        return q_new / q_new.norm(dim=-1, keepdim=True)
+
+
+                    if soft_clamp_quat:
+                        quat_wxyz = soft_clamp_quaternion_angle(quat_wxyz, max_angle_rad=max_angle_rad)
+
                     # Convert quaternion to rotation matrix: [B,3,3]
-                    R = kornia.geometry.conversions.quaternion_to_rotation_matrix(quat_wxyz)
+                    # R = kornia.geometry.conversions.quaternion_to_rotation_matrix(quat_wxyz) # seems have issue for kornia implementation
+                    R = quaternion_wxyz_to_matrix_pytorch3d(quat_wxyz)
 
                     # Build homogeneous matrices
                     T = torch.eye(4, device=xyz_quat.device, dtype=xyz_quat.dtype).unsqueeze(0).repeat(B,1,1)
+
                     T[:, :3, :3] = R
                     T[:, :3, 3] = t
 
                     return T
-                # print('pts3d_2in1view.shape:', pts3d_2in1view.shape)
-                # print('K_2.shape:', K_2.shape)
-                # print('K_2:', K_2)
 
-                x3d_1, x2d_1, w2d_1, cam_mats_1, pose_init_1 = prepare_epropnp_input(pts3d_2in1view,pts3d_2in1view_conf, K_2, B, H, W)
+                x3d_1, x2d_1, w2d_1, cam_mats_1, pose_init_1 = self.prepare_epropnp_input(pts3d_2in1view,pts3d_2in1view_conf, 
+                                                                                     K_2, B, H, W, view1['img'].device)
+                x3d_2, x2d_2, w2d_2, cam_mats_2, pose_init_2 = self.prepare_epropnp_input(pts3d_1in2view,pts3d_1in2view_conf,
+                                                                                     K_1, B, H, W, view2['img'].device)
+
+                # print the max and min dpeth in x3d_2
+                print('ori x3d_2 min z:', x3d_2[:, :, 2].min())
+                print('ori x3d_2 max z:', x3d_2[:, :, 2].max())
+                print('ori x3d_2 mean x:', x3d_2[:, :, 0].mean())
+                print('ori x3d_2 mean y:', x3d_2[:, :, 1].mean())
+                print('ori x3d_2 mean z:', x3d_2[:, :, 2].mean())
+
+                # print('ori x3d_1 mean depth:', x3d_1[:, :, 2].mean())
+                debug_only = True
+                if debug_only:
+                    # better contrain in range 0.2-0.3---be consistent with trained DAM?
+                    scale_x3d = 0.25 #mag smaller, safer; but can not be too small--seems get epropnp can get insance if the mag too smaller
+                    
+                    x3d_1 = x3d_1 * scale_x3d
+                    x3d_2 = x3d_2 * scale_x3d
+
+                    print('scaled x3d_2 min z:', x3d_2[:, :, 2].min())
+                    print('scaled x3d_2 max z:', x3d_2[:, :, 2].max())
+                    print('scaled x3d_2 mean x:', x3d_2[:, :, 0].mean())
+                    print('scaled x3d_2 mean y:', x3d_2[:, :, 1].mean())
+                    print('scaled x3d_2 mean z:', x3d_2[:, :, 2].mean())
+                    # print('scaled x3d_1 mean depth:', x3d_1[:, :, 2].mean())
+
+
+
                 _, _, pose_opt_plus_1, _, pose_sample_logweights_1, cost_tgt_1, norm_factor_1 = self.epropnp_pose_head(
-                    x3d_1, x2d_1, w2d_1, cam_mats_1, pose_init_1)
+                                                                                                x3d_1, x2d_1, w2d_1, 
+                                                                                                cam_mats_1, 
+                                                                                                pose_init_1,
+                                                                                                )
                 # conver B 1 7 xyz_quat to B 4 4 matrix
                 # pose1['pose'] = pose_opt_plus_1
-                pose1['pose'] = xyz_quat_to_matrix_kornia(pose_opt_plus_1, quat_format='wxyz')
+                
+                #setting up
+                opt_quat_format='wxyz'
+                soft_clamp_quat = True
+                max_angle_rad = 0.01
+
+                pose1['pose'] = xyz_quat_to_matrix_kornia(pose_opt_plus_1, 
+                                                          quat_format=opt_quat_format,
+                                                          soft_clamp_quat=soft_clamp_quat,
+                                                          max_angle_rad=max_angle_rad)
                 pose1['pose_sample_logweights'] = pose_sample_logweights_1
                 pose1['cost_tgt'] = cost_tgt_1
                 pose1['norm_factor'] = norm_factor_1
 
-                x3d_2, x2d_2, w2d_2, cam_mats_2, pose_init_2 = prepare_epropnp_input(pts3d_1in2view,pts3d_1in2view_conf, K_1, B,H,W)
                 _, _, pose_opt_plus_2, _, pose_sample_logweights_2, cost_tgt_2, norm_factor_2 = self.epropnp_pose_head(
-                    x3d_2, x2d_2, w2d_2, cam_mats_2, pose_init_2)
+                                                                                                x3d_2, x2d_2, w2d_2, 
+                                                                                                cam_mats_2, 
+                                                                                                pose_init_2,
+                                                                                                )
                 # pose2['pose'] = pose_opt_plus_2
-                pose2['pose'] = xyz_quat_to_matrix_kornia(pose_opt_plus_2, quat_format='wxyz')
+                pose2['pose'] = xyz_quat_to_matrix_kornia(pose_opt_plus_2, 
+                                                          quat_format=opt_quat_format,
+                                                          soft_clamp_quat=soft_clamp_quat,
+                                                          max_angle_rad=max_angle_rad)
                 pose2['pose_sample_logweights'] = pose_sample_logweights_2
                 pose2['cost_tgt'] = cost_tgt_2
                 pose2['norm_factor'] = norm_factor_2
-                # return pose2, pose1 #debug_only
+
+                # inspect the translation part in the solved pose
+                print('pose1 translation from epropnp:', pose1['pose'][:,:3,3])
+                print('pose2 translation from epropnp:', pose2['pose'][:,:3,3])
+
                 return pose1, pose2
 
             else:
