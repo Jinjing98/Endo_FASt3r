@@ -349,7 +349,16 @@ class MonodepthOptions:
                                           "separate_resnet", 
                                           "shared",
                                           "geoaware_pnet",
+                                          "endofast3r_pose_trained_dbg",
                                           ])
+        
+        self.parser.add_argument("--depth_model_type",
+                                 type=str,
+                                 help="normal or shared",
+                                 default="dam",
+                                 choices=["dam", 
+                                          "endofast3r_depth_trained_dbg",
+                                          ])        
          # geoaware_pnet arch:
         self.parser.add_argument("--use_pyramid",
                                  help="if set disables CUDA",

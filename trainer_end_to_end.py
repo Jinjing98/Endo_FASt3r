@@ -167,7 +167,11 @@ class Trainer:
             options.use_soft_motion_mask = True
             options.pose_estimation_mode = "epropnp"
 
-            options.pose_model_type = "endofast3r_trained_dbg"
+            options.pose_model_type = "endofast3r_pose_trained_dbg"
+            options.depth_model_type = "endofast3r_depth_trained_dbg"
+            options.min_depth = 0.1 # bigger safer
+            # options.min_depth = 10.0 # bigger safer
+            options.max_depth = 150.0 # bigger safer
             # options.enable_motion_computation = False
             options.enable_motion_computation = True
 
@@ -261,11 +265,24 @@ class Trainer:
 
 
         print("Using DoMoRA")
-        self.models["depth_model"] = networks.Endo_FASt3r_depth()
-        
-
-
+        if self.opt.depth_model_type == "dam":
+            self.models["depth_model"] = networks.Endo_FASt3r_depth()
+        elif self.opt.depth_model_type == "endofast3r_depth_trained_dbg":
+            # self.models["depth_model"] = networks.Endo_FASt3r_depth()
+            # self.models["depth_model"].load_state_dict(torch.load(f"{AF_PRETRAINED_ROOT}/depth_model.pth"))
+            load_weights_folder = '/mnt/cluster/workspaces/jinjingxu/proj/UniSfMLearner/submodule/Endo_FASt3r/fast3r_ckpts/best_weights'
+            depth_model_path = os.path.join(load_weights_folder, "depth_model.pth")
+            depth_model_dict = torch.load(depth_model_path)
+            depth_model = networks.Endo_FASt3r_depth()
+            model_dict = depth_model.state_dict()
+            depth_model.load_state_dict({k: v for k, v in depth_model_dict.items() if k in model_dict})
+            self.models["depth_model"] = depth_model
+            print('loaded endofast3r_depth_trained_dbg depth model...')
+        else:
+            assert 0, "Unknown depth model type: " + self.opt.depth_model_type
         self.models["depth_model"].to(self.device)
+
+
 
         self.parameters_to_train += list(filter(lambda p: p.requires_grad, self.models["depth_model"].parameters()))
 
@@ -347,7 +364,7 @@ class Trainer:
                 reloc3r_ckpt_path = f"{RELOC3R_PRETRAINED_ROOT}/Reloc3r-512.pth"
                 from networks import Reloc3rX
                 self.models["pose"] = Reloc3rX(reloc3r_ckpt_path)
-            elif self.opt.pose_model_type == "endofast3r_trained_dbg":
+            elif self.opt.pose_model_type == "endofast3r_pose_trained_dbg":
                 # load reloc3r pose model, then overwrite if saved in pose.pth
                 load_weights_folder = '/mnt/cluster/workspaces/jinjingxu/proj/UniSfMLearner/submodule/Endo_FASt3r/fast3r_ckpts/best_weights'
                 pose_model_path = os.path.join(load_weights_folder, "pose.pth")
@@ -367,7 +384,7 @@ class Trainer:
                 pose_model.load_state_dict({k: v for k, v in pose_model_dict.items() if k in model_dict})
                 self.models["pose"] = pose_model#Reloc3rX(reloc3r_ckpt_path)
                 
-                print('loaded endofast3r_trained_dbg pose model...')
+                print('loaded endofast3r_pose_trained_dbg pose model...')
 
             elif self.opt.pose_model_type == "uni_reloc3r":
                 # reloc3r_ckpt_path = f"{RELOC3R_PRETRAINED_ROOT}/Reloc3r-512.pth"
@@ -1539,46 +1556,40 @@ class Trainer:
         # Project3D: it saves values in range [-1,1] for direct sampling
         # pix_coords saves values in range [-1,1]
         # print('compute pix_coords')
-        print('////////gen opts_sample for frame_id', frame_id, 'scale', scale, '////////////////')
-        print('used K:')
-        print(inputs[("K", source_scale)])
-        print('used T:')
-        print(T)
-        print('Used cam_points shape:')
-        print(cam_points.shape)
-        print('Used cam_points max min depth:')
-        print(cam_points[:,:,2].max())
-        print(cam_points[:,:,2].min())
+        if frame_id == -1:
+            print('////////gen opts_sample for frame_id', frame_id, 'scale', scale, '////////////////')
+            # print('used K:')
+            # print(inputs[("K", source_scale)])
+            # print('used T:')
+            # print(T)
+            print('Used cam_points shape:')
+            print(cam_points.shape)
+            print('Used cam_points max min depth:')
+            print(cam_points[:,:,2].max())
+            print(cam_points[:,:,2].min())
         pix_coords = self.project_3d[source_scale](cam_points, inputs[("K", source_scale)], T)# 2D pxs; T: f0 -> f1  f0->f-1
-        # print('pix_coords.shape:')
-        # print(pix_coords.shape, pix_coords.norm(dim=-1, keepdim=True).shape)
-        # print('pix_coords l2 norm:')
-        # print(pix_coords.norm(dim=-1, keepdim=True))
-        # print('max',pix_coords.norm(dim=-1, keepdim=True).max())
-        # print('min',pix_coords.norm(dim=-1, keepdim=True).min())
-
         if compute_tgt2src_sampling:
             outputs[("sample", frame_id, scale)] = pix_coords # b h w 2
         else:
             outputs[("sample_s2t", tgt_frame_id, scale)] = pix_coords # b h w 2
-        print('normed pix_coords l2_norm max min:')
-        print(pix_coords.norm(dim=-1, keepdim=True).max())
-        print(pix_coords.norm(dim=-1, keepdim=True).min())
+
+        if frame_id == -1:
+            print('normed pix_coords l2_norm max min:')
+            print(pix_coords.norm(dim=-1, keepdim=True).max())
+            print(pix_coords.norm(dim=-1, keepdim=True).min())
 
         # generate pose_flow from pix_coords
-        norm_width_source_scale = self.project_3d[scale].width
-        norm_height_source_scale = self.project_3d[scale].height
+        # norm_width_source_scale = self.project_3d[scale].width
+        # norm_height_source_scale = self.project_3d[scale].height
 
-        #debug only
-        debug_only = True
-        if debug_only:
-            norm_width_source_scale = self.project_3d[source_scale].width
-            norm_height_source_scale = self.project_3d[source_scale].height
+        #fix an issue
+        norm_width_source_scale = self.project_3d[source_scale].width
+        norm_height_source_scale = self.project_3d[source_scale].height
 
-        print('norm_width_source_scale:')
-        print(norm_width_source_scale)
-        print('norm_height_source_scale:')
-        print(norm_height_source_scale)
+        # print('norm_width_source_scale:')
+        # print(norm_width_source_scale)
+        # print('norm_height_source_scale:')
+        # print(norm_height_source_scale)
         # compute the raw_unit value pix_coords_raw from pix_coords, leveraging the fact that pix_coords saves values in range [-1,1]
         if compute_tgt2src_sampling:
             pix_coords_raw = outputs[("sample", frame_id, scale)].clone()#.detach()
