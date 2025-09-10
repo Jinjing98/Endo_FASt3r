@@ -167,6 +167,17 @@ class Trainer:
             options.use_soft_motion_mask = True
             options.pose_estimation_mode = "epropnp"
 
+            options.pose_model_type = "endofast3r_trained_dbg"
+            # options.enable_motion_computation = False
+            options.enable_motion_computation = True
+
+            options.enable_mutual_motion = True
+            options.use_soft_motion_mask = True
+            options.use_soft_motion_mask = False
+            options.use_MF_network = False
+            
+            options.num_workers = 0
+
             # options.shared_MF_OF_network = False # still not working
 
 
@@ -336,6 +347,28 @@ class Trainer:
                 reloc3r_ckpt_path = f"{RELOC3R_PRETRAINED_ROOT}/Reloc3r-512.pth"
                 from networks import Reloc3rX
                 self.models["pose"] = Reloc3rX(reloc3r_ckpt_path)
+            elif self.opt.pose_model_type == "endofast3r_trained_dbg":
+                # load reloc3r pose model, then overwrite if saved in pose.pth
+                load_weights_folder = '/mnt/cluster/workspaces/jinjingxu/proj/UniSfMLearner/submodule/Endo_FASt3r/fast3r_ckpts/best_weights'
+                pose_model_path = os.path.join(load_weights_folder, "pose.pth")
+                pose_model_dict = torch.load(pose_model_path)
+
+                reloc3r_ckpt_path = f"{RELOC3R_PRETRAINED_ROOT}/Reloc3r-512.pth"
+                pose_model = networks.Reloc3rX(reloc3r_ckpt_path)
+                model_dict = pose_model.state_dict()
+                
+                # log in the layers that are overwritten or remain
+                # only the 1st level name should be fine
+                overwritten_layers = [k for k in pose_model_dict.keys() if k in model_dict]
+                remain_layers = [k for k in pose_model_dict.keys() if k not in model_dict]
+                print("Overwritten layers:", set([k.split(".")[0] for k in overwritten_layers]))
+                print("Remaining layers:", set([k.split(".")[0] for k in remain_layers]))
+
+                pose_model.load_state_dict({k: v for k, v in pose_model_dict.items() if k in model_dict})
+                self.models["pose"] = pose_model#Reloc3rX(reloc3r_ckpt_path)
+                
+                print('loaded endofast3r_trained_dbg pose model...')
+
             elif self.opt.pose_model_type == "uni_reloc3r":
                 # reloc3r_ckpt_path = f"{RELOC3R_PRETRAINED_ROOT}/Reloc3r-512.pth"
                 # pretrain_ckpt_path = self.opt.pretrain_ckpt_path#f"{RELOC3R_PRETRAINED_ROOT}/Reloc3r-512.pth"
@@ -1373,32 +1406,33 @@ class Trainer:
                             outputs[("motion_flow_s2t", "high", f_i, scale)] = F.interpolate(
                                 outputs[("motion_flow_s2t", f_i, scale)], [self.opt.height, self.opt.width], mode="bilinear", align_corners=True)
                     
-                        if scale == 0:
-                            if self.opt.use_soft_motion_mask:
-                                #generate from optic_flow and pose_flow
-                                outputs[("motion_mask_backward", 0, f_i)] = self.get_motion_mask_soft(
-                                    optic_flow = outputs[("position", 0, f_i)],
-                                    pose_flow = outputs[("pose_flow", f_i, 0)],
+                        # if scale == 0:
+                        # extend for muti level despite we only use level 0 for supervision
+                        if self.opt.use_soft_motion_mask:
+                            #generate from optic_flow and pose_flow
+                            outputs[("motion_mask_backward", scale, f_i)] = self.get_motion_mask_soft(
+                                optic_flow = outputs[("position", "high", scale, f_i)],
+                                pose_flow = outputs[("pose_flow", f_i, scale)],
+                                detach=(not self.opt.enable_grad_flow_motion_mask), 
+                                thre_px=self.opt.motion_mask_thre_px)
+                            if self.opt.enable_mutual_motion:
+                                outputs[("motion_mask_s2t_backward", scale, f_i)] = self.get_motion_mask_soft(
+                                    optic_flow = outputs[("position_reverse","high", scale, f_i)],
+                                    pose_flow = outputs[("pose_flow_s2t", f_i, scale)],
                                     detach=(not self.opt.enable_grad_flow_motion_mask), 
                                     thre_px=self.opt.motion_mask_thre_px)
-                                if self.opt.enable_mutual_motion:
-                                    outputs[("motion_mask_s2t_backward", 0, f_i)] = self.get_motion_mask_soft(
-                                        optic_flow = outputs[("position_reverse", 0, f_i)],
-                                        pose_flow = outputs[("pose_flow_s2t", f_i, 0)],
-                                        detach=(not self.opt.enable_grad_flow_motion_mask), 
-                                        thre_px=self.opt.motion_mask_thre_px)
 
-                            else:
-                                # generate directly from thresholding motion flow
-                                outputs[("motion_mask_backward", 0, f_i)] = self.get_motion_mask(
-                                    outputs[("motion_flow", f_i, 0)],
+                        else:
+                            # generate directly from thresholding motion flow
+                            outputs[("motion_mask_backward", scale, f_i)] = self.get_motion_mask(
+                                outputs[("motion_flow", "high", f_i, scale)],
+                                detach=(not self.opt.enable_grad_flow_motion_mask), 
+                                thre_px=self.opt.motion_mask_thre_px)
+                            if self.opt.enable_mutual_motion:
+                                outputs[("motion_mask_s2t_backward", scale, f_i)] = self.get_motion_mask(
+                                    outputs[("motion_flow_s2t", "high", f_i, scale)],
                                     detach=(not self.opt.enable_grad_flow_motion_mask), 
                                     thre_px=self.opt.motion_mask_thre_px)
-                                if self.opt.enable_mutual_motion:
-                                    outputs[("motion_mask_s2t_backward", 0, f_i)] = self.get_motion_mask(
-                                        outputs[("motion_flow_s2t", f_i, 0)],
-                                        detach=(not self.opt.enable_grad_flow_motion_mask), 
-                                        thre_px=self.opt.motion_mask_thre_px)
  
 
         return outputs
@@ -1505,8 +1539,17 @@ class Trainer:
         # Project3D: it saves values in range [-1,1] for direct sampling
         # pix_coords saves values in range [-1,1]
         # print('compute pix_coords')
-        # print('////////////////////////')
-        # print('process scale', scale)
+        print('////////gen opts_sample////////////////')
+        print('process scale', scale)
+        print('used K:')
+        print(inputs[("K", source_scale)])
+        print('used T:')
+        print(T)
+        print('Used cam_points shape:')
+        print(cam_points.shape)
+        print('Used cam_points max min depth:')
+        print(cam_points[:,:,2].max())
+        print(cam_points[:,:,2].min())
         pix_coords = self.project_3d[source_scale](cam_points, inputs[("K", source_scale)], T)# 2D pxs; T: f0 -> f1  f0->f-1
         # print('pix_coords.shape:')
         # print(pix_coords.shape, pix_coords.norm(dim=-1, keepdim=True).shape)
@@ -1549,42 +1592,44 @@ class Trainer:
                 # assert 0,f'use color is correct! not need to use color_motion_corrected! considering the pose_flow now is computed from tgt depth+pose'
                 # tgt2src motion flow
                 # avoid grad in motion_flow! elsewise the sample_motion_corrected will loss grad at all.
-                outputs[("motion_flow", frame_id, scale)] = - outputs[("pose_flow", frame_id, scale)].detach() + outputs[("position", "high", 0, frame_id)]#.detach() # 
+                outputs[("motion_flow","high", frame_id, scale)] = - outputs[("pose_flow", frame_id, scale)].detach() + outputs[("position", "high", scale, frame_id)]#.detach() # 
                 # we enable grad in motion_flow, can be latered used to reg motion mask
                 # there is no grad in OF anyway in for 2nd statge traning
 
-                if scale == 0:
-                    if self.opt.use_soft_motion_mask:
-                        outputs[("motion_mask_backward", 0, frame_id)] = self.get_motion_mask_soft(outputs[("position", 0, frame_id)], 
-                                                                outputs[("pose_flow", frame_id, 0)],
-                                                                detach=(not self.opt.enable_grad_flow_motion_mask), 
-                                                                thre_px=self.opt.motion_mask_thre_px)
-                    else:
-                        outputs[("motion_mask_backward", 0, frame_id)] = self.get_motion_mask(
-                                                                                        #  do not use outputs[("motion_flow", frame_id, 0)], depend on what is set to it, the grad might get lost!
-                                                                                        # use below to make sure grad exists. 
-                                                                                            - outputs[("pose_flow", frame_id, scale)] + outputs[("position", "high", 0, frame_id)], # there is grad_flow here! differ from motion_flow
-                                                                                            detach=(not self.opt.enable_grad_flow_motion_mask), 
-                                                                                            thre_px=self.opt.motion_mask_thre_px)
+                # if scale == 0:
+                if self.opt.use_soft_motion_mask:
+                    outputs[("motion_mask_backward", scale, frame_id)] = self.get_motion_mask_soft(
+                                                        outputs[("position", "high", scale, frame_id)], 
+                                                            outputs[("pose_flow", frame_id, scale)],
+                                                            detach=(not self.opt.enable_grad_flow_motion_mask), 
+                                                            thre_px=self.opt.motion_mask_thre_px)
+                else:
+                    outputs[("motion_mask_backward", scale, frame_id)] = self.get_motion_mask(
+                                                                                    #  do not use outputs[("motion_flow", frame_id, 0)], depend on what is set to it, the grad might get lost!
+                                                                                    # use below to make sure grad exists. 
+                                                                                        - outputs[("pose_flow", frame_id, scale)] + outputs[("position", "high", scale, frame_id)], # there is grad_flow here! differ from motion_flow
+                                                                                        detach=(not self.opt.enable_grad_flow_motion_mask), 
+                                                                                        thre_px=self.opt.motion_mask_thre_px)
                 
                 if self.opt.enable_mutual_motion:
                     # compute s2t motion_flow and s2t_motion_mask
                     # we enable grad in motion_flow, can be latered used to reg motion mask
-                    outputs[("motion_flow_s2t", frame_id, 0)] = - outputs[("pose_flow_s2t", frame_id, 0)] + outputs[("position_reverse", "high", 0, frame_id)]#.detach() # 
-                    if scale == 0:
-                        if self.opt.use_soft_motion_mask:
-                            outputs[("motion_mask_s2t_backward", 0, frame_id)] = self.get_motion_mask_soft(optic_flow = outputs[("position_reverse", 0, frame_id)], 
-                                                                pose_flow = outputs[("pose_flow_s2t", frame_id, 0)],
-                                                                detach=(not self.opt.enable_grad_flow_motion_mask), 
-                                                                thre_px=self.opt.motion_mask_thre_px)
-                        else:
-                            # static area will be set to 1
-                            outputs[("motion_mask_s2t_backward", 0, frame_id)] = self.get_motion_mask(
-                                                                                                # outputs[("motion_flow_s2t", frame_id, 0)], 
-                                                                                                # desipte there is grad in motion_flow, we readd for safety.
-                                                                                                motion_flow = - outputs[("pose_flow_s2t", frame_id, 0)] + outputs[("position_reverse", "high", 0, frame_id)], # there is grad_flow here! differ from motion_flow
-                                                                                                detach=(not self.opt.enable_grad_flow_motion_mask), 
-                                                                                                thre_px=self.opt.motion_mask_thre_px)
+                    outputs[("motion_flow_s2t", "high",frame_id, scale)] = - outputs[("pose_flow_s2t", frame_id, scale)] + outputs[("position_reverse", "high", scale, frame_id)]#.detach() # 
+                    # if scale == 0:
+                    if self.opt.use_soft_motion_mask:
+                        outputs[("motion_mask_s2t_backward", scale, frame_id)] = self.get_motion_mask_soft(
+                                                    optic_flow = outputs[("position_reverse", "high", scale, frame_id)], 
+                                                            pose_flow = outputs[("pose_flow_s2t", frame_id, scale)],
+                                                            detach=(not self.opt.enable_grad_flow_motion_mask), 
+                                                            thre_px=self.opt.motion_mask_thre_px)
+                    else:
+                        # static area will be set to 1
+                        outputs[("motion_mask_s2t_backward", scale, frame_id)] = self.get_motion_mask(
+                                                                                            # outputs[("motion_flow_s2t", frame_id, 0)], 
+                                                                                            # desipte there is grad in motion_flow, we readd for safety.
+                                                                                            motion_flow = - outputs[("pose_flow_s2t", frame_id, scale)] + outputs[("position_reverse", "high", scale, frame_id)], # there is grad_flow here! differ from motion_flow
+                                                                                            detach=(not self.opt.enable_grad_flow_motion_mask), 
+                                                                                            thre_px=self.opt.motion_mask_thre_px)
 
                 # gen sample_motion_corrected from pose_flow and motion_flow, then sample image with sample_motion_corrected
                 # sample_motion_corrected = (outputs[("pose_flow", frame_id, scale)] + outputs[("motion_flow", frame_id, scale)])#.permute(0, 2, 3, 1)
@@ -1726,7 +1771,9 @@ class Trainer:
         for scale in self.opt.scales:
             
             disp = outputs[("disp", scale)]
+            print('max min disp at scale:', scale, ':', disp.max(), disp.min())
             if self.opt.v1_multiscale:
+                assert 0,f'v1_multiscale is not supported for depth prediction'
                 source_scale = scale
             else:
                 disp = F.interpolate(
@@ -1747,6 +1794,10 @@ class Trainer:
                     
                     _, depth_i = disp_to_depth(disp_i, self.opt.min_depth, self.opt.max_depth)
                     outputs[("depth", frame_id, scale)] = depth_i
+
+            #debug
+            print('max depth after disp2depth f0 with scale:', scale, ':', outputs[("depth", 0, scale)].max())
+            print('min depth after disp2depth f0 with scale:', scale, ':', outputs[("depth", 0, scale)].min())
 
             # source_scale = 0
 
@@ -2076,112 +2127,114 @@ class Trainer:
                 outputs[("reproj_supervised_signal_color_debug", scale, frame_id)] = reproj_loss_supervised_signal_color.detach() #reproj_loss_supervised_tgt_color.detach()
 
 
-                # the 2st reporj_loss: main aim: supervise PoseNet properly by masking out the mutual motion area
-                if self.opt.use_loss_reproj2_nomotion:
-                    if self.opt.reproj2_supervised_which == "color":
-                        reproj_loss2_supervised_tgt_color = outputs[("color", frame_id, scale)]
-                    else:
-                        raise ValueError(f"Invalid reproj2_supervised_which: {self.opt.reproj2_supervised_which}")
+                if self.opt.enable_motion_computation:
+                    # the 2st reporj_loss: main aim: supervise PoseNet properly by masking out the mutual motion area
+                    if self.opt.use_loss_reproj2_nomotion:
+                        if self.opt.reproj2_supervised_which == "color":
+                            reproj_loss2_supervised_tgt_color = outputs[("color", frame_id, scale)]
+                        else:
+                            raise ValueError(f"Invalid reproj2_supervised_which: {self.opt.reproj2_supervised_which}")
+                        
+                        if self.opt.reproj2_supervised_with_which == "refined":
+                            reproj_loss2_supervised_signal_color = outputs[("refined", scale, frame_id)]
+                        else:
+                            raise ValueError(f"Invalid reproj2_supervised_with_which: {self.opt.reproj2_supervised_with_which}")
                     
-                    if self.opt.reproj2_supervised_with_which == "refined":
-                        reproj_loss2_supervised_signal_color = outputs[("refined", scale, frame_id)]
-                    else:
-                        raise ValueError(f"Invalid reproj2_supervised_with_which: {self.opt.reproj2_supervised_with_which}")
+                    motion_mask_backward = outputs[("motion_mask_backward", 0, frame_id)].detach()
                     
-                motion_mask_backward = outputs[("motion_mask_backward", 0, frame_id)].detach()
-                if self.opt.enable_mutual_motion:
-                    # computational expensive but safer
-                    motion_mask_s2t_backward = outputs[("motion_mask_s2t_backward", 0, frame_id)].detach()
-                    # conver to binary if it was soft motion mask: this is critical for soft motion mask regularization loss
-                    valid_mask2 = (motion_mask_backward > 0.5).float() * (motion_mask_s2t_backward > 0.5).float()
-                else:
-                    valid_mask2 = (motion_mask_backward > 0.5).float()
-
-                if self.opt.use_loss_reproj2_nomotion:
-                    loss2_reprojection += (
-                        self.compute_reprojection_loss(reproj_loss2_supervised_tgt_color, reproj_loss2_supervised_signal_color) * valid_mask2).sum() / valid_mask2.sum()  
-                    
-                #compute motion mask reg loss
-                if self.opt.use_loss_motion_mask_reg and scale == 0:
-                    # optic_flow = outputs[("position", "high", 0, frame_id)]
-                    # reg_tgt_flow = optic_flow # we use optic_flow as reg_tgt_flow, not good.
-
-                    motion_flow = outputs[("motion_flow", frame_id, scale)]
-                    reg_tgt_flow = motion_flow.detach() # we want to make sure there is no grad in motion_flow, elsewise the motion_mask might bailan.
-                    motion_mask = outputs[("motion_mask_backward", 0, frame_id)].squeeze(1)
-
-                    # motion mask is already properly supervised in loss_reproj2
-                    # here supervise motion_flow(pose_flow)? by detacch motion_mask but remain the grad for motion_flow?
-
-                    
-                    loss_mag, loss_edge, loss_dice, imgs_debug = self.compute_motion_mask_reg_loss(
-                        reg_tgt_flow = reg_tgt_flow, 
-                        motion_mask = 1-motion_mask,# we want to apply strcuture loss of moiton_mask where motion is positive
-                        is_soft_mask = self.opt.use_soft_motion_mask)
-                    # print(f'loss_mag: {loss_mag}, loss_edge: {loss_edge}, loss_dice: {loss_dice}')
-                    
-
-                    if self.step % self.opt.log_frequency == 0:
-                        save_root = os.path.join(self.log_path, f'motion_mask_reg_related')
-                        os.makedirs(save_root, exist_ok=True)
-                        # concat image in imgs_debug
-                        # from utils import color_to_cv_img
-                        from utils import gray_to_cv_img
-                        concat_imgs = []
-                        for batch_idx in range(self.opt.batch_size):
-                            # concat_img = np.concatenate([color_to_cv_img(img[batch_idx][None]) for k, img in imgs_debug.items()], axis=1)
-                            concat_img = np.concatenate([gray_to_cv_img(img[batch_idx][None]) for k, img in imgs_debug.items()], axis=1)
-                            concat_imgs.append(concat_img)
-                        concat_img = np.concatenate(concat_imgs, axis=0)
-                        save_path = os.path.join(save_root, f'{self.step}_concat.png')
-                        cv2.imwrite(save_path, concat_img)
-                        print(f'saved concat image to {save_path}')
-                            # cv2.imwrite(save_path, concat_img)
-                            # print(f'saved concat image to {save_path}')
-
-                        # # save each image in imgs_debug
-                        # for k, img in imgs_debug.items():
-                        #     # print(f'{k}: {img.shape}')
-                        #     from utils import color_to_cv_img
-                        #     batch_idx = 0
-                        #     img_cv = color_to_cv_img(img[batch_idx][None])
-                        #     save_path = os.path.join(save_root, f'{self.step}_{k}.png')
-                        #     cv2.imwrite(save_path, img_cv)
-                        #     # print(f'saved {k} to {save_path}')
-
-                    loss_reg_dice += loss_dice
-                    loss_reg_edge += loss_edge
-                    loss_reg_mag += loss_mag
-
                     if self.opt.enable_mutual_motion:
-                        # optic_flow = outputs[("position_inverse", "high", 0, frame_id)]
-                        # reg_tgt_flow = optic_flow
+                        # computational expensive but safer
+                        motion_mask_s2t_backward = outputs[("motion_mask_s2t_backward", 0, frame_id)].detach()
+                        # conver to binary if it was soft motion mask: this is critical for soft motion mask regularization loss
+                        valid_mask2 = (motion_mask_backward > 0.5).float() * (motion_mask_s2t_backward > 0.5).float()
+                    else:
+                        valid_mask2 = (motion_mask_backward > 0.5).float()
 
-                        motion_flow = outputs[("motion_flow_s2t", frame_id, scale)]
+                    if self.opt.use_loss_reproj2_nomotion:
+                        loss2_reprojection += (
+                            self.compute_reprojection_loss(reproj_loss2_supervised_tgt_color, reproj_loss2_supervised_signal_color) * valid_mask2).sum() / valid_mask2.sum()  
+                        
+                    #compute motion mask reg loss
+                    if self.opt.use_loss_motion_mask_reg and scale == 0:
+                        # optic_flow = outputs[("position", "high", 0, frame_id)]
+                        # reg_tgt_flow = optic_flow # we use optic_flow as reg_tgt_flow, not good.
+
+                        motion_flow = outputs[("motion_flow", "high", frame_id, scale)]
                         reg_tgt_flow = motion_flow.detach() # we want to make sure there is no grad in motion_flow, elsewise the motion_mask might bailan.
+                        motion_mask = outputs[("motion_mask_backward", scale, frame_id)].squeeze(1)
 
-                        motion_mask = outputs[("motion_mask_s2t_backward", 0, frame_id)].squeeze(1) # there  is grad
+                        # motion mask is already properly supervised in loss_reproj2
+                        # here supervise motion_flow(pose_flow)? by detacch motion_mask but remain the grad for motion_flow?
 
-
+                        
                         loss_mag, loss_edge, loss_dice, imgs_debug = self.compute_motion_mask_reg_loss(
                             reg_tgt_flow = reg_tgt_flow, 
                             motion_mask = 1-motion_mask,# we want to apply strcuture loss of moiton_mask where motion is positive
                             is_soft_mask = self.opt.use_soft_motion_mask)
-                        # loss_motion_mask_reg += (weights[0] * loss_mag + weights[1] * loss_edge + weights[2] * loss_dice) * self.opt.motion_mask_reg_loss_weight
+                        # print(f'loss_mag: {loss_mag}, loss_edge: {loss_edge}, loss_dice: {loss_dice}')
+                        
+
+                        if self.step % self.opt.log_frequency == 0:
+                            save_root = os.path.join(self.log_path, f'motion_mask_reg_related')
+                            os.makedirs(save_root, exist_ok=True)
+                            # concat image in imgs_debug
+                            # from utils import color_to_cv_img
+                            from utils import gray_to_cv_img
+                            concat_imgs = []
+                            for batch_idx in range(self.opt.batch_size):
+                                # concat_img = np.concatenate([color_to_cv_img(img[batch_idx][None]) for k, img in imgs_debug.items()], axis=1)
+                                concat_img = np.concatenate([gray_to_cv_img(img[batch_idx][None]) for k, img in imgs_debug.items()], axis=1)
+                                concat_imgs.append(concat_img)
+                            concat_img = np.concatenate(concat_imgs, axis=0)
+                            save_path = os.path.join(save_root, f'{self.step}_concat.png')
+                            cv2.imwrite(save_path, concat_img)
+                            print(f'saved concat image to {save_path}')
+                                # cv2.imwrite(save_path, concat_img)
+                                # print(f'saved concat image to {save_path}')
+
+                            # # save each image in imgs_debug
+                            # for k, img in imgs_debug.items():
+                            #     # print(f'{k}: {img.shape}')
+                            #     from utils import color_to_cv_img
+                            #     batch_idx = 0
+                            #     img_cv = color_to_cv_img(img[batch_idx][None])
+                            #     save_path = os.path.join(save_root, f'{self.step}_{k}.png')
+                            #     cv2.imwrite(save_path, img_cv)
+                            #     # print(f'saved {k} to {save_path}')
+
                         loss_reg_dice += loss_dice
                         loss_reg_edge += loss_edge
                         loss_reg_mag += loss_mag
 
-                # if self.opt.reg_mutual_raw_disp_based_OF_for_consistency_and_correctness:
-                #     def compute_disp_loss(disp, target_disp):
-                #         return torch.abs(disp - target_disp).mean()
-                #     if scale == 0:
-                #         disp_tgt_img = outputs[("disp", scale)]
-                #         disp_src_img = outputs[("disp", scale, frame_id)]
-                #         # warp the src disp based on the optic flow
-                #         of_t2s = outputs[("position", 'high', scale, frame_id)].detach()
-                #         disp_tgt_img_esti = self.spatial_transform(disp_src_img, of_t2s)
-                #         loss_reg_mutual_raw_disp_based_OF += compute_disp_loss(disp_tgt_img_esti, disp_tgt_img)
+                        if self.opt.enable_mutual_motion:
+                            # optic_flow = outputs[("position_inverse", "high", 0, frame_id)]
+                            # reg_tgt_flow = optic_flow
+
+                            motion_flow = outputs[("motion_flow_s2t", "high", frame_id, scale)]
+                            reg_tgt_flow = motion_flow.detach() # we want to make sure there is no grad in motion_flow, elsewise the motion_mask might bailan.
+
+                            motion_mask = outputs[("motion_mask_s2t_backward", scale, frame_id)].squeeze(1) # there  is grad
+
+
+                            loss_mag, loss_edge, loss_dice, imgs_debug = self.compute_motion_mask_reg_loss(
+                                reg_tgt_flow = reg_tgt_flow, 
+                                motion_mask = 1-motion_mask,# we want to apply strcuture loss of moiton_mask where motion is positive
+                                is_soft_mask = self.opt.use_soft_motion_mask)
+                            # loss_motion_mask_reg += (weights[0] * loss_mag + weights[1] * loss_edge + weights[2] * loss_dice) * self.opt.motion_mask_reg_loss_weight
+                            loss_reg_dice += loss_dice
+                            loss_reg_edge += loss_edge
+                            loss_reg_mag += loss_mag
+
+                    # if self.opt.reg_mutual_raw_disp_based_OF_for_consistency_and_correctness:
+                    #     def compute_disp_loss(disp, target_disp):
+                    #         return torch.abs(disp - target_disp).mean()
+                    #     if scale == 0:
+                    #         disp_tgt_img = outputs[("disp", scale)]
+                    #         disp_src_img = outputs[("disp", scale, frame_id)]
+                    #         # warp the src disp based on the optic flow
+                    #         of_t2s = outputs[("position", 'high', scale, frame_id)].detach()
+                    #         disp_tgt_img_esti = self.spatial_transform(disp_src_img, of_t2s)
+                    #         loss_reg_mutual_raw_disp_based_OF += compute_disp_loss(disp_tgt_img_esti, disp_tgt_img)
 
             mean_disp = disp.mean(2, True).mean(3, True)
             norm_disp = disp / (mean_disp + 1e-7)
@@ -2399,14 +2452,26 @@ class Trainer:
         concat_img = None
 
         # for j in range(min(4, self.opt.batch_size)):  # write a maxmimum of four images
+        tgt_scale_to_vis = [0]
+        # tgt_scale_to_vis = [3]
+        # motion_flow and motion_mask will have adapted shape at various level while the others are all on the level0 shape
         for j in range(min(1, self.opt.batch_size)):  # write a maxmimum of 2 images
             # for s in self.opt.scales:
-            for s in [0]:
+            for s in tgt_scale_to_vis:
                 # frames_ids = [0,-1,1]
                 assert self.opt.frame_ids[0] == 0, "frame_id 0 must be the first frame"
                 assert len(self.opt.frame_ids) == 3, "frame_ids must be have 3 frames"
                 # for frame_id in self.opt.frame_ids[1:]:
+
+                # only predicted depth from the center image (frame_id == 0)
+                writer.add_image(
+                    "Depth/disp_{}/{}".format(s, j),
+                    normalize_image(outputs[("disp", s)][j]), self.step)
+                writer.add_image(
+                    'Depth/depth_{}/{}'.format(s, j),
+                    normalize_image(outputs[("depth", 0, s)][j]), self.step)                
                 for frame_id in self.opt.frame_ids[1:2]:  # only for one is enough for debug
+                    # if s in tgt_scale_to_vis:
 
                     writer.add_image(
                         # "IMG/tgt_refined_{}_{}/{}".format(frame_id, s, j),
@@ -2420,72 +2485,84 @@ class Trainer:
                         "IMG/registration_{}_{}/{}".format(frame_id, s, j),
                         outputs[("registration", s, frame_id)][j].data, self.step)
 
-                    if s == 0:
+                # if s == 0:
+                # if s in tgt_scale_to_vis:
+                    writer.add_image(
+                        "Other/occu_mask_backward_{}_{}/{}".format(frame_id, s, j),
+                        outputs[("occu_mask_backward", s, frame_id)][j].data, self.step)
+                    #/////////////EXTEND////////////////////////
+                    if self.opt.enable_motion_computation:
+                        # if s == s:
                         writer.add_image(
-                            "Other/occu_mask_backward_{}_{}/{}".format(frame_id, s, j),
-                            outputs[("occu_mask_backward", s, frame_id)][j].data, self.step)
-                        #/////////////EXTEND////////////////////////
-                        if self.opt.enable_motion_computation:
-                            writer.add_image(
-                                "Other/motion_mask_backward_{}_{}/{}".format(frame_id, s, j),
-                                outputs[("motion_mask_backward", s, frame_id)][j].data, self.step)
-                            if self.opt.enable_mutual_motion:
-                                writer.add_image(
-                                    "Other/motion_mask_s2t_backward_{}_{}/{}".format(frame_id, s, j),
-                                    outputs[("motion_mask_s2t_backward", s, frame_id)][j].data, self.step)
-                                writer.add_image(
-                                    "Other/motion_flow_s2t_{}_{}/{}".format(frame_id, s, j),
-                                    outputs[("motion_flow_s2t", frame_id, s)][j].data, self.step)
-                        
-                        # add src and tgt
-                        writer.add_image(
-                            "GT/tgt_{}_{}/{}".format(frame_id, s, j),
-                            inputs[("color", 0, s)][j].data, self.step) 
-                       # add gt_source
-                        writer.add_image(
-                            "GT/source_{}_{}/{}".format(frame_id, s, j),
-                            inputs[("color", frame_id, s)][j].data, self.step)  
-                        # add supervised_img
-                        writer.add_image(
-                            "GT/reproj_supervised_tgt_color_debug_{}_{}/{}".format(frame_id, s, j),
-                            # "IMG/reproj_supervised_tgt_color_debug_{}_{}/{}".format(frame_id, s, j),
-                            outputs[("reproj_supervised_tgt_color_debug", 0, frame_id)][j].data, self.step)
-                        # add vis of other warped img
-                        # add color image as well
-                        writer.add_image(
-                            "IMG/color_{}_{}/{}".format(frame_id, s, j),
-                            outputs[("color", frame_id, s)][j].data, self.step)
-                        
-                        if self.opt.enable_motion_computation:
-                            writer.add_image(
-                                "IMG/color_MotionCorrected_{}_{}/{}".format(frame_id, s, j),
-                                outputs[("color_MotionCorrected", frame_id, s)][j].data, self.step)
-
-                        # write various flow; import functions from utils
-                        from utils import flow_vis, flow_vis_robust
-                        vis_flow_func = flow_vis_robust
-                        # vis_flow_func = flow_vis
-                        # add optic flow
-                        writer.add_image(
-                            "FLOW/optic_flow_{}_{}/{}".format(frame_id, s, j),
-                            vis_flow_func(outputs[("position", s, frame_id)][j].data), self.step)
-                        # add pose_flow
-                        writer.add_image(
-                            "FLOW/pose_flow_{}_{}/{}".format(frame_id, s, j),
-                            vis_flow_func(outputs[("pose_flow", frame_id, s)][j].data), self.step)
-                        # add motion_flow
-                        if self.opt.enable_motion_computation:
-                            writer.add_image(
-                                "FLOW/motion_flow_{}_{}/{}".format(frame_id, s, j),
-                                vis_flow_func(outputs[("motion_flow", frame_id, s)][j].data), self.step)
+                            "Other/motion_mask_backward_{}_{}/{}".format(frame_id, s, j),
+                            outputs[("motion_mask_backward", s, frame_id)][j].data, self.step)
                     
-                    if compute_vis and s == 0:
+                        if self.opt.enable_mutual_motion:
+                            # if s == s:
+                            writer.add_image(
+                                "Other/motion_mask_s2t_backward_{}_{}/{}".format(frame_id, s, j),
+                                outputs[("motion_mask_s2t_backward", s, frame_id)][j].data, self.step)
+                            
+                            writer.add_image(
+                                "Other/motion_flow_s2t_{}_{}/{}".format(frame_id, s, j),
+                                outputs[("motion_flow_s2t","high", frame_id, s)][j].data, self.step)
+                    
+                    # add src and tgt
+                    writer.add_image(
+                        "GT/tgt_{}_{}/{}".format(frame_id, s, j),
+                        inputs[("color", 0, 0)][j].data, self.step) 
+                    # add gt_source
+                    writer.add_image(
+                        "GT/source_{}_{}/{}".format(frame_id, s, j),
+                        inputs[("color", frame_id, 0)][j].data, self.step)  
+                    # add supervised_img
+                    writer.add_image(
+                        "GT/reproj_supervised_tgt_color_debug_{}_{}/{}".format(frame_id, s, j),
+                        # "IMG/reproj_supervised_tgt_color_debug_{}_{}/{}".format(frame_id, s, j),
+                        outputs[("reproj_supervised_tgt_color_debug", 0, frame_id)][j].data, self.step)
+                    # add vis of other warped img
+                    # add color image as well
+                    writer.add_image(
+                        "IMG/color_{}_{}/{}".format(frame_id, s, j),
+                        outputs[("color", frame_id, s)][j].data, self.step)
+                    
+                    if self.opt.enable_motion_computation:
+                        writer.add_image(
+                            "IMG/color_MotionCorrected_{}_{}/{}".format(frame_id, s, j),
+                            outputs[("color_MotionCorrected", frame_id, s)][j].data, self.step)
+
+                    # write various flow; import functions from utils
+                    from utils import flow_vis, flow_vis_robust
+                    vis_flow_func = flow_vis_robust
+                    # vis_flow_func = flow_vis
+                    # add optic flow
+                    writer.add_image(
+                        "FLOW/optic_flow_{}_{}/{}".format(frame_id, s, j),
+                        vis_flow_func(outputs[("position", "high", s, frame_id)][j].data), self.step)
+                    # add pose_flow
+                    writer.add_image(
+                        "FLOW/pose_flow_{}_{}/{}".format(frame_id, s, j),
+                        vis_flow_func(outputs[("pose_flow", frame_id, s)][j].data), self.step)
+                    # add motion_flow
+                    if self.opt.enable_motion_computation:
+                        writer.add_image(
+                            "FLOW/motion_flow_{}_{}/{}".format(frame_id, s, j),
+                            vis_flow_func(outputs[("motion_flow", "high", frame_id, s)][j].data), self.step)
+
+
+
+                    frame_id = self.opt.frame_ids[1]
+                    if compute_vis:
+                    # if compute_vis and s in tgt_scale_to_vis:
+                    # if compute_vis and s == 0:
                         '''
                         only vis scale 0
                         '''
+
                         assert self.opt.frame_ids[0] == 0, "frame_id 0 must be the first frame"
-                        src_imgs.append(inputs[("color", frame_id, s)][j].data)
-                        tgt_imgs.append(inputs[("color", self.opt.frame_ids[0], s)][j].data)
+                        src_imgs.append(inputs[("color", frame_id, 0)][j].data)
+                        tgt_imgs.append(inputs[("color", self.opt.frame_ids[0], 0)][j].data)
+
                         registered_tgt_imgs.append(outputs[("registration", s, frame_id)][j].data)
                         depth_imgs.append(outputs[("depth", self.opt.frame_ids[0], s)][j].data)
                         brightness_imgs.append(outputs[("transform","high", s, frame_id)][j].data)
@@ -2498,105 +2575,129 @@ class Trainer:
                         reproj_supervised_tgt_color_debug_imgs.append(outputs[("reproj_supervised_tgt_color_debug", 0, frame_id)][j].data)
                         if self.opt.enable_motion_computation:
                             colored_motion_tgt_imgs.append(outputs[("color_MotionCorrected", frame_id, s)][j].data)
-                            motion_flow_imgs.append(outputs[("motion_flow", frame_id, s)][j].data)
+                            # motion_flow_imgs.append(outputs[("motion_flow", frame_id, s)][j].data)
+                            motion_flow_imgs.append(outputs[("motion_flow", "high", frame_id, s)][j].data)
+                            # if s == s:
                             motion_mask_imgs.append(outputs[("motion_mask_backward", s, frame_id)][j].data)
                             if self.opt.enable_mutual_motion:
                                 motion_mask_s2t_imgs.append(outputs[("motion_mask_s2t_backward", s, frame_id)][j].data)
 
-                # only predicted depth from the center image (frame_id == 0)
-                writer.add_image(
-                    "Depth/disp_{}/{}".format(s, j),
-                    normalize_image(outputs[("disp", s)][j]), self.step)
-                writer.add_image(
-                    'Depth/depth_{}/{}'.format(s, j),
-                    normalize_image(outputs[("depth", 0, s)][j]), self.step)
 
-        if compute_vis:
-            # Now apply
-            src_imgs = [color_to_cv_img(img) for img in src_imgs]
-            tgt_imgs = [color_to_cv_img(img) for img in tgt_imgs]
-            reproj_supervised_tgt_color_debug_imgs = [color_to_cv_img(img) for img in reproj_supervised_tgt_color_debug_imgs]
-            registered_tgt_imgs = [color_to_cv_img(img) for img in registered_tgt_imgs]
-            depth_imgs = [gray_to_cv_img(normalize_image(img)).astype(np.uint8) for img in depth_imgs]
-            brightness_imgs = [color_to_cv_img(img) for img in brightness_imgs]
-            refined_tgt_imgs = [color_to_cv_img(img) for img in refined_tgt_imgs]
-            colored_tgt_imgs = [color_to_cv_img(img) for img in colored_tgt_imgs]
-            # print('Optic flow:')
-            optic_flow_imgs = [flow_to_cv_img(img) for img in optic_flow_imgs]
-            # print('Pose flow:')
-            pose_flow_imgs = [flow_to_cv_img(img) for img in pose_flow_imgs]
-            if self.opt.enable_motion_computation:
-                colored_motion_tgt_imgs = [color_to_cv_img(img) for img in colored_motion_tgt_imgs]
-                # print('Motion flow:')
-                motion_flow_imgs = [flow_to_cv_img(img) for img in motion_flow_imgs]
-                # do not norm!
-                motion_mask_imgs = [gray_to_cv_img(img) for img in motion_mask_imgs]
-                if self.opt.enable_mutual_motion:
-                    motion_mask_s2t_imgs = [gray_to_cv_img(img) for img in motion_mask_s2t_imgs]
-            # do not norm!
-            occlursion_mask_imgs = [gray_to_cv_img(img) for img in occlursion_mask_imgs]
+                    # if compute_vis:
+                        # Now apply
+                        src_imgs = [color_to_cv_img(img) for img in src_imgs]
+                        tgt_imgs = [color_to_cv_img(img) for img in tgt_imgs]
+                        reproj_supervised_tgt_color_debug_imgs = [color_to_cv_img(img) for img in reproj_supervised_tgt_color_debug_imgs]
+                        registered_tgt_imgs = [color_to_cv_img(img) for img in registered_tgt_imgs]
+                        depth_imgs = [gray_to_cv_img(normalize_image(img)).astype(np.uint8) for img in depth_imgs]
+                        brightness_imgs = [color_to_cv_img(img) for img in brightness_imgs]
+                        refined_tgt_imgs = [color_to_cv_img(img) for img in refined_tgt_imgs]
+                        colored_tgt_imgs = [color_to_cv_img(img) for img in colored_tgt_imgs]
+                        # print('Optic flow:')
+                        optic_flow_imgs = [flow_to_cv_img(img) for img in optic_flow_imgs]
+                        # print('Pose flow:')
+                        pose_flow_imgs = [flow_to_cv_img(img) for img in pose_flow_imgs]
+                        if self.opt.enable_motion_computation:
+                            colored_motion_tgt_imgs = [color_to_cv_img(img) for img in colored_motion_tgt_imgs]
+                            # print('Motion flow:')
+                            motion_flow_imgs = [flow_to_cv_img(img) for img in motion_flow_imgs]
+                            # do not norm!
+                            motion_mask_imgs = [gray_to_cv_img(img) for img in motion_mask_imgs]
+                            if self.opt.enable_mutual_motion:
+                                motion_mask_s2t_imgs = [gray_to_cv_img(img) for img in motion_mask_s2t_imgs]
+                        # do not norm!
+                        occlursion_mask_imgs = [gray_to_cv_img(img) for img in occlursion_mask_imgs]
 
 
-            # concat src_imgs and tgt_imgs vertically
-            src_concat_img = np.concatenate(src_imgs, axis=0)
-            img_order_strs.append('Src-')
-            colored_tgt_concat_img = np.concatenate(colored_tgt_imgs, axis=0)
-            img_order_strs.append('Colored_Tgt-')
-            tgt_concat_img = np.concatenate(tgt_imgs, axis=0)
-            img_order_strs.append('Tgt-')
-            # add reproj_supervised_tgt_color_debug
-            # reproj_supervised_tgt_color_debug_concat_img = np.concatenate(reproj_supervised_tgt_color_debug_imgs, axis=0)
-            # img_order_strs.append('Reproj_Sup-')
+                        # concat src_imgs and tgt_imgs vertically
+                        src_concat_img = np.concatenate(src_imgs, axis=0)
+                        img_order_strs.append('Src-')
+                        colored_tgt_concat_img = np.concatenate(colored_tgt_imgs, axis=0)
+                        img_order_strs.append('Colored_Tgt-')
+                        tgt_concat_img = np.concatenate(tgt_imgs, axis=0)
+                        img_order_strs.append('Tgt-')
+                        # add reproj_supervised_tgt_color_debug
+                        # reproj_supervised_tgt_color_debug_concat_img = np.concatenate(reproj_supervised_tgt_color_debug_imgs, axis=0)
+                        # img_order_strs.append('Reproj_Sup-')
 
-            registered_tgt_concat_img = np.concatenate(registered_tgt_imgs, axis=0)
-            img_order_strs.append('Registered_Tgt-')
-            refined_tgt_concat_img = np.concatenate(refined_tgt_imgs, axis=0)
-            img_order_strs.append('Refined_Tgt-')
-            colored_motion_tgt_concat_img = np.concatenate(colored_motion_tgt_imgs, axis=0)
-            img_order_strs.append('Colored_Motion_Tgt-')
+                        registered_tgt_concat_img = np.concatenate(registered_tgt_imgs, axis=0)
+                        img_order_strs.append('Registered_Tgt-')
+                        refined_tgt_concat_img = np.concatenate(refined_tgt_imgs, axis=0)
+                        img_order_strs.append('Refined_Tgt-')
+                        # if self.opt.enable_motion_computation:
+                        colored_motion_tgt_concat_img = np.concatenate(colored_motion_tgt_imgs, axis=0)
+                        img_order_strs.append('Colored_Motion_Tgt-')
 
-            optic_flow_concat_img = np.concatenate(optic_flow_imgs, axis=0)
-            img_order_strs.append('Optic_Flow-')
-            pose_flow_concat_img = np.concatenate(pose_flow_imgs, axis=0)
-            img_order_strs.append('Pose_Flow-')
-            occlursion_mask_concat_img = np.concatenate(occlursion_mask_imgs, axis=0)
-            img_order_strs.append('Occlursion_Mask-')
-            depth_concat_img = np.concatenate(depth_imgs, axis=0)
-            img_order_strs.append('Depth-')
-            brightness_concat_img = np.concatenate(brightness_imgs, axis=0)
-            img_order_strs.append('Brightness-')
-            concat_img = np.concatenate([src_concat_img, colored_tgt_concat_img, tgt_concat_img, \
-                                         registered_tgt_concat_img, refined_tgt_concat_img, colored_motion_tgt_concat_img, optic_flow_concat_img, \
-                                            pose_flow_concat_img, occlursion_mask_concat_img, depth_concat_img, brightness_concat_img], axis=1)
-            if self.opt.enable_motion_computation:
-                # colored_motion_tgt_concat_img = np.concatenate(colored_motion_tgt_imgs, axis=0)
-                # img_order_strs.append('Colored_Motion_Tgt-')
-                motion_flow_concat_img = np.concatenate(motion_flow_imgs, axis=0)
-                img_order_strs.append('Motion_Flow-')
-                motion_mask_concat_img = np.concatenate(motion_mask_imgs, axis=0)
-                img_order_strs.append('Motion_Mask-')
-                if self.opt.enable_mutual_motion:
-                    motion_mask_s2t_concat_img = np.concatenate(motion_mask_s2t_imgs, axis=0)
-                    img_order_strs.append('Motion_Mask_S2T-')
-                    concat_img = np.concatenate([concat_img, motion_flow_concat_img, motion_mask_concat_img, motion_mask_s2t_concat_img], axis=1)
-                else:
-                    concat_img = np.concatenate([concat_img, motion_flow_concat_img, motion_mask_concat_img], axis=1)
+                        optic_flow_concat_img = np.concatenate(optic_flow_imgs, axis=0)
+                        img_order_strs.append('Optic_Flow-')
+                        pose_flow_concat_img = np.concatenate(pose_flow_imgs, axis=0)
+                        img_order_strs.append('Pose_Flow-')
+                        occlursion_mask_concat_img = np.concatenate(occlursion_mask_imgs, axis=0)
+                        img_order_strs.append('Occlursion_Mask-')
+                        depth_concat_img = np.concatenate(depth_imgs, axis=0)
+                        img_order_strs.append('Depth-')
+                        brightness_concat_img = np.concatenate(brightness_imgs, axis=0)
+                        img_order_strs.append('Brightness-')
 
-            img_order_strs = ''.join(img_order_strs)
-            
-            if online_vis:
-                title = f'{img_order_strs}'
-                cv2.imshow(title, concat_img/255)
-                cv2.waitKey(1)
-            else:
-                import os, cv2
-                save_path = os.path.join(self.log_path, f"imgs")
-                os.makedirs(save_path, exist_ok=True)
-                save_path = os.path.join(save_path, f"{self.step}_{img_order_strs}.png")
-                cv2.imwrite(save_path, concat_img)
-                print(f"saved {img_order_strs}.png in {save_path}")
+                        concat_img = np.concatenate([
+                                                    src_concat_img, 
+                                                        colored_tgt_concat_img, 
+                                                        tgt_concat_img, 
+                                                    registered_tgt_concat_img, refined_tgt_concat_img, colored_motion_tgt_concat_img, optic_flow_concat_img, \
+                                                        pose_flow_concat_img, 
+                                                        occlursion_mask_concat_img, 
+                                                        depth_concat_img, brightness_concat_img], axis=1)
 
-        return concat_img, img_order_strs
+                        if self.opt.enable_motion_computation:
+                            # colored_motion_tgt_concat_img = np.concatenate(colored_motion_tgt_imgs, axis=0)
+                            # img_order_strs.append('Colored_Motion_Tgt-')
+                            motion_flow_concat_img = np.concatenate(motion_flow_imgs, axis=0)
+                            img_order_strs.append('Motion_Flow-')
+                            motion_mask_concat_img = np.concatenate(motion_mask_imgs, axis=0)
+                            img_order_strs.append('Motion_Mask-')
+
+
+                            # print('print dim of each concat img:')
+                            # print(src_concat_img.shape)
+                            # print(colored_tgt_concat_img.shape)
+                            # print(tgt_concat_img.shape)
+                            # print(registered_tgt_concat_img.shape)
+                            # print(refined_tgt_concat_img.shape)
+                            # print(colored_motion_tgt_concat_img.shape)
+                            # print(optic_flow_concat_img.shape)
+                            # print(occlursion_mask_concat_img.shape)
+                            # print(pose_flow_concat_img.shape)
+                            # print(depth_concat_img.shape)
+                            # print(brightness_concat_img.shape)
+                            # print(motion_flow_concat_img.shape)
+                            # print(motion_mask_concat_img.shape)
+
+                            if self.opt.enable_mutual_motion:
+                                motion_mask_s2t_concat_img = np.concatenate(motion_mask_s2t_imgs, axis=0)
+                                img_order_strs.append('Motion_Mask_S2T-')
+                                concat_img = np.concatenate([concat_img, motion_flow_concat_img, motion_mask_concat_img, motion_mask_s2t_concat_img], axis=1)
+                            else:
+                                concat_img = np.concatenate([concat_img, motion_flow_concat_img, motion_mask_concat_img], axis=1)
+
+                        img_order_strs = ''.join(img_order_strs)
+                        
+                        scale_frameid_str = f'{s}_{frame_id}'
+                        if online_vis:
+                            title = f'{img_order_strs}_{scale_frameid_str}'
+                            cv2.imshow(title, concat_img/255)
+                            cv2.waitKey(1)
+                        else:
+                            import os, cv2
+                            save_path = os.path.join(self.log_path, f"imgs")
+                            os.makedirs(save_path, exist_ok=True)
+                            save_path = os.path.join(save_path, f"{self.step}_{img_order_strs}_{scale_frameid_str}.png")
+                            cv2.imwrite(save_path, concat_img)
+                            print(f"saved {img_order_strs}.png in {save_path}")
+
+                    
+        # return concat_img, img_order_strs
+        #return the last one within the loop
+        return concat_img, f'{img_order_strs}_{scale_frameid_str}'
 
 
     def save_opts(self):
