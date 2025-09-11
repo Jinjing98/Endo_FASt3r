@@ -68,7 +68,6 @@ class Trainer:
             # options.log_dir = "/mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm_debug"
 
 
-
             options.shared_MF_OF_network = True
 
             options.enable_motion_computation = True
@@ -81,9 +80,9 @@ class Trainer:
             # # options.use_soft_motion_mask = True
 
             # # options.disable_pose_head_overwrite = True
-            # # options.pose_model_pretrain_ckpt_path = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/crocoflow.pth"
-            # # options.pose_model_pretrain_ckpt_path = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric.pth"
-            # options.pose_model_pretrain_ckpt_path = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/DUSt3R_ViTLarge_BaseDecoder_512_dpt.pth"
+            # # options.backbone_pretrain_ckpt_path = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/crocoflow.pth"
+            # # options.backbone_pretrain_ckpt_path = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric.pth"
+            # options.backbone_pretrain_ckpt_path = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/DUSt3R_ViTLarge_BaseDecoder_512_dpt.pth"
             
             # # options.pose_model_type = "uni_reloc3r"
             # # options.init_3d_scene_flow = True
@@ -170,8 +169,8 @@ class Trainer:
             # options.pose_model_type = "uni_reloc3r"
             # options.init_3d_scene_flow = True
             # options.scene_flow_estimator_type = "dpt"
-            # options.pose_model_pretrain_ckpt_path = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/DUSt3R_ViTLarge_BaseDecoder_512_dpt.pth"
-            # options.pose_model_pretrain_ckpt_path = '/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric.pth'
+            # options.backbone_pretrain_ckpt_path = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/DUSt3R_ViTLarge_BaseDecoder_512_dpt.pth"
+            # options.backbone_pretrain_ckpt_path = '/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric.pth'
             # options.use_soft_motion_mask = True
             # options.pose_estimation_mode = "epropnp"
             # options.depth_model_type = "endofast3r_depth_trained_dbg" #critical! we better init with optimized DAM
@@ -190,6 +189,8 @@ class Trainer:
             # options.pose_model_type = "diffposer_epropnp"
 
             options.pose_model_type = "geoaware_pnet"
+            options.load_geoaware_pretrain_model = True
+
 
 
             options.enable_mutual_motion = True
@@ -385,10 +386,10 @@ class Trainer:
 
             if self.opt.pose_model_type == "separate_resnet":
                 # reloc3r_ckpt_path = f"{RELOC3R_PRETRAINED_ROOT}/Reloc3r-512.pth"
-                assert os.path.exists(self.opt.pose_model_pretrain_ckpt_path), f"pose_model_pretrain_ckpt_path {self.opt.pose_model_pretrain_ckpt_path} does not exist"
-                assert self.opt.pose_model_pretrain_ckpt_path == f"{RELOC3R_PRETRAINED_ROOT}/Reloc3r-512.pth", f"pose_model_pretrain_ckpt_path {self.opt.pose_model_pretrain_ckpt_path} is not correct"
+                assert os.path.exists(self.opt.backbone_pretrain_ckpt_path), f"backbone_pretrain_ckpt_path {self.opt.backbone_pretrain_ckpt_path} does not exist"
+                assert self.opt.backbone_pretrain_ckpt_path == f"{RELOC3R_PRETRAINED_ROOT}/Reloc3r-512.pth", f"backbone_pretrain_ckpt_path {self.opt.backbone_pretrain_ckpt_path} is not correct"
                 from networks import Reloc3rX
-                self.models["pose"] = Reloc3rX(self.opt.pose_model_pretrain_ckpt_path)
+                self.models["pose"] = Reloc3rX(self.opt.backbone_pretrain_ckpt_path)
             elif self.opt.pose_model_type == "endofast3r_pose_trained_dbg":
                 # load reloc3r pose model, then overwrite if saved in pose.pth
                 load_weights_folder = '/mnt/cluster/workspaces/jinjingxu/proj/UniSfMLearner/submodule/Endo_FASt3r/fast3r_ckpts/best_weights'
@@ -413,11 +414,11 @@ class Trainer:
 
             elif self.opt.pose_model_type == "uni_reloc3r":
                 # reloc3r_ckpt_path = f"{RELOC3R_PRETRAINED_ROOT}/Reloc3r-512.pth"
-                # pose_model_pretrain_ckpt_path = self.opt.pose_model_pretrain_ckpt_path#f"{RELOC3R_PRETRAINED_ROOT}/Reloc3r-512.pth"
-                assert os.path.exists(self.opt.pose_model_pretrain_ckpt_path), f"pose_model_pretrain_ckpt_path {self.opt.pose_model_pretrain_ckpt_path} does not exist"
+                # backbone_pretrain_ckpt_path = self.opt.backbone_pretrain_ckpt_path#f"{RELOC3R_PRETRAINED_ROOT}/Reloc3r-512.pth"
+                assert os.path.exists(self.opt.backbone_pretrain_ckpt_path), f"backbone_pretrain_ckpt_path {self.opt.backbone_pretrain_ckpt_path} does not exist"
                 from networks import UniReloc3r
-                print('init UniReloc3r from', self.opt.pose_model_pretrain_ckpt_path)
-                self.models["pose"] = UniReloc3r(self.opt.pose_model_pretrain_ckpt_path, 
+                print('init UniReloc3r from', self.opt.backbone_pretrain_ckpt_path)
+                self.models["pose"] = UniReloc3r(self.opt.backbone_pretrain_ckpt_path, 
                                                  self.opt,
                                                  self.log_path
                                                  )
@@ -425,8 +426,8 @@ class Trainer:
             elif self.opt.pose_model_type == "geoaware_pnet":
                 from geoaware_pnet.geoaware_network import PoseRegressor
                 import json
-                transformer_json = "/mnt/cluster/workspaces/jinjingxu/proj/UniSfMLearner/submodule/Endo_FASt3r/geoaware_pnet/transformer/config/nerf_focal_12T1R_256_homo_c2f_geoaware.json"
-                f = open(transformer_json)
+                assert os.path.exists(self.opt.geoaware_cfg_path), f"geoaware_cfg_path {self.opt.geoaware_cfg_path} does not exist"
+                f = open(self.opt.geoaware_cfg_path)
                 config = json.load(f)
                 f.close()
                 mean_cam_center = torch.tensor([0.0, 0.0, 0.0])
@@ -441,10 +442,11 @@ class Trainer:
                 config["default_img_HW"] = [default_img_H, default_img_W]
                 config["px_resample_rule_dict_scale_step"] = self.opt.px_resample_rule_dict_scale_step
 
-                pose_model = PoseRegressor(config)
-   
-                debug_only = True
-                if debug_only:
+
+                if self.opt.load_geoaware_pretrain_model:
+    
+                    pose_model = PoseRegressor(config)
+
                     transformer_root = '/mnt/cluster/workspaces/jinjingxu/proj/UniSfMLearner/submodule/Endo_FASt3r/geoaware_pnet/trained_ckpt2/paper_model'
                     if config["rotation_representation"] == "9D":
                         transformer_path = os.path.join(transformer_root, 
@@ -455,16 +457,15 @@ class Trainer:
                                                         "marepo/marepo.pt",
                                                         )
                     assert os.path.exists(transformer_path), f"transformer_path {transformer_path} does not exist"
-                    print('loading pretrained GeoAwarePNet pose regressor from', transformer_path)
+                    print('loading pretrained GeoAwarePNet pose regressor from with default img HW {}'.format(config["default_img_HW"]), transformer_path)
                     pose_model.load_pose_regressor_from_state_dict(transformer_path)
+                else:
+                    pose_model = PoseRegressor(config)
+                    print('init GeoAwarePNet pose regressor from scratch with default img HW {}'.format(config["default_img_HW"]))
    
                 self.models["pose"] = pose_model
 
                 # self.models["pose"] = PoseRegressor(config)
-                print('loaded GeoAwarePNet pose regressor with default img HW {}'.format(config["default_img_HW"]))
-
-
-
 
 
             elif self.opt.pose_model_type == "diffposer_epropnp":

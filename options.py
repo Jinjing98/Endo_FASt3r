@@ -143,10 +143,22 @@ class MonodepthOptions:
         # --pretrained "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric.pth" \
         # --pretrained "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/DUSt3R_ViTLarge_BaseDecoder_512_dpt.pth" \ 
 
-        self.parser.add_argument("--pose_model_pretrain_ckpt_path",
+        self.parser.add_argument("--backbone_pretrain_ckpt_path",
                                  type=str,
-                                 help="inti reloc3r from the pretrained_root",
+                                 help="inti dust3r backbone from the pretrained_root",
                                  default='/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/reloc3r/checkpoints/reloc3r-512/Reloc3r-512.pth')
+        
+        # geoaware net
+        self.parser.add_argument("--geoaware_cfg_path",
+                                 type=str,
+                                 help='path to the geoaware config json',
+                                 default='/mnt/cluster/workspaces/jinjingxu/proj/UniSfMLearner/submodule/Endo_FASt3r/geoaware_pnet/transformer/config/nerf_focal_12T1R_256_homo_c2f_geoaware.json'
+                                 )
+        self.parser.add_argument("--load_geoaware_pretrain_model",
+                                 help='if set will load marepo_9D.pt/marepo.pt depending on the config choice',
+                                 action="store_true")
+        
+        
         #model arch
         self.parser.add_argument("--init_3d_scene_flow",
                                  help="if set, initializes the 3d scene flow",
