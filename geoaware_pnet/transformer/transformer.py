@@ -464,7 +464,7 @@ class Transformer_Head(nn.Module):
         sc_coords = sc - self.transformer_pose_mean # DO Not remove, used in testing
 
         sample_step = self.px_resample_rule_dict_scale_step[sample_level]
-        print('for smaple level {}, sample_step: {}'.format(sample_level, sample_step))
+        # print('for smaple level {}, sample_step: {}'.format(sample_level, sample_step))
 
         # SC map positional encoding
         sc_feat, pixel_pe = self.pos_encoding(sc_coords, intrinsics_B33, sample_step)

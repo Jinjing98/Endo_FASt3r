@@ -1245,13 +1245,18 @@ class Trainer:
 
         # K is shared acroos all the frames per frame_ids
         sc_3d_f0, _ = self.disp_to_sc_3d_v0(
-                                    outputs[("disp", sc_scale)], 
-                                    inputs["K", sc_scale][:,:3,:3],
+                                    outputs[("disp", sc_scale)], # use tgt f0
+                                    inputs["K", sc_scale][:,:3,:3], # use tgt f0
                                     ret_mutilscale=True,
                                     scale_depth=1.0,
                                     )
         # critical: we need to warp sc_3d_f0 as matches of px_2d_fi
-        of_fi_to_f0 = outputs[("position", sc_scale, f_i)].detach() 
+        # for key, value in outputs.items():
+            # print('key: {}'.format(key))
+            # print('value shape: {}'.format(value.shape))
+
+        # of_fi_to_f0 = outputs[("position", sc_scale, f_i)].detach()# s2t flow
+        of_fi_to_f0 = outputs[("position_reverse", sc_scale, f_i)].detach()# s2t flow
         sc_3d_f0_matched = self.spatial_transform_warp_sc3d_geoaware_pnet[sc_scale](sc_3d_f0,
                                                 of_fi_to_f0)
         # in trinsics is from src img 
@@ -1266,12 +1271,16 @@ class Trainer:
             assert 0, f"sc_3d_f0_matched contains nan or inf"
             # sc_3d_f0_matched = torch.nan_to_num(sc_3d_f0_matched, nan=0.0, posinf=0.0, neginf=0.0)
         
-        print('input scene points 3d f0 matched shape:', sc_3d_f0_matched.shape)
-        print('input scene points 3d f0 matched max min z:', sc_3d_f0_matched[:,2,:,:].max(), sc_3d_f0_matched[:,2,:,:].min())
-        print('input scene points 3d f0 matched mean x:', sc_3d_f0_matched[:,0,:,:].mean())
-        print('input scene points 3d f0 matched mean y:', sc_3d_f0_matched[:,1,:,:].mean())
-        print('input scene points 3d f0 matched mean z:', sc_3d_f0_matched[:,2,:,:].mean())
-        
+        debug_only = True
+        debug_only = False
+        if debug_only:
+            print('for frame_id: {} and scale: {}'.format(f_i, sc_scale))
+            print('input scene points 3d f0 matched shape:', sc_3d_f0_matched.shape)
+            print('input scene points 3d f0 matched max min z:', sc_3d_f0_matched[:,2,:,:].max(), sc_3d_f0_matched[:,2,:,:].min())
+            print('input scene points 3d f0 matched mean x:', sc_3d_f0_matched[:,0,:,:].mean())
+            print('input scene points 3d f0 matched mean y:', sc_3d_f0_matched[:,1,:,:].mean())
+            print('input scene points 3d f0 matched mean z:', sc_3d_f0_matched[:,2,:,:].mean())
+            
         poses_list = self.models["pose"](sc_3d_f0_matched, 
                                         intrinsics_B33=K_for_fi_2D,
                                         sample_level=sc_scale)
@@ -1406,9 +1415,15 @@ class Trainer:
                         # for sc_scale in sc_scales:
                             # outputs[("cam_T_cam", 0, f_i)] = compute_pose_per_scale(inputs, outputs, sc_scale, px_K_scale)
                             outputs[("cam_T_cam", sc_scale, f_i)] = self.compute_pose_per_scale_geoaware_pnet(inputs, outputs, sc_scale, px_K_scale, f_i)
-                            print('For geoaware: we are able to get multi level resoutluion poses!')
-                            print('level of the poses: {}'.format(sc_scale))
-                            print('translation of the poses: {}'.format(outputs[("cam_T_cam", sc_scale, f_i)][:,:3,3]))
+                            
+                            # print('For geoaware: we are able to get multi level resoutluion poses!')
+                            debug_only = True
+                            debug_only = False
+                            if debug_only:
+                                print('level of the poses for frame_id: {} and scale: {}'.format(f_i, sc_scale))
+                                print(outputs[("cam_T_cam", sc_scale, f_i)][:,:3,3])
+
+                            # print('translation of the poses: {}'.format(outputs[("cam_T_cam", sc_scale, f_i)][:,:3,3]))
 
                         
                         
@@ -1839,16 +1854,14 @@ class Trainer:
         #         axisangle[:, 0], translation[:, 0] * mean_inv_depth[:, 0], frame_id < 0)
         
 
-        # print('tgt frame id:')
-        # print(tgt_frame_id)
-        # print('frame id:')
-        # print(frame_id)
-        print('////*****Compute cam_points based in inv_K and depth****/////')
-        print('max depth:', outputs[("depth", tgt_frame_id, scale)].max())
-        print('min depth:', outputs[("depth", tgt_frame_id, scale)].min())
-        print('mean depth:', outputs[("depth", tgt_frame_id, scale)].mean())
+        # print('////*****Gen sample and pose flow based in inv_K and depth****/////')
+        # print('max depth:', outputs[("depth", tgt_frame_id, scale)].max())
+        # print('min depth:', outputs[("depth", tgt_frame_id, scale)].min())
+        # print('mean depth:', outputs[("depth", tgt_frame_id, scale)].mean())
         # print('used K:')
         # print(inputs[("K", source_scale)])
+        
+        # we used the same scale mesh_grid as 'depth' are high res depth across all 'scales'
         cam_points = self.backproject_depth[source_scale](
             outputs[("depth", tgt_frame_id, scale)], inputs[("inv_K", source_scale)])# 3D pts
         # print('cam_points.shape:')
@@ -1856,8 +1869,10 @@ class Trainer:
         # Project3D: it saves values in range [-1,1] for direct sampling
         # pix_coords saves values in range [-1,1]
         # print('compute pix_coords')
-        if frame_id == -1:
-            print('////////gen opts_sample for frame_id', frame_id, 'scale', scale, '////////////////')
+        debug_only = True
+        debug_only = False
+        if frame_id == -1 and debug_only:
+            print('////////detailed cam points for frame_id', frame_id, 'scale', scale, '////////////////')
             # print('used K:')
             # print(inputs[("K", source_scale)])
             # print('used T:')
@@ -1881,10 +1896,13 @@ class Trainer:
         else:
             outputs[("sample_s2t", tgt_frame_id, scale)] = pix_coords # b h w 2
 
-        if frame_id == -1:
-            print('normed pix_coords l2_norm max min:')
-            print(pix_coords.norm(dim=-1, keepdim=True).max())
-            print(pix_coords.norm(dim=-1, keepdim=True).min())
+        debug_only = True
+        debug_only = False
+        if debug_only:
+            if frame_id == -1:
+                print('normed pix_coords l2_norm max min:')
+                print(pix_coords.norm(dim=-1, keepdim=True).max())
+                print(pix_coords.norm(dim=-1, keepdim=True).min())
 
         # generate pose_flow from pix_coords
         # norm_width_source_scale = self.project_3d[scale].width
@@ -2104,7 +2122,6 @@ class Trainer:
         for scale in self.opt.scales:
             
             disp = outputs[("disp", scale)]
-            print('max min disp at scale:', scale, ':', disp.max(), disp.min())
             if self.opt.v1_multiscale:
                 assert 0,f'v1_multiscale is not supported for depth prediction'
                 source_scale = scale
@@ -2129,8 +2146,12 @@ class Trainer:
                     outputs[("depth", frame_id, scale)] = depth_i
 
             #debug
-            print('max depth after disp2depth f0 with scale:', scale, ':', outputs[("depth", 0, scale)].max())
-            print('min depth after disp2depth f0 with scale:', scale, ':', outputs[("depth", 0, scale)].min())
+            debug_only = True
+            debug_only = False
+            if debug_only:
+                print('max min disp at scale:', scale, ':', disp.max(), disp.min())
+                print('max depth after disp2depth f0 with scale:', scale, ':', outputs[("depth", 0, scale)].max())
+                print('min depth after disp2depth f0 with scale:', scale, ':', outputs[("depth", 0, scale)].min())
 
             # source_scale = 0
 
