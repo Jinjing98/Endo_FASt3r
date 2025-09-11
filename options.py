@@ -353,6 +353,7 @@ class MonodepthOptions:
                                           "shared",
                                           "geoaware_pnet",
                                           "endofast3r_pose_trained_dbg",
+                                          "diffposer_epropnp",
                                           ])
         
         self.parser.add_argument("--depth_model_type",

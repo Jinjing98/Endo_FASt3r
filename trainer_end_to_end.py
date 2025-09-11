@@ -66,7 +66,7 @@ class Trainer:
             # options.log_dir = "/mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm_debug"
 
 
-            # options.pose_model_type = "geoaware_pnet"
+            options.pose_model_type = "geoaware_pnet"
 
             options.shared_MF_OF_network = True
 
@@ -126,7 +126,7 @@ class Trainer:
             options.of_samples = True
             # options.of_samples_num = 100
             options.of_samples_num = 8
-            options.of_samples_num = 1
+            # options.of_samples_num = 1
             # options.is_train = True
             # options.is_train = False # no augmentation
 
@@ -165,25 +165,28 @@ class Trainer:
             # options.split_appendix = "_CaToTi001" #critical reason for nan raft flow
 
             #debug nan present in geoaware with static scene traning
-            options.model_name = "debug_epropnp_pretrainedMetricMast3r"
-            options.pose_model_type = "uni_reloc3r"
-            options.init_3d_scene_flow = True
-            options.scene_flow_estimator_type = "dpt"
-            options.pretrain_ckpt_path = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/DUSt3R_ViTLarge_BaseDecoder_512_dpt.pth"
-            options.pretrain_ckpt_path = '/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric.pth'
-            options.use_soft_motion_mask = True
-            options.pose_estimation_mode = "epropnp"
-            options.depth_model_type = "endofast3r_depth_trained_dbg" #critical! we better init with optimized DAM
+            # options.model_name = "debug_epropnp_pretrainedMetricMast3r"
+            # options.pose_model_type = "uni_reloc3r"
+            # options.init_3d_scene_flow = True
+            # options.scene_flow_estimator_type = "dpt"
+            # options.pretrain_ckpt_path = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/DUSt3R_ViTLarge_BaseDecoder_512_dpt.pth"
+            # options.pretrain_ckpt_path = '/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric.pth'
+            # options.use_soft_motion_mask = True
+            # options.pose_estimation_mode = "epropnp"
+            # options.depth_model_type = "endofast3r_depth_trained_dbg" #critical! we better init with optimized DAM
 
 
             # # # debug trained fast3r (understand its learned scale)
             # options.pose_model_type = "endofast3r_pose_trained_dbg"
-            # options.depth_model_type = "endofast3r_depth_trained_dbg" #critical! we better init with optimized DAM
+            options.depth_model_type = "endofast3r_depth_trained_dbg" #critical! we better init with optimized DAM
             # # options.gt_metric_rel_pose_as_estimates_debug = True
             # options.min_depth = 0.1 # bigger safer
             # options.max_depth = 150.0 # bigger safer
             # # options.enable_motion_computation = False
             # options.enable_motion_computation = True
+
+            # a new pose model varient:
+            # options.pose_model_type = "diffposer_epropnp"
 
             # options.enable_mutual_motion = True
             # options.use_soft_motion_mask = True
@@ -428,6 +431,14 @@ class Trainer:
                 self.models["pose"] = PoseRegressor(config)
                 print('loaded GeoAwarePNet pose regressor with default img HW {}'.format(config["default_img_HW"]))
 
+            elif self.opt.pose_model_type == "diffposer_epropnp":
+                # if self.pose_estimation_mode == 'epropnp':
+                self.initialize_epropnp() # init: log_weight_scale, camera, cost_fun, epropnp
+                self._base_grid = None
+
+                self.models["pose"] = torch.nn.Module()
+                print('init epropnp  pose solver.....')
+
             elif self.opt.pose_model_type == "shared":
                 self.models["pose"] = networks.PoseDecoder(
                     self.models["encoder"].num_ch_enc, self.num_pose_frames)
@@ -438,7 +449,9 @@ class Trainer:
                     self.num_input_frames if self.opt.pose_model_input == "all" else 2)
                 self.models["pose"].load_state_dict(torch.load(pose_decoder_path))
 
+
             self.models["pose"].to(self.device)
+
             self.parameters_to_train += list(filter(lambda p: p.requires_grad, self.models["pose"].parameters()))
 
         if self.opt.predictive_mask:
@@ -545,6 +558,11 @@ class Trainer:
             self.spatial_transform_used_to_warp_sc_3d = SpatialTransformer((int(self.opt.height/8), 
                                                                             int(self.opt.width/8)))
             self.spatial_transform_used_to_warp_sc_3d.to(self.device)
+        elif self.opt.pose_model_type == "diffposer_epropnp":
+            print('using spatial_transform_used_to_warp_sc_3d.....')
+            self.spatial_transform_used_to_warp_sc_3d = SpatialTransformer((int(self.opt.height), 
+                                                                            int(self.opt.width)))
+            self.spatial_transform_used_to_warp_sc_3d.to(self.device)
 
         self.get_occu_mask_backward = get_occu_mask_backward((self.opt.height, self.opt.width))
         self.get_occu_mask_backward.to(self.device)
@@ -585,6 +603,97 @@ class Trainer:
         self.train_dataset = train_dataset
         self.val_dataset = val_dataset
 
+    def initialize_epropnp(self):
+        '''
+        init: log_weight_scale, camera, cost_fun, epropnp
+        '''
+        from lib.ops.pnp.epropnp import EProPnP6DoF
+        from lib.ops.pnp.levenberg_marquardt import LMSolver, RSLMSolver
+        from lib.ops.pnp.camera import PerspectiveCamera
+        from lib.ops.pnp.cost_fun import AdaptiveHuberPnPCost
+        
+        self.log_weight_scale = nn.Parameter(torch.zeros(2))# Here we use static weight_scale because the data noise is homoscedastic
+        self.camera = PerspectiveCamera()
+        self.cost_fun = AdaptiveHuberPnPCost(relative_delta=0.5)
+        self.epropnp = EProPnP6DoF(
+            mc_samples=512,
+            num_iter=4,
+            solver=LMSolver(
+                dof=6,
+                num_iter=10,
+                init_solver=RSLMSolver(
+                    dof=6,
+                    num_points=8,
+                    num_proposals=128,
+                    num_iter=5)))
+
+    def epropnp_pose_head(self, x3d, x2d, w2d, cam_mats, pose_init, matches_num = 64):
+        '''
+        adapt from epropnp demo notebook.
+        '''
+        # x3d, x2d, w2d = self.forward_correspondence(in_pose)
+        self.camera.set_param(cam_mats)
+        self.cost_fun.set_param(x2d.detach(), w2d)  # compute dynamic delta
+        pose_opt, cost, pose_opt_plus, pose_samples, pose_sample_logweights, cost_tgt = self.epropnp.monte_carlo_forward(
+            x3d,
+            x2d,
+            w2d,
+            self.camera,
+            self.cost_fun,
+            pose_init=pose_init,
+            force_init_solve=True,
+            with_pose_opt_plus=True)  # True for derivative regularization loss
+        # norm_factor = model.log_weight_scale.detach().exp().mean()
+        norm_factor = self.log_weight_scale.detach().exp().mean()
+        return pose_opt, cost, pose_opt_plus, pose_samples, pose_sample_logweights, cost_tgt, norm_factor
+
+    def prepare_epropnp_input(self, pts3d_2in1view, pts3d_2in1view_conf, 
+                                K_2, B, H, W, device, 
+                                # matches_num = 8,
+                                matches_num = 4800,
+                                ):
+        '''
+        return pose_init: xyz_wxyz
+        '''
+        assert pts3d_2in1view.shape[-1] == 3, f'pts3d_2in1view.shape[-1] should be 3, but got {pts3d_2in1view.shape[-1]}'
+        assert pts3d_2in1view_conf.shape[-1] == 1, f'pts3d_2in1view_conf.shape[-1] should be 1, but got {pts3d_2in1view_conf.shape[-1]}'
+        x3d = pts3d_2in1view.reshape(B, -1, 3)
+        x3d_conf = pts3d_2in1view_conf.reshape(B, -1, 1)
+        # reset self._base_grid for various image size
+        self._init_base_grid(H=H, W=W, device=device)
+        x2d = self._base_grid.repeat(B, 1, 1, 1)# B H W 2
+        x2d = x2d.reshape(B, -1, 2)
+        w2d = x3d_conf.repeat(1, 1, 2).detach()
+        # sample  matches_num tuples (x3d_1_i,x2d_1_i,w2d_1_i)
+        # Generate a random permutation of indices
+        
+        if matches_num < x3d.shape[1]:
+            idx = torch.randperm(x3d.shape[0])[:matches_num]
+            x3d = x3d[idx]
+            x2d = x2d[idx]
+            w2d = w2d[idx]
+
+        cam_mats = K_2[:,:3,:3] 
+        # in Epropnp: pose are in XYZ_quat 7 dim format
+        # pose_init_1 = torch.eye(4).repeat(B, 1, 1).to(view1['img'].device) 
+        # xyz_wxyz
+        pose_init = torch.zeros([B, 7], device=device)
+        # set quat as 1,0,0,0
+        pose_init[:, 3:] = torch.tensor([0,0,0,1], device=device).repeat(B, 1)
+        pose_init = None
+
+        return x3d, x2d, w2d, cam_mats, pose_init
+
+    def _init_base_grid(self, H, W, device, reallocate=False):
+        """use for construct the 2D in 2D-3D matches, assume 3D are regressed SC."""
+        if self._base_grid is None or reallocate:
+            hh, ww = torch.meshgrid(torch.arange(
+                H).float(), torch.arange(W).float())
+            coord = torch.zeros([1, H, W, 2])
+            coord[0, ..., 0] = ww
+            coord[0, ..., 1] = hh
+            self._base_grid = coord.to(device)
+    
     def set_train_0(self):
         """Convert all models to training mode
         """
@@ -1168,6 +1277,56 @@ class Trainer:
                         outputs[("occu_mask_backward", scale, f_i)],  outputs[("occu_map_backward", scale, f_i)]= self.get_occu_mask_backward(outputs[("position_reverse", "high", scale, f_i)])
                         outputs[("occu_map_bidirection", scale, f_i)] = self.get_occu_mask_bidirection(outputs[("position", "high", scale, f_i)],
                                                                                                           outputs[("position_reverse", "high", scale, f_i)])
+                    def disp_to_sc_3d_v0(disp, intrinsics, ret_mutilscale, scale_depth = 1.0):
+                        assert isinstance(ret_mutilscale, bool), "ret_mutilscale must be a bool"
+                        if not ret_mutilscale:
+                            disp = F.interpolate(
+                                disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=True)
+                        _, depth = disp_to_depth(disp, self.opt.min_depth, self.opt.max_depth) #muti-scale
+                        # print('min depth', torch.min(depth))
+                        # print('max depth', torch.max(depth))
+                        depth = depth * scale_depth
+
+                        pts_3d = depth_to_3d(depth, intrinsics)
+                        
+                        return pts_3d, depth
+
+                    def disp_to_sc_3d(inputs, outputs, scale, ret_mutilscale, scale_depth = 1.0):
+                        disp = outputs[("disp", scale)]# for tgt frame
+                        B, _, H, W = disp.shape
+                        assert isinstance(ret_mutilscale, bool), "ret_mutilscale must be a bool"
+                        if not ret_mutilscale:
+                            assert 0, f'ret_mutilscale must be True'
+                            disp = F.interpolate(
+                                disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=True)
+                        _, depth = disp_to_depth(disp, self.opt.min_depth, self.opt.max_depth) #muti-scale
+                        print('min depth', torch.min(depth))
+                        print('max depth', torch.max(depth))
+                        depth = depth * scale_depth
+
+                        # pts_3d = depth_to_3d(depth, intrinsics)
+                        
+                        from layers import BackprojectDepth
+                        cam_points = self.backproject_depth[scale](
+                            depth, inputs[("inv_K", scale)])
+                        print('Used cam_points shape:')
+                        print(cam_points.shape)
+                        print('Used cam_points max min z:')
+                        print(cam_points[:,2,:].max())
+                        print(cam_points[:,2,:].min())
+                        print('Used cam_points mean x:')
+                        print(cam_points[:,0,:].mean())
+                        print('Used cam_points mean y:')
+                        print(cam_points[:,1,:].mean())
+                        print('Used cam_points mean z:')
+                        print(cam_points[:,2,:].mean())
+
+                        # reshape back to B, 3, H, W
+                        print('cam_points shape:', cam_points.shape)
+                        cam_points = cam_points.contiguous().reshape(B, 4, H, W)
+
+                        return cam_points, depth                       
+
                     if self.opt.pose_model_type == "geoaware_pnet":
                         from layers import disp_to_depth, depth_to_3d
                         # we need estimated t2s
@@ -1176,24 +1335,12 @@ class Trainer:
                         #                     int(self.models["pose"].config["default_img_W"]/8)) # tgt depth
                         # print('test depth shape',sc_3d_f0.shape)
                         #/////////////
-                        def disp_to_sc_3d(disp, intrinsics, ret_mutilscale, scale_depth = 1.0):
-                            assert isinstance(ret_mutilscale, bool), "ret_mutilscale must be a bool"
-                            if not ret_mutilscale:
-                                disp = F.interpolate(
-                                    disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=True)
-                            _, depth = disp_to_depth(disp, self.opt.min_depth, self.opt.max_depth) #muti-scale
-                            # print('min depth', torch.min(depth))
-                            # print('max depth', torch.max(depth))
-                            depth = depth * scale_depth
-                            pts_3d = depth_to_3d(depth, intrinsics)
-                            return pts_3d, depth
-                        
                         sc_scale = 3 # lowest 
                         k_for_f0_3D = inputs["K", sc_scale][:,:3,:3]
+                        
                         # K is shared acroos all the frames per frame_ids
                         scale_depth = 1.0
-                        # scale_depth = 0.000001
-                        sc_3d_f0, _ = disp_to_sc_3d(
+                        sc_3d_f0, _ = disp_to_sc_3d_v0(
                                                     outputs[("disp", sc_scale)], 
                                                     k_for_f0_3D,
                                                     ret_mutilscale=True,
@@ -1219,6 +1366,13 @@ class Trainer:
                             print('!!!!**************!!!!')
                             assert 0, f"sc_3d_f0_matched contains nan or inf"
                             # sc_3d_f0_matched = torch.nan_to_num(sc_3d_f0_matched, nan=0.0, posinf=0.0, neginf=0.0)
+                        
+                        print('input scene points 3d f0 matched shape:', sc_3d_f0_matched.shape)
+                        print('input scene points 3d f0 matched max min z:', sc_3d_f0_matched[:,2,:,:].max(), sc_3d_f0_matched[:,2,:,:].min())
+                        print('input scene points 3d f0 matched mean x:', sc_3d_f0_matched[:,0,:,:].mean())
+                        print('input scene points 3d f0 matched mean y:', sc_3d_f0_matched[:,1,:,:].mean())
+                        print('input scene points 3d f0 matched mean z:', sc_3d_f0_matched[:,2,:,:].mean())
+                        
                         poses_list = self.models["pose"](sc_3d_f0_matched, intrinsics_B33=K_for_fi_2D)
 
 
@@ -1245,6 +1399,125 @@ class Trainer:
                         # outputs[("cam_T_cam", 0, f_i)] = torch.eye(4).to(self.device).repeat(poses_list[-1].shape[0], 1, 1)
                         
                         
+
+                    elif self.opt.pose_model_type == "diffposer_epropnp":
+                        from layers import disp_to_depth, depth_to_3d
+                        # sc_scale = 3 # lowest 
+                        # px_K_scale = 3
+                        sc_scale = 0 # lowest 
+                        px_K_scale = 0
+                        assert sc_scale == px_K_scale, "sc_scale and px_K_scale must be the same"
+                        k_for_f0_3D = inputs["K", sc_scale][:,:3,:3]
+                        scale_depth = 1.0
+                        # sc_3d_f0, _ = disp_to_sc_3d(
+                        #                             outputs[("disp", sc_scale)], 
+                        #                             k_for_f0_3D,
+                        #                             ret_mutilscale=True,
+                        #                             scale_depth=scale_depth,
+                        #                             )
+                        sc_3d_f0, _ = disp_to_sc_3d(
+                                                    inputs,
+                                                    outputs,
+                                                    sc_scale,
+                                                    ret_mutilscale=True,
+                                                    scale_depth=scale_depth,
+                                                    )
+                        sc_3d_f0 = sc_3d_f0[:,0:3,:,:]
+                        print('sc_3d_f0 shape:', sc_3d_f0.shape)
+                        # sc_3d_f0_conf = outputs[("motion_mask_backward", sc_scale, f_i)]
+                        sc_3d_f0_conf = torch.ones_like(sc_3d_f0[:,0:1,:,:])
+
+                        of_fi_to_f0 = outputs[("position", sc_scale, f_i)].detach() 
+                        sc_3d_f0_matched = self.spatial_transform_used_to_warp_sc_3d(sc_3d_f0,
+                                                                 of_fi_to_f0)
+                        sc_3d_f0_matched_conf = self.spatial_transform_used_to_warp_sc_3d(sc_3d_f0_conf,
+                                                                 of_fi_to_f0)
+                        
+                        # print('Used cam_points shape:')
+                        # print(sc_3d_f0.shape)
+                        # print('Used cam_points max min z:')
+                        # print(sc_3d_f0[:,2,:,:].max())
+                        # print(sc_3d_f0[:,2,:,:].min())
+                        # print(sc_3d_f0_matched[:,2,:,:].max())
+                        # print(sc_3d_f0_matched[:,2,:,:].min())
+
+                        # print('Used cam_points mean x:')
+                        # print(sc_3d_f0[:,0,:,:].mean())
+                        # print(sc_3d_f0_matched[:,0,:,:].mean())
+                        # print('Used cam_points mean y:')
+                        # print(sc_3d_f0[:,1,:,:].mean())
+                        # print(sc_3d_f0_matched[:,1,:,:].mean())
+                        # print('Used cam_points mean z:')
+                        # print(sc_3d_f0[:,2,:,:].mean())                        
+                        # print(sc_3d_f0_matched[:,2,:,:].mean())
+                        # assert 0, f'above is problematic for sc pts'
+                        
+                        K_for_fi_2D = inputs["K", px_K_scale][:,:3,:3]
+                        if torch.isnan(sc_3d_f0_matched).any() or torch.isinf(sc_3d_f0_matched).any():
+                            print('!!!!**************!!!!')
+                            print('sc_3d_f0_matched contains nan or inf')
+                            print('!!!!**************!!!!')
+                            assert 0, f"sc_3d_f0_matched contains nan or inf"
+                            # sc_3d_f0_matched = torch.nan_to_num(sc_3d_f0_matched, nan=0.0, posinf=0.0, neginf=0.0)
+                        # solve the pose
+                        
+                        B, _, _, _ = sc_3d_f0.shape
+                        # H, W = int(self.opt.height / (2**sc_scale)), int(self.opt.width / (2**sc_scale))
+                        # self._init_base_grid(H=H, W=W, device=k_for_f0_3D.device)
+
+    
+                        print('sc_3d_f0_matched shape:', sc_3d_f0_matched.shape)
+                        print('sc_3d_f0_matched_conf shape:', sc_3d_f0_matched_conf.shape)
+                        print('K_for_fi_2D shape:', K_for_fi_2D.shape)
+                        # t2s mask
+                        x3d_2, x2d_2, w2d_2, cam_mats_2, pose_init_2 = self.prepare_epropnp_input(
+                            sc_3d_f0_matched.permute(0,2,3,1),
+                            sc_3d_f0_matched_conf.permute(0,2,3,1),
+                            K_for_fi_2D, 
+                            B, 
+                            int(self.opt.height / (2**sc_scale)), 
+                            int(self.opt.width / (2**sc_scale)), 
+                            self.device)
+                        print('x3d_2 shape:', x3d_2.shape)
+                        print('x2d_2 shape:', x2d_2.shape)
+                        print('w2d_2 shape:', w2d_2.shape)
+                        # print('cam_mats_2 shape:', cam_mats_2.shape)
+                        # print('pose_init_2 shape:', pose_init_2.shape)
+                        
+                        # print the max and min dpeth in x3d_2
+                        print('ori x3d_2 min z:', x3d_2[:, :, 2].min())
+                        print('ori x3d_2 max z:', x3d_2[:, :, 2].max())
+                        print('ori x3d_2 mean x:', x3d_2[:, :, 0].mean())
+                        print('ori x3d_2 mean y:', x3d_2[:, :, 1].mean())
+                        print('ori x3d_2 mean z:', x3d_2[:, :, 2].mean())
+
+                        # assert 0, f'there is issuse for the x3d_2:  need to be zero for mean_x,mean_y?'
+
+
+                        #setting up
+                        opt_quat_format='wxyz'
+                        soft_clamp_quat = True
+                        max_angle_rad = 0.1
+                        # max_angle_rad = 1
+
+                        _, _, pose_opt_plus_2, _, pose_sample_logweights_2, cost_tgt_2, norm_factor_2 = self.epropnp_pose_head(
+                                                                                                        x3d_2, x2d_2, w2d_2, 
+                                                                                                        cam_mats_2, 
+                                                                                                        pose_init_2,
+                                                                                                        )
+                        from reloc3r_uni.utils.epropnp_utils import xyz_quat_to_matrix_kornia
+                        # pose2['pose'] = pose_opt_plus_2
+                        pose2 = {}
+                        pose2['pose'] = xyz_quat_to_matrix_kornia(pose_opt_plus_2, 
+                                                                quat_format=opt_quat_format,
+                                                                soft_clamp_quat=soft_clamp_quat,
+                                                                max_angle_rad=max_angle_rad)
+                        pose2['pose_sample_logweights'] = pose_sample_logweights_2
+                        pose2['cost_tgt'] = cost_tgt_2
+                        pose2['norm_factor'] = norm_factor_2
+                        print('pose2 translation from epropnp:', pose2['pose'][:,:3,3])
+
+                        outputs[("cam_T_cam", 0, f_i)] = pose2["pose"] # we need pose tgt2src, ie: pose2to1, i.e the pose2 in breif in reloc3r model.
 
                     else:
                         # view0 = {'img':prepare_images(pose_feats[f_i],self.device, size = 512)}
