@@ -101,7 +101,7 @@ class Reloc3rRelpose(nn.Module, PyTorchModelHubMixin):
                 #extend for pose_head
                 pose_head_seperate_scale = False,  # whether to use separate scale for pose regression
                 #extend for diff pose solver
-                pose_estimation_mode = 'pose_head_regression',
+                unireloc3r_pose_estimation_mode = 'vanilla_pose_head_regression',
                 pose_regression_with_mask = False,
                 pose_regression_which_mask = 'gt',
                 pose_regression_head_input = 'default',
@@ -215,13 +215,13 @@ class Reloc3rRelpose(nn.Module, PyTorchModelHubMixin):
         self.detach_token_grad_for_dyn_mask = True
         # self.detach_token_grad_for_dyn_mask = False #default before
 
-        self.pose_estimation_mode = pose_estimation_mode #'pose_head_regression'
-        # self.pose_estimation_mode = 'epropnp'
-        assert self.pose_estimation_mode in ['pose_head_regression', 'epropnp'], f'Unknown pose_estimation_mode {self.pose_estimation_mode}, should be one of [pose_head_regression, epropnp]'
-        if self.pose_estimation_mode == 'epropnp':
-            assert self.init_3d_scene_flow, f'pose_estimation_mode={self.pose_estimation_mode} requires init_3d_scene_flow to be True'
+        self.unireloc3r_pose_estimation_mode = unireloc3r_pose_estimation_mode #'vanilla_pose_head_regression'
+        # self.unireloc3r_pose_estimation_mode = 'epropnp'
+        assert self.unireloc3r_pose_estimation_mode in ['vanilla_pose_head_regression', 'epropnp', 'geoaware_pnet'], f'Unknown unireloc3r_pose_estimation_mode {self.unireloc3r_pose_estimation_mode}, should be one of [vanilla_pose_head_regression, epropnp, geoaware_pnet]'
+        if self.unireloc3r_pose_estimation_mode == 'epropnp':
+            assert self.init_3d_scene_flow, f'unireloc3r_pose_estimation_mode={self.unireloc3r_pose_estimation_mode} requires init_3d_scene_flow to be True'
             # todo: implemented the flow based matching
-            # assert self.init_2d_optic_flow, f'pose_estimation_mode={self.pose_estimation_mode} requires init_2d_optic_flow to be True'
+            # assert self.init_2d_optic_flow, f'unireloc3r_pose_estimation_mode={self.unireloc3r_pose_estimation_mode} requires init_2d_optic_flow to be True'
             self.initialize_epropnp() # init: log_weight_scale, camera, cost_fun, epropnp
             self._base_grid = None
 
@@ -913,7 +913,7 @@ class Reloc3rRelpose(nn.Module, PyTorchModelHubMixin):
         with torch.cuda.amp.autocast(enabled=False):
             # prepare according to pose_regression_head_input
             # assert 0, view1.keys()
-            if self.pose_estimation_mode == 'pose_head_regression':
+            if self.unireloc3r_pose_estimation_mode == 'vanilla_pose_head_regression':
                 pose_esti_mask1, pose_esti_mask2 = self._get_mask_for_pose_head(mask_1, mask_2, view1, view2, dec1)
                 pose_regress_input1, pose_regress_input2 = self.prepare_pose_reg_input(dec1, dec2, 
                                                                                     of1=optic_flow1['flow2d'], of2=optic_flow2['flow2d'],
@@ -925,7 +925,7 @@ class Reloc3rRelpose(nn.Module, PyTorchModelHubMixin):
                 pose1 = self._downstream_head('', [tok.float() for tok in pose_regress_input1], shape1, pose_esti_mask1)  
                 pose2 = self._downstream_head('', [tok.float() for tok in pose_regress_input2], shape2, pose_esti_mask2)  # relative camera pose from 2 to 1. 
                 return pose1, pose2
-            elif self.pose_estimation_mode == 'epropnp':
+            elif self.unireloc3r_pose_estimation_mode == 'epropnp':
                 '''
                 # return pose1(pose1to2), pose2(pose2to1)
 
@@ -1167,8 +1167,10 @@ class Reloc3rRelpose(nn.Module, PyTorchModelHubMixin):
 
                 return pose1, pose2
 
+            elif self.unireloc3r_pose_estimation_mode == 'geoaware_pnet':
+                assert 0, NotImplementedError
             else:
-                assert 0, f'Unknown pose_estimation_mode {self.pose_estimation_mode}, should be one of [pose_head_regression, epropnp]'
+                assert 0, f'Unknown unireloc3r_pose_estimation_mode {self.unireloc3r_pose_estimation_mode}, should be one of [vanilla_pose_head_regression, epropnp, geoaware_pnet]'
         
 
     def _wrap_output(self, pose1, pose2, 
@@ -1675,7 +1677,7 @@ def load_UniReloc3r_model(ckpt_path, img_size, device, opt, output_dir = None):
                         init_another_dec_for_depth=getattr(opt, 'init_another_dec_for_depth', False),
                         pose_head_seperate_scale=getattr(opt, 'pose_head_seperate_scale', False),
                         #/////////
-                        pose_estimation_mode=getattr(opt, 'pose_estimation_mode', 'pose_head_regression'),
+                        unireloc3r_pose_estimation_mode=getattr(opt, 'unireloc3r_pose_estimation_mode', 'vanilla_pose_head_regression'),
                         pose_regression_with_mask=getattr(opt, 'pose_regression_with_mask', False),
                         pose_regression_which_mask=getattr(opt, 'pose_regression_which_mask', 'gt'),
                         pose_regression_head_input=getattr(opt, 'pose_regression_head_input', 'default'),

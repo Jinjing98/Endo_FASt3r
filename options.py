@@ -177,11 +177,11 @@ class MonodepthOptions:
                                  default="linear",
                                  choices=["dpt", "linear"])
         
-        self.parser.add_argument("--pose_estimation_mode",
+        self.parser.add_argument("--unireloc3r_pose_estimation_mode",
                                  type=str,
                                  help="pose estimation mode",
-                                 default="pose_head_regression",
-                                 choices=["pose_head_regression", "epropnp"])
+                                 default="vanilla_pose_head_regression",
+                                 choices=["vanilla_pose_head_regression", "epropnp", "geoaware_pnet"])
         self.parser.add_argument("--pose_regression_with_mask",
                                  help="if set, uses mask to regress pose",
                                  action="store_true")

@@ -93,7 +93,7 @@ class Trainer:
             # # options.optic_flow_estimator_type = "dpt"
 
 
-            # # options.pose_estimation_mode = "epropnp"
+            # # options.unireloc3r_pose_estimation_mode = "epropnp"
             # # options.pose_regression_with_mask = True
             # # options.pose_regression_which_mask = "esti"
 
@@ -172,7 +172,7 @@ class Trainer:
             # options.backbone_pretrain_ckpt_path = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/DUSt3R_ViTLarge_BaseDecoder_512_dpt.pth"
             # options.backbone_pretrain_ckpt_path = '/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric.pth'
             # options.use_soft_motion_mask = True
-            # options.pose_estimation_mode = "epropnp"
+            # options.unireloc3r_pose_estimation_mode = "epropnp"
             # options.depth_model_type = "endofast3r_depth_trained_dbg" #critical! we better init with optimized DAM
 
 
@@ -469,7 +469,7 @@ class Trainer:
 
 
             elif self.opt.pose_model_type == "diffposer_epropnp":
-                # if self.pose_estimation_mode == 'epropnp':
+                # if self.unireloc3r_pose_estimation_mode == 'epropnp':
                 self.initialize_epropnp() # init: log_weight_scale, camera, cost_fun, epropnp
                 self._base_grid = None
 
