@@ -81,9 +81,9 @@ class Trainer:
             # # options.use_soft_motion_mask = True
 
             # # options.disable_pose_head_overwrite = True
-            # # options.pretrain_ckpt_path = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/crocoflow.pth"
-            # # options.pretrain_ckpt_path = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric.pth"
-            # options.pretrain_ckpt_path = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/DUSt3R_ViTLarge_BaseDecoder_512_dpt.pth"
+            # # options.pose_model_pretrain_ckpt_path = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/crocoflow.pth"
+            # # options.pose_model_pretrain_ckpt_path = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric.pth"
+            # options.pose_model_pretrain_ckpt_path = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/DUSt3R_ViTLarge_BaseDecoder_512_dpt.pth"
             
             # # options.pose_model_type = "uni_reloc3r"
             # # options.init_3d_scene_flow = True
@@ -170,8 +170,8 @@ class Trainer:
             # options.pose_model_type = "uni_reloc3r"
             # options.init_3d_scene_flow = True
             # options.scene_flow_estimator_type = "dpt"
-            # options.pretrain_ckpt_path = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/DUSt3R_ViTLarge_BaseDecoder_512_dpt.pth"
-            # options.pretrain_ckpt_path = '/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric.pth'
+            # options.pose_model_pretrain_ckpt_path = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/DUSt3R_ViTLarge_BaseDecoder_512_dpt.pth"
+            # options.pose_model_pretrain_ckpt_path = '/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric.pth'
             # options.use_soft_motion_mask = True
             # options.pose_estimation_mode = "epropnp"
             # options.depth_model_type = "endofast3r_depth_trained_dbg" #critical! we better init with optimized DAM
@@ -384,9 +384,11 @@ class Trainer:
         if self.use_pose_net:
 
             if self.opt.pose_model_type == "separate_resnet":
-                reloc3r_ckpt_path = f"{RELOC3R_PRETRAINED_ROOT}/Reloc3r-512.pth"
+                # reloc3r_ckpt_path = f"{RELOC3R_PRETRAINED_ROOT}/Reloc3r-512.pth"
+                assert os.path.exists(self.opt.pose_model_pretrain_ckpt_path), f"pose_model_pretrain_ckpt_path {self.opt.pose_model_pretrain_ckpt_path} does not exist"
+                assert self.opt.pose_model_pretrain_ckpt_path == f"{RELOC3R_PRETRAINED_ROOT}/Reloc3r-512.pth", f"pose_model_pretrain_ckpt_path {self.opt.pose_model_pretrain_ckpt_path} is not correct"
                 from networks import Reloc3rX
-                self.models["pose"] = Reloc3rX(reloc3r_ckpt_path)
+                self.models["pose"] = Reloc3rX(self.opt.pose_model_pretrain_ckpt_path)
             elif self.opt.pose_model_type == "endofast3r_pose_trained_dbg":
                 # load reloc3r pose model, then overwrite if saved in pose.pth
                 load_weights_folder = '/mnt/cluster/workspaces/jinjingxu/proj/UniSfMLearner/submodule/Endo_FASt3r/fast3r_ckpts/best_weights'
@@ -411,11 +413,11 @@ class Trainer:
 
             elif self.opt.pose_model_type == "uni_reloc3r":
                 # reloc3r_ckpt_path = f"{RELOC3R_PRETRAINED_ROOT}/Reloc3r-512.pth"
-                # pretrain_ckpt_path = self.opt.pretrain_ckpt_path#f"{RELOC3R_PRETRAINED_ROOT}/Reloc3r-512.pth"
-                assert os.path.exists(self.opt.pretrain_ckpt_path), f"pretrain_ckpt_path {self.opt.pretrain_ckpt_path} does not exist"
+                # pose_model_pretrain_ckpt_path = self.opt.pose_model_pretrain_ckpt_path#f"{RELOC3R_PRETRAINED_ROOT}/Reloc3r-512.pth"
+                assert os.path.exists(self.opt.pose_model_pretrain_ckpt_path), f"pose_model_pretrain_ckpt_path {self.opt.pose_model_pretrain_ckpt_path} does not exist"
                 from networks import UniReloc3r
-                print('init UniReloc3r from', self.opt.pretrain_ckpt_path)
-                self.models["pose"] = UniReloc3r(self.opt.pretrain_ckpt_path, 
+                print('init UniReloc3r from', self.opt.pose_model_pretrain_ckpt_path)
+                self.models["pose"] = UniReloc3r(self.opt.pose_model_pretrain_ckpt_path, 
                                                  self.opt,
                                                  self.log_path
                                                  )

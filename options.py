@@ -143,7 +143,7 @@ class MonodepthOptions:
         # --pretrained "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric.pth" \
         # --pretrained "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/DUSt3R_ViTLarge_BaseDecoder_512_dpt.pth" \ 
 
-        self.parser.add_argument("--pretrain_ckpt_path",
+        self.parser.add_argument("--pose_model_pretrain_ckpt_path",
                                  type=str,
                                  help="inti reloc3r from the pretrained_root",
                                  default='/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/reloc3r/checkpoints/reloc3r-512/Reloc3r-512.pth')
