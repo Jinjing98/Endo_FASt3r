@@ -190,7 +190,7 @@ class Trainer:
             # a new pose model varient:
             # options.pose_model_type = "diffposer_epropnp"
 
-            # options.enable_mutual_motion = True
+            options.enable_mutual_motion = True
             # options.use_soft_motion_mask = True
             options.use_soft_motion_mask = False
             # options.use_MF_network = False
@@ -1241,6 +1241,55 @@ class Trainer:
         
         return pts_3d, depth
 
+    def compute_pose_per_scale_geoaware_pnet_v2(self, inputs, outputs, scale_3d, px_K_scale, f_i):
+        '''
+        different strategy---need to keep enable_mutual_motion on
+        '''
+        
+        # we need t2s pose---what above compute s2t pose then inverse?
+        # aim: s2t pose
+        assert self.opt.enable_mutual_motion, "enable_mutual_motion must be True"
+        # K is shared acroos all the frames per frame_ids
+        sc_3d_fi, _ = self.disp_to_sc_3d_v0(
+                                    outputs[("disp", scale_3d, f_i)], # use tgt f0
+                                    inputs["K", scale_3d][:,:3,:3], # use tgt f0
+                                    ret_mutilscale=True,
+                                    scale_depth=1.0,
+                                    )
+        # of_fi_to_f0 = outputs[("position_reverse", scale_3d, f_i)].detach()# s2t flow
+        of_f0_to_fi = outputs[("position", scale_3d, f_i)].detach()# s2t flow
+        sc_3d_fi_matched = self.spatial_transform_warp_sc3d_geoaware_pnet[scale_3d](sc_3d_fi,
+                                                of_f0_to_fi)
+        
+        K_for_f0_2D = inputs["K", px_K_scale][:,:3,:3]
+
+        if torch.isnan(sc_3d_fi_matched).any() or torch.isinf(sc_3d_fi_matched).any():
+            assert 0, f"sc_3d_f0_matched contains nan or inf"
+
+        debug_only = True
+        debug_only = False
+        if debug_only:
+            # scale up sc_3d_f0_matched
+            sc_3d_fi_matched = sc_3d_fi_matched * 50.0 
+
+        debug_only = True
+        # debug_only = False
+        if debug_only:
+            print('for frame_id: {} and scale: {}'.format(f_i, scale_3d))
+            # print('input scene points 3d f0 matched shape:', sc_3d_fi_matched.shape)
+            print('input scene points 3d f0 matched max min z:', sc_3d_fi_matched[:,2,:,:].max(), 
+                  sc_3d_fi_matched[:,2,:,:].min())
+            print('input scene points 3d f0 matched mean x:', sc_3d_fi_matched[:,0,:,:].mean())
+            print('input scene points 3d f0 matched mean y:', sc_3d_fi_matched[:,1,:,:].mean())
+            print('input scene points 3d f0 matched mean z:', sc_3d_fi_matched[:,2,:,:].mean())
+            
+        poses_list = self.models["pose"](sc_3d_fi_matched, 
+                                        intrinsics_B33=K_for_f0_2D,
+                                        sample_level=scale_3d)
+        pose_list = [ torch.linalg.inv(pose) for pose in pose_list]# from s2t to t2s
+
+        return poses_list[-1]
+
     def compute_pose_per_scale_geoaware_pnet(self, inputs, outputs, sc_scale, px_K_scale, f_i):
 
         # K is shared acroos all the frames per frame_ids
@@ -1270,21 +1319,31 @@ class Trainer:
             print('!!!!**************!!!!')
             assert 0, f"sc_3d_f0_matched contains nan or inf"
             # sc_3d_f0_matched = torch.nan_to_num(sc_3d_f0_matched, nan=0.0, posinf=0.0, neginf=0.0)
-        
+
         debug_only = True
         debug_only = False
         if debug_only:
+            # scale up sc_3d_f0_matched
+            sc_3d_f0_matched = sc_3d_f0_matched * 50.0 
+
+        debug_only = True
+        # debug_only = False
+        if debug_only:
             print('for frame_id: {} and scale: {}'.format(f_i, sc_scale))
-            print('input scene points 3d f0 matched shape:', sc_3d_f0_matched.shape)
+            # print('input scene points 3d f0 matched shape:', sc_3d_f0_matched.shape)
             print('input scene points 3d f0 matched max min z:', sc_3d_f0_matched[:,2,:,:].max(), sc_3d_f0_matched[:,2,:,:].min())
             print('input scene points 3d f0 matched mean x:', sc_3d_f0_matched[:,0,:,:].mean())
             print('input scene points 3d f0 matched mean y:', sc_3d_f0_matched[:,1,:,:].mean())
             print('input scene points 3d f0 matched mean z:', sc_3d_f0_matched[:,2,:,:].mean())
             
+
+
         poses_list = self.models["pose"](sc_3d_f0_matched, 
                                         intrinsics_B33=K_for_fi_2D,
                                         sample_level=sc_scale)
-        # def scale_down_xyz(pose, scale_xyz = [0.001,1.0,1.0]):
+
+
+        # def scale_down_xyz(pose, scale_xyz = [1.0,1.0,1.0]):
         #     scale_down_x = scale_xyz[0]
         #     scale_down_y = scale_xyz[1]
         #     scale_down_z = scale_xyz[2]
