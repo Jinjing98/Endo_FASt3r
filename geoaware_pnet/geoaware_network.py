@@ -180,7 +180,7 @@ class Regressor(nn.Module):
         self.config=config
         self.transformer_head = Transformer_Head(config)
 
-    @classmethod
+    
     def create_from_encoder(cls, encoder_state_dict, mean, num_head_blocks, use_homogeneous, num_encoder_features):
         """
         Create a regressor using a pretrained encoder, loading encoder-specific parameters from the state dict.
@@ -204,7 +204,7 @@ class Regressor(nn.Module):
         # Done.
         return regressor
 
-    @classmethod
+    
     def create_from_state_dict(cls, state_dict, config):
         """
         Instantiate a regressor from a pretrained state dictionary.
@@ -239,7 +239,7 @@ class Regressor(nn.Module):
         # Done.
         return regressor
 
-    @classmethod
+    
     def create_from_split_state_dict(cls, encoder_state_dict, head_state_dict, config):
         """
         Instantiate a regressor from a pretrained encoder (scene-agnostic) and a scene-specific head.
@@ -258,7 +258,7 @@ class Regressor(nn.Module):
 
         return cls.create_from_state_dict(merged_state_dict, config)
 
-    @classmethod
+    
     def load_marepo_from_state_dict(cls, encoder_state_dict, head_state_dict, transformer_state_dict, config):
         """
         Load Marepo networks including weights from encoder, head, and transformer head
@@ -304,6 +304,18 @@ class PoseRegressor(nn.Module):
     def forward(self, sc, intrinsics_B33=None, sc_mask=None, random_rescale_sc=False, sample_level = 3):
         return self.transformer_head(sc, intrinsics_B33, sc_mask, random_rescale_sc, sample_level)
 
+
+    
+    def load_pose_regressor_from_state_dict(self, transformer_path):
+        """
+        Load Marepo networks including weights from encoder, head, and transformer head
+        """
+        transformer_state_dict = torch.load(transformer_path, map_location="cpu")
+        _logger.info(f"Loaded transformer weights from: {transformer_path}")
+
+        # network = cls.create_from_split_state_dict(encoder_state_dict, head_state_dict, config)
+        self.transformer_head.load_state_dict(transformer_state_dict['aceformer_head'], strict=True)
+        print('loaded pretrained TR pose regressor from marepo...')
 
 if __name__ == "__main__":
     import json
