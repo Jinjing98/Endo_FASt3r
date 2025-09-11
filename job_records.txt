@@ -1,8 +1,15 @@
+# think of reattention during offline use?---only then we have motion mask....
+# think of masked pose net as input
+
 # fix PF multi level bug
 ////best fast3r+doubleB
 99306 colored_MotionCorrected_loss2nomo_000_unfzD_b3_accu1_hardmask_RegMask_ignoreMotionAreaAtCalib_OFgtSup_raft_useMFnet_sharedMOF_doubleB_scratch_fixPFbug_resumeTrainedDAM
+////best fast3r+doubleB b1accu3 quicker
+99444 colored_MotionCorrected_loss2nomo_000_unfzD_b1_accu3_hardmask_RegMask_ignoreMotionAreaAtCalib_OFgtSup_raft_useMFnet_sharedMOF_doubleB_scratch_fixPFbug_resumeTrainedDAM_quick
 ////geoaware_net
 99308 colored_MotionCorrected_loss2nomo_000_unfzD_b3_accu1_hardmask_RegMask_ignoreMotionAreaAtCalib_OFgtSup_raft_useMFnet_sharedMOF_doubleB_geoaware32_40Wfast3rPose_scratch_fixPFbug_resumeTrainedDAM
+////geoaware_net_b1accu3: (failed due to seme sample contain nan flow) 
+99443 colored_MotionCorrected_loss2nomo_000_unfzD_b1_accu3_hardmask_RegMask_ignoreMotionAreaAtCalib_OFgtSup_raft_useMFnet_sharedMOF_doubleB_geoaware32_40Wfast3rPose_scratch_fixPFbug_resumeTrainedDAM_quick
 
 
 ////geoaware_net

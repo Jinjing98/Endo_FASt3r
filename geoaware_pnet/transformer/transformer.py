@@ -203,6 +203,7 @@ class Transformer_Head(nn.Module):
         # Misc
         self.config = config
         self.d_model = self.config['d_model']
+        self.px_resample_rule_dict_scale_step = self.config['px_resample_rule_dict_scale_step']
 
         self.use_homogeneous = False
         if 'use_homogeneous_pose_t' in self.config:
@@ -444,7 +445,7 @@ class Transformer_Head(nn.Module):
 
         return sc_coords_new, scale_factor, translation_sc_shift_offset
 
-    def forward(self, sc, intrinsics_B33=None, sc_mask=None, random_rescale_sc=False):
+    def forward(self, sc, intrinsics_B33=None, sc_mask=None, random_rescale_sc=False, sample_level = 3):
         """
         Parameters:
             sc: scene coordinate map [N,C,H,W]
@@ -462,8 +463,11 @@ class Transformer_Head(nn.Module):
         # subtract mapping mean
         sc_coords = sc - self.transformer_pose_mean # DO Not remove, used in testing
 
+        sample_step = self.px_resample_rule_dict_scale_step[sample_level]
+        print('for smaple level {}, sample_step: {}'.format(sample_level, sample_step))
+
         # SC map positional encoding
-        sc_feat, pixel_pe = self.pos_encoding(sc_coords, intrinsics_B33)
+        sc_feat, pixel_pe = self.pos_encoding(sc_coords, intrinsics_B33, sample_step)
         feat = rearrange(sc_feat, 'n c h w -> n (h w) c') # [32, 4800, 128]
 
         if sc_mask==None:

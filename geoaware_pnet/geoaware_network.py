@@ -301,8 +301,8 @@ class PoseRegressor(nn.Module):
         self.config = config
         self.transformer_head = Transformer_Head(config)
     
-    def forward(self, sc, intrinsics_B33=None, sc_mask=None, random_rescale_sc=False):
-        return self.transformer_head(sc, intrinsics_B33, sc_mask, random_rescale_sc)
+    def forward(self, sc, intrinsics_B33=None, sc_mask=None, random_rescale_sc=False, sample_level = 3):
+        return self.transformer_head(sc, intrinsics_B33, sc_mask, random_rescale_sc, sample_level)
 
 
 if __name__ == "__main__":

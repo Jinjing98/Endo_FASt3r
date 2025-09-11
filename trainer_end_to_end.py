@@ -53,6 +53,8 @@ def set_seed(seed=42):
 class Trainer:
     def __init__(self, options):
 
+
+
         # update options for debug purposes
         if options.debug:
             print("DEBUG MODE")
@@ -213,6 +215,12 @@ class Trainer:
 
             # # motion_flow net predict all nan after grads update when the there is no scene dynamics?
 
+
+        options.px_resample_rule_dict_scale_step = {
+                                                         0: 2**0,
+                                                         1: 2**1,
+                                                         2: 2**2,
+                                                         3: 2**3,}
 
         self.opt = options
         
@@ -427,6 +435,8 @@ class Trainer:
                 # transformer_pose_mean will be applied internnally in pose_regression_head
                 config["transformer_pose_mean"] = mean_cam_center # for us, we set to zero as we predict only the relative pose.
                 config["default_img_HW"] = [default_img_H, default_img_W]
+                config["px_resample_rule_dict_scale_step"] = self.opt.px_resample_rule_dict_scale_step
+
 
                 self.models["pose"] = PoseRegressor(config)
                 print('loaded GeoAwarePNet pose regressor with default img HW {}'.format(config["default_img_HW"]))
@@ -555,9 +565,13 @@ class Trainer:
         self.spatial_transform.to(self.device)
         if self.opt.pose_model_type == "geoaware_pnet":
             print('using spatial_transform_used_to_warp_sc_3d.....')
-            self.spatial_transform_used_to_warp_sc_3d = SpatialTransformer((int(self.opt.height/8), 
-                                                                            int(self.opt.width/8)))
-            self.spatial_transform_used_to_warp_sc_3d.to(self.device)
+            self.spatial_transform_warp_sc3d_geoaware_pnet = {}
+            for scale in self.opt.scales:
+                sample_step = self.opt.px_resample_rule_dict_scale_step[scale]
+                self.spatial_transform_warp_sc3d_geoaware_pnet_scale_i = SpatialTransformer((int(self.opt.height/sample_step), 
+                                                                                int(self.opt.width/sample_step)))
+                self.spatial_transform_warp_sc3d_geoaware_pnet_scale_i.to(self.device)
+                self.spatial_transform_warp_sc3d_geoaware_pnet[scale] = self.spatial_transform_warp_sc3d_geoaware_pnet_scale_i
         elif self.opt.pose_model_type == "diffposer_epropnp":
             print('using spatial_transform_used_to_warp_sc_3d.....')
             self.spatial_transform_used_to_warp_sc_3d = SpatialTransformer((int(self.opt.height), 
@@ -1213,6 +1227,70 @@ class Trainer:
         return outputs, losses
 
 
+    def disp_to_sc_3d_v0(self, disp, intrinsics, ret_mutilscale, scale_depth = 1.0):
+        assert isinstance(ret_mutilscale, bool), "ret_mutilscale must be a bool"
+        if not ret_mutilscale:
+            disp = F.interpolate(
+                disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=True)
+        _, depth = disp_to_depth(disp, self.opt.min_depth, self.opt.max_depth) #muti-scale
+        # print('min depth', torch.min(depth))
+        # print('max depth', torch.max(depth))
+        depth = depth * scale_depth
+
+        pts_3d = depth_to_3d(depth, intrinsics)
+        
+        return pts_3d, depth
+
+    def compute_pose_per_scale_geoaware_pnet(self, inputs, outputs, sc_scale, px_K_scale, f_i):
+
+        # K is shared acroos all the frames per frame_ids
+        sc_3d_f0, _ = self.disp_to_sc_3d_v0(
+                                    outputs[("disp", sc_scale)], 
+                                    inputs["K", sc_scale][:,:3,:3],
+                                    ret_mutilscale=True,
+                                    scale_depth=1.0,
+                                    )
+        # critical: we need to warp sc_3d_f0 as matches of px_2d_fi
+        of_fi_to_f0 = outputs[("position", sc_scale, f_i)].detach() 
+        sc_3d_f0_matched = self.spatial_transform_warp_sc3d_geoaware_pnet[sc_scale](sc_3d_f0,
+                                                of_fi_to_f0)
+        # in trinsics is from src img 
+        # notice for 2D we provide the scale0 intrinsics, as internally it will gen px_pe_raw with 
+        # raw_resolution then subsample the px_pe with 8
+        K_for_fi_2D = inputs["K", px_K_scale][:,:3,:3]
+        # sanity check if sc_3d_f0_matched contains nan or inf.
+        if torch.isnan(sc_3d_f0_matched).any() or torch.isinf(sc_3d_f0_matched).any():
+            print('!!!!**************!!!!')
+            print('sc_3d_f0_matched contains nan or inf')
+            print('!!!!**************!!!!')
+            assert 0, f"sc_3d_f0_matched contains nan or inf"
+            # sc_3d_f0_matched = torch.nan_to_num(sc_3d_f0_matched, nan=0.0, posinf=0.0, neginf=0.0)
+        
+        print('input scene points 3d f0 matched shape:', sc_3d_f0_matched.shape)
+        print('input scene points 3d f0 matched max min z:', sc_3d_f0_matched[:,2,:,:].max(), sc_3d_f0_matched[:,2,:,:].min())
+        print('input scene points 3d f0 matched mean x:', sc_3d_f0_matched[:,0,:,:].mean())
+        print('input scene points 3d f0 matched mean y:', sc_3d_f0_matched[:,1,:,:].mean())
+        print('input scene points 3d f0 matched mean z:', sc_3d_f0_matched[:,2,:,:].mean())
+        
+        poses_list = self.models["pose"](sc_3d_f0_matched, 
+                                        intrinsics_B33=K_for_fi_2D,
+                                        sample_level=sc_scale)
+        # def scale_down_xyz(pose, scale_xyz = [0.001,1.0,1.0]):
+        #     scale_down_x = scale_xyz[0]
+        #     scale_down_y = scale_xyz[1]
+        #     scale_down_z = scale_xyz[2]
+        #     pose[:,:3,0] *= scale_down_x
+        #     pose[:,:3,1] *= scale_down_y
+        #     pose[:,:3,2] *= scale_down_z
+        #     return pose
+        # scale_xyz = [1.0,1.0,1.0]
+        # poses_list = [scale_down_xyz(pose, scale_xyz) for pose in poses_list]
+        
+        # poses_list[-1] # extract the last pose with high quality
+        return poses_list[-1]
+
+
+
     def predict_poses(self, inputs, outputs = {}):
         """Predict poses between input frames for monocular sequences.
         """
@@ -1277,19 +1355,7 @@ class Trainer:
                         outputs[("occu_mask_backward", scale, f_i)],  outputs[("occu_map_backward", scale, f_i)]= self.get_occu_mask_backward(outputs[("position_reverse", "high", scale, f_i)])
                         outputs[("occu_map_bidirection", scale, f_i)] = self.get_occu_mask_bidirection(outputs[("position", "high", scale, f_i)],
                                                                                                           outputs[("position_reverse", "high", scale, f_i)])
-                    def disp_to_sc_3d_v0(disp, intrinsics, ret_mutilscale, scale_depth = 1.0):
-                        assert isinstance(ret_mutilscale, bool), "ret_mutilscale must be a bool"
-                        if not ret_mutilscale:
-                            disp = F.interpolate(
-                                disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=True)
-                        _, depth = disp_to_depth(disp, self.opt.min_depth, self.opt.max_depth) #muti-scale
-                        # print('min depth', torch.min(depth))
-                        # print('max depth', torch.max(depth))
-                        depth = depth * scale_depth
 
-                        pts_3d = depth_to_3d(depth, intrinsics)
-                        
-                        return pts_3d, depth
 
                     def disp_to_sc_3d(inputs, outputs, scale, ret_mutilscale, scale_depth = 1.0):
                         disp = outputs[("disp", scale)]# for tgt frame
@@ -1330,73 +1396,20 @@ class Trainer:
                     if self.opt.pose_model_type == "geoaware_pnet":
                         from layers import disp_to_depth, depth_to_3d
                         # we need estimated t2s
-                        # sc_3d_f0 = torch.randn(1, 3, 
-                        #                     int(self.models["pose"].config["default_img_H"]/8), 
-                        #                     int(self.models["pose"].config["default_img_W"]/8)) # tgt depth
-                        # print('test depth shape',sc_3d_f0.shape)
-                        #/////////////
-                        sc_scale = 3 # lowest 
-                        k_for_f0_3D = inputs["K", sc_scale][:,:3,:3]
-                        
-                        # K is shared acroos all the frames per frame_ids
-                        scale_depth = 1.0
-                        sc_3d_f0, _ = disp_to_sc_3d_v0(
-                                                    outputs[("disp", sc_scale)], 
-                                                    k_for_f0_3D,
-                                                    ret_mutilscale=True,
-                                                    scale_depth=scale_depth,
-                                                    )
-                        # critical: we need to warp sc_3d_f0 as matches of px_2d_fi
-                        # using sc_3d_f0 , flow_f1_to_f0 (sc_scale)
-                        # print('of shape', outputs[("position", sc_scale, f_i)].shape)
-                        # print('sc_3d_f0 shape', sc_3d_f0.shape)
-                        of_fi_to_f0 = outputs[("position", sc_scale, f_i)].detach() 
-                        sc_3d_f0_matched = self.spatial_transform_used_to_warp_sc_3d(sc_3d_f0,
-                                                                 of_fi_to_f0)
-                        
-                        # in trinsics is from src img 
-                        # notice for 2D we provide the scale0 intrinsics, as internally it will gen px_pe_raw with 
-                        # raw_resolution then subsample the px_pe with 8
-                        px_K_scale = 0
-                        K_for_fi_2D = inputs["K", px_K_scale][:,:3,:3]
-                        # sanity check if sc_3d_f0_matched contains nan or inf.
-                        if torch.isnan(sc_3d_f0_matched).any() or torch.isinf(sc_3d_f0_matched).any():
-                            print('!!!!**************!!!!')
-                            print('sc_3d_f0_matched contains nan or inf')
-                            print('!!!!**************!!!!')
-                            assert 0, f"sc_3d_f0_matched contains nan or inf"
-                            # sc_3d_f0_matched = torch.nan_to_num(sc_3d_f0_matched, nan=0.0, posinf=0.0, neginf=0.0)
-                        
-                        print('input scene points 3d f0 matched shape:', sc_3d_f0_matched.shape)
-                        print('input scene points 3d f0 matched max min z:', sc_3d_f0_matched[:,2,:,:].max(), sc_3d_f0_matched[:,2,:,:].min())
-                        print('input scene points 3d f0 matched mean x:', sc_3d_f0_matched[:,0,:,:].mean())
-                        print('input scene points 3d f0 matched mean y:', sc_3d_f0_matched[:,1,:,:].mean())
-                        print('input scene points 3d f0 matched mean z:', sc_3d_f0_matched[:,2,:,:].mean())
-                        
-                        poses_list = self.models["pose"](sc_3d_f0_matched, intrinsics_B33=K_for_fi_2D)
+                        # px_K_scale = 0
+                        # sc_scale = 3 # lowest 
 
-
-                        scale_down_trans = 0.001
-                        # scale_down_trans = 1.0#0001
-                        def scale_down_pose(pose, scale_down_trans):
-                            # only scale the translation part
-                            pose[:,:3,3] *= scale_down_trans
-                            return pose
-                        def scale_down_xyz(pose, scale_xyz = [0.001,1.0,1.0]):
-                            scale_down_x = scale_xyz[0]
-                            scale_down_y = scale_xyz[1]
-                            scale_down_z = scale_xyz[2]
-                            pose[:,:3,0] *= scale_down_x
-                            pose[:,:3,1] *= scale_down_y
-                            pose[:,:3,2] *= scale_down_z
-                            return pose
-                        scale_xyz = [0.00001,0.001,0.001]
-                        scale_xyz = [1.0,1.0,1.0]
-                        # poses_list = [scale_down_pose(pose, scale_down_trans) for pose in poses_list]
-                        poses_list = [scale_down_xyz(pose, scale_xyz) for pose in poses_list]
+                        px_K_scale = 0 # 2d alwasy use high resolution matched with 8 grid
+                        sc_scales = [3] # lowest 
                         # we need pose tgt2src, ie: pose2to1, i.e the pose2 in breif in reloc3r model.
-                        outputs[("cam_T_cam", 0, f_i)] = poses_list[-1] # extract the last pose with high quality
-                        # outputs[("cam_T_cam", 0, f_i)] = torch.eye(4).to(self.device).repeat(poses_list[-1].shape[0], 1, 1)
+                        for sc_scale in self.opt.scales:
+                        # for sc_scale in sc_scales:
+                            # outputs[("cam_T_cam", 0, f_i)] = compute_pose_per_scale(inputs, outputs, sc_scale, px_K_scale)
+                            outputs[("cam_T_cam", sc_scale, f_i)] = self.compute_pose_per_scale_geoaware_pnet(inputs, outputs, sc_scale, px_K_scale, f_i)
+                            print('For geoaware: we are able to get multi level resoutluion poses!')
+                            print('level of the poses: {}'.format(sc_scale))
+                            print('translation of the poses: {}'.format(outputs[("cam_T_cam", sc_scale, f_i)][:,:3,3]))
+
                         
                         
 

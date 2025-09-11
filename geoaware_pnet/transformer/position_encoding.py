@@ -104,7 +104,7 @@ class PositionEncodingSine(nn.Module):
         x = torch.where(z_norm <= 1, z, z / (2 * z_norm - z_norm**2))
         return x
 
-    def dynamic_pixel_pe_focal_norm(self, N, intrinsic):
+    def dynamic_pixel_pe_focal_norm(self, N, intrinsic, sample_step = 8):
         '''
         perform dynamically pixel position encoding at run time, normalized by focal length and center principle points
         N: batch size
@@ -126,14 +126,14 @@ class PositionEncodingSine(nn.Module):
         x_position = (x_position/intrinsic[:,0,0][:,None,None])[:,None,::] # fx, [N, 1, H, W]
 
         # subsample x,y position for SC maps
-        y_position = y_position[:,:,0::8,0::8].contiguous() # (0,0) (0,8),...
-        x_position = x_position[:,:,0::8,0::8].contiguous()
+        y_position = y_position[:,:,0::sample_step,0::sample_step].contiguous() # (0,0) (0,8),...
+        x_position = x_position[:,:,0::sample_step,0::sample_step].contiguous()
 
         # upscale x, y position magnitude, heuristic implementation
         y_position = y_position * 400
         x_position = x_position * 400
 
-        pe = copy.deepcopy(self.pe[:,0::8,0::8]).to(intrinsic.device)
+        pe = copy.deepcopy(self.pe[:,0::sample_step,0::sample_step]).to(intrinsic.device)
         pe = repeat(pe, 'n1 h w -> n2 n1 h w', n2=N).clone()#.contiguous() # [N, d_model, H, W]
         self.div_term = self.div_term.to(intrinsic.device) # [1, C//4, 1, 1]
         pe[:,0::4, :, :] = torch.sin(x_position * self.div_term)
@@ -158,7 +158,7 @@ class PositionEncodingSine(nn.Module):
         x = self.contract(x) * math.pi / 2 # make sure values are within +/- pi
         return x
 
-    def forward_nerf(self, x, intrinsic=None):
+    def forward_nerf(self, x, intrinsic=None, sample_step = 8):
         '''
         Encode scene coordinates with nerf encoding,
         and selectively with pixel position encoding
@@ -189,7 +189,7 @@ class PositionEncodingSine(nn.Module):
         x = self.pre_pe_dim_manipulator(x) # [N, d_model, H, W]
 
         if self.pixel_pe == 'focal_norm': # focal norm encoding with SC only
-            pe = self.dynamic_pixel_pe_focal_norm(N, intrinsic)
+            pe = self.dynamic_pixel_pe_focal_norm(N, intrinsic, sample_step )
             pixel_pe = pe[:, :, :x.size(2), :x.size(3)].contiguous()
             x = x + pixel_pe
         else: # no focal norm encoding
@@ -197,7 +197,7 @@ class PositionEncodingSine(nn.Module):
             x = x + pixel_pe
         return x, pixel_pe
 
-    def forward(self, x, intrinsic=None):
+    def forward(self, x, intrinsic=None, sample_step = 8):
         """
         Args:
             x: [N, C, H, W]
@@ -206,7 +206,7 @@ class PositionEncodingSine(nn.Module):
             intrinsic: [N,3,3]
         """
 
-        x, pixel_pe = self.forward_fn(x, intrinsic) # only return encoded scene coordinates
+        x, pixel_pe = self.forward_fn(x, intrinsic, sample_step) # only return encoded scene coordinates
         return x, pixel_pe
 
     def compute_scene_coordinate_stats(self, x, OOR_value):
@@ -247,7 +247,7 @@ class PositionEncodingSine(nn.Module):
 
         print("visualized pe to tmp/pe")
 
-    def plot_pixel_pe_with_diff_intrinsics(self, N, intrinsic, folder, index):
+    def plot_pixel_pe_with_diff_intrinsics(self, N, intrinsic, folder, index, sample_step = 8):
         '''
         N: batch size
         intrinsic: [B,3,3]
@@ -258,7 +258,7 @@ class PositionEncodingSine(nn.Module):
             intrinsic[:,1,1] = focal
             intrinsic[:,0,0] = focal
 
-            pe = self.dynamic_pixel_pe_focal_norm(N, intrinsic)
+            pe = self.dynamic_pixel_pe_focal_norm(N, intrinsic, sample_step)
 
             if torch.is_tensor(pe):
                 pe = pe.cpu().detach().numpy()
