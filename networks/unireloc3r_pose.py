@@ -209,7 +209,18 @@ def UniReloc3r(path: str, opt, output_dir = None):
                                             opt = opt,
                                             output_dir = output_dir,
                                             )# internally control model init via opt.
-    reloc3r_relpose = DoRAInitializer(reloc3r_relpose, [20, 20, 20, 18, 18, 18, 18, 18, 16, 16, 16, 16, 14,14,12,12,10,10,8,8,8,8,8,8], [14, 14, 12, 12, 10, 10, 8, 8, 8, 8, 8, 8]).initialize_dora()
+    
+    debug_only = True
+    debug_only = False
+    
+    if debug_only:
+        reloc3r_relpose = DoRAInitializer(reloc3r_relpose, 
+                                        [1]*24, 
+                                        [1]*12).initialize_dora()
+    else:
+        reloc3r_relpose = DoRAInitializer(reloc3r_relpose, [20, 20, 20, 18, 18, 18, 18, 18, 16, 16, 16, 16, 14,14,12,12,10,10,8,8,8,8,8,8], [14, 14, 12, 12, 10, 10, 8, 8, 8, 8, 8, 8]).initialize_dora()
+        reloc3r_relpose = VectorMoRAInitializer(reloc3r_relpose, [20, 20, 20, 18, 18, 18, 18, 18, 16, 16, 16, 16, 14,14,12,12,10,10,8,8,8,8,8,8], [14, 14, 12, 12, 10, 10, 8, 8, 8, 8, 8, 8]).initialize_mora()
+
     reloc3r_relpose = VectorMoRAInitializer(reloc3r_relpose, [20, 20, 20, 18, 18, 18, 18, 18, 16, 16, 16, 16, 14,14,12,12,10,10,8,8,8,8,8,8], [14, 14, 12, 12, 10, 10, 8, 8, 8, 8, 8, 8]).initialize_mora()
     # update with endofast3r pose_head
     if not opt.disable_pose_head_overwrite:

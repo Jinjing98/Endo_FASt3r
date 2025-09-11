@@ -4,6 +4,10 @@ __pycache__/*
 *.ipynb
 *.npz
 *.png
+*.zip
+*.ckpt
+*.pth
+*.pt
 *.egg-info/*
 splits/*
 

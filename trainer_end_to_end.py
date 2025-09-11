@@ -68,7 +68,6 @@ class Trainer:
             # options.log_dir = "/mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm_debug"
 
 
-            options.pose_model_type = "geoaware_pnet"
 
             options.shared_MF_OF_network = True
 
@@ -135,7 +134,7 @@ class Trainer:
             # # big step might lead to inf?
             # options.frame_ids = [0, -1, 1]
             # # options.frame_ids = [0, -3, 3]
-            # # options.frame_ids = [0, -14, 14]
+            options.frame_ids = [0, -14, 14]
 
             # # # # not okay to use: we did not adjust the init_K accordingly yet
             # DYNASCARED IS FINE?
@@ -181,14 +180,17 @@ class Trainer:
             # # # debug trained fast3r (understand its learned scale)
             # options.pose_model_type = "endofast3r_pose_trained_dbg"
             options.depth_model_type = "endofast3r_depth_trained_dbg" #critical! we better init with optimized DAM
-            # # options.gt_metric_rel_pose_as_estimates_debug = True
-            # options.min_depth = 0.1 # bigger safer
-            # options.max_depth = 150.0 # bigger safer
-            # # options.enable_motion_computation = False
+            # options.gt_metric_rel_pose_as_estimates_debug = True
+            options.min_depth = 0.1 # bigger safer
+            options.max_depth = 150.0 # bigger safer
+            # options.enable_motion_computation = False
             # options.enable_motion_computation = True
 
             # a new pose model varient:
             # options.pose_model_type = "diffposer_epropnp"
+
+            options.pose_model_type = "geoaware_pnet"
+
 
             options.enable_mutual_motion = True
             # options.use_soft_motion_mask = True
@@ -437,9 +439,31 @@ class Trainer:
                 config["default_img_HW"] = [default_img_H, default_img_W]
                 config["px_resample_rule_dict_scale_step"] = self.opt.px_resample_rule_dict_scale_step
 
+                pose_model = PoseRegressor(config)
+   
+                debug_only = True
+                if debug_only:
+                    transformer_root = '/mnt/cluster/workspaces/jinjingxu/proj/UniSfMLearner/submodule/Endo_FASt3r/geoaware_pnet/trained_ckpt2/paper_model'
+                    if config["rotation_representation"] == "9D":
+                        transformer_path = os.path.join(transformer_root, 
+                                                        "marepo_9D/marepo_9D.pt",
+                                                        )
+                    else:
+                        transformer_path = os.path.join(transformer_root, 
+                                                        "marepo/marepo.pt",
+                                                        )
+                    assert os.path.exists(transformer_path), f"transformer_path {transformer_path} does not exist"
+                    print('loading pretrained GeoAwarePNet pose regressor from', transformer_path)
+                    pose_model.load_pose_regressor_from_state_dict(transformer_path)
+   
+                self.models["pose"] = pose_model
 
-                self.models["pose"] = PoseRegressor(config)
+                # self.models["pose"] = PoseRegressor(config)
                 print('loaded GeoAwarePNet pose regressor with default img HW {}'.format(config["default_img_HW"]))
+
+
+
+
 
             elif self.opt.pose_model_type == "diffposer_epropnp":
                 # if self.pose_estimation_mode == 'epropnp':
@@ -1251,13 +1275,14 @@ class Trainer:
         assert self.opt.enable_mutual_motion, "enable_mutual_motion must be True"
         # K is shared acroos all the frames per frame_ids
         sc_3d_fi, _ = self.disp_to_sc_3d_v0(
-                                    outputs[("disp", scale_3d, f_i)], # use tgt f0
-                                    inputs["K", scale_3d][:,:3,:3], # use tgt f0
+                                    outputs[("disp", scale_3d, f_i)], # use src fi
+                                    inputs["K", scale_3d][:,:3,:3], # use src fi
                                     ret_mutilscale=True,
                                     scale_depth=1.0,
                                     )
         # of_fi_to_f0 = outputs[("position_reverse", scale_3d, f_i)].detach()# s2t flow
-        of_f0_to_fi = outputs[("position", scale_3d, f_i)].detach()# s2t flow
+        of_f0_to_fi = outputs[("position", scale_3d, f_i)].detach()# t2s flow
+        # sc_3d_fi_matched = sc_3d_fi
         sc_3d_fi_matched = self.spatial_transform_warp_sc3d_geoaware_pnet[scale_3d](sc_3d_fi,
                                                 of_f0_to_fi)
         
@@ -1286,7 +1311,7 @@ class Trainer:
         poses_list = self.models["pose"](sc_3d_fi_matched, 
                                         intrinsics_B33=K_for_f0_2D,
                                         sample_level=scale_3d)
-        pose_list = [ torch.linalg.inv(pose) for pose in pose_list]# from s2t to t2s
+        poses_list = [ torch.linalg.inv(pose) for pose in poses_list]# from s2t to t2s
 
         return poses_list[-1]
 
@@ -2878,7 +2903,7 @@ class Trainer:
         if debug_only:
             #vis more
             tgt_scale_to_vis = [0,3]
-            tgt_frame_id_to_vis = [-1,1]
+            tgt_frame_id_to_vis = self.opt.frame_ids[1:]
 
         # motion_flow and motion_mask will have adapted shape at various level while the others are all on the level0 shape
         for j in range(min(1, self.opt.batch_size)):  # write a maxmimum of 2 images
