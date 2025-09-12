@@ -14,9 +14,18 @@ from setuptools import setup, find_packages
 # )
 
 
-# install geoaware_pnet
+# # install geoaware_pnet
+# setup(
+#   name = 'geoaware_pnet',  # it will look up /vit_cls with its current hierachy. notice, there shouldn’t be ‘-’ for the pkg name('_'is accepted tho)!!
+#   packages = find_packages(),  # it will look up the avaible directory where there are __init__.py under it!
+#   version = '0.0.1',
+#   license='MIT', 
+# )
+
+
+# install pcrnet
 setup(
-  name = 'geoaware_pnet',  # it will look up /vit_cls with its current hierachy. notice, there shouldn’t be ‘-’ for the pkg name('_'is accepted tho)!!
+  name = 'pcrnet',  # it will look up /vit_cls with its current hierachy. notice, there shouldn’t be ‘-’ for the pkg name('_'is accepted tho)!!
   packages = find_packages(),  # it will look up the avaible directory where there are __init__.py under it!
   version = '0.0.1',
   license='MIT', 
