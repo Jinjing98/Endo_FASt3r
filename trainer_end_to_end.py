@@ -1650,7 +1650,7 @@ class Trainer:
                         outputs[("cam_T_cam", 0, f_i)] = pose2["pose"] # we need pose tgt2src, ie: pose2to1, i.e the pose2 in breif in reloc3r model.
 
                     elif self.opt.pose_model_type == 'separate_resnet':
-                        # pose
+                        # tran scale from af sfmlearner: [-5.2260e-06, -1.7639e-05, -3.6466e-04]
                         pose_inputs = [self.models["pose_encoder"](torch.cat(inputs_all, 1))]
                         axisangle, translation = self.models["pose"](pose_inputs)
 
@@ -1658,11 +1658,12 @@ class Trainer:
                         outputs[("translation", 0, f_i)] = translation
                         outputs[("cam_T_cam", 0, f_i)] = transformation_from_parameters(
                             axisangle[:, 0], translation[:, 0])
-                        # tran scale from af sfmlearner: [-5.2260e-06, -1.7639e-05, -3.6466e-04]
                     elif self.opt.pose_model_type in ["endofast3r",
                                                       'endofast3r_pose_trained_dbg',
                                                       "uni_reloc3r", 
                                                       ]:
+                        # trans scale for endofast3r: [-2.4887e-05, -1.8644e-05,  1.3773e-03]
+                        
                         resized_img1, adapted_K1 = prepare_images(inputs["color_aug", f_i, 0],self.device, size = 512, Ks=scale0_camera_intrinsics[f_i])
                         resized_img2, adapted_K2 = prepare_images(inputs["color_aug", 0, 0], self.device, size = 512, Ks=scale0_camera_intrinsics[0])
                         view1 = {'img':resized_img1, 'camera_intrinsics':adapted_K1}
