@@ -2922,14 +2922,12 @@ class Trainer:
         # for j in range(min(4, self.opt.batch_size)):  # write a maxmimum of four images
         tgt_scale_to_vis = [0]
         tgt_frame_id_to_vis = self.opt.frame_ids[1:2]
-        # tgt_scale_to_vis = [0,1]
-        # tgt_scale_to_vis = [0,1,2,3]
-        # tgt_scale_to_vis = [0,3]
-        debug_only = True
-        if debug_only:
-            #vis more
-            tgt_scale_to_vis = [0,3]
-            tgt_frame_id_to_vis = self.opt.frame_ids[1:]
+        
+        # debug_only = True
+        # if debug_only:
+        #     #vis more
+        #     tgt_scale_to_vis = [0,3]
+        #     tgt_frame_id_to_vis = self.opt.frame_ids[1:]
 
         # motion_flow and motion_mask will have adapted shape at various level while the others are all on the level0 shape
         for j in range(min(1, self.opt.batch_size)):  # write a maxmimum of 2 images
