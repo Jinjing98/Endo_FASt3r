@@ -176,13 +176,16 @@ class Trainer:
             options.use_soft_motion_mask = True
             options.unireloc3r_pose_estimation_mode = "epropnp"
             options.unireloc3r_pose_estimation_mode = "geoaware_pnet"
+            options.unireloc3r_pose_estimation_mode = "vanilla_pose_head_regression"
             options.geoaware_cfg_path = "/mnt/cluster/workspaces/jinjingxu/proj/UniSfMLearner/submodule/Endo_FASt3r/geoaware_pnet/transformer/config/config_geoaware_in_unireloc3r.json"
             options.load_geoaware_pretrain_model = True
             options.depth_model_type = "endofast3r_depth_trained_dbg" #critical! we better init with optimized DAM
 
 
+            # options.pose_model_type = "ptnet"
+
             # # # debug trained fast3r (understand its learned scale)
-            # options.pose_model_type = "endofast3r_pose_trained_dbg"
+            options.pose_model_type = "endofast3r_pose_trained_dbg"
             options.depth_model_type = "endofast3r_depth_trained_dbg" #critical! we better init with optimized DAM
             # options.gt_metric_rel_pose_as_estimates_debug = True
             options.min_depth = 0.1 # bigger safer
@@ -1602,7 +1605,7 @@ class Trainer:
 
                     elif self.opt.pose_model_type in ["separate_resnet",
                                                       'endofast3r_pose_trained_dbg',
-                                                      "reloc3r_uni", 
+                                                      "uni_reloc3r", 
                                                       ]:
                         resized_img1, adapted_K1 = prepare_images(inputs["color_aug", f_i, 0],self.device, size = 512, Ks=scale0_camera_intrinsics[f_i])
                         resized_img2, adapted_K2 = prepare_images(inputs["color_aug", 0, 0], self.device, size = 512, Ks=scale0_camera_intrinsics[0])
@@ -1631,7 +1634,7 @@ class Trainer:
                     elif self.opt.pose_model_type == "posenet":
                         assert 0, 'posenet is not implemented'
 
-                        
+
                     else:
                         assert 0, f'{self.opt.pose_model_type} is not implemented'
         return outputs
