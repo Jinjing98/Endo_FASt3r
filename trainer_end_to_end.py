@@ -189,7 +189,7 @@ class Trainer:
             options.pose_model_type = "separate_resnet"
 
             # # # debug trained fast3r (understand its learned scale)
-            # options.pose_model_type = "endofast3r_pose_trained_dbg"
+            options.pose_model_type = "endofast3r_pose_trained_dbg"
             options.depth_model_type = "endofast3r_depth_trained_dbg" #critical! we better init with optimized DAM
             # options.gt_metric_rel_pose_as_estimates_debug = True
             options.min_depth = 0.1 # bigger safer
@@ -395,7 +395,26 @@ class Trainer:
 
         if self.use_pose_net:
 
-            if self.opt.pose_model_type == "endofast3r":
+            if self.opt.pose_model_type == "separate_resnet":
+                pose_encoder_path = os.path.join('/mnt/cluster/workspaces/jinjingxu/proj/UniSfMLearner/submodule/Endo_FASt3r/', "af_sfmlearner_weights", "pose_encoder.pth")
+                pose_decoder_path = os.path.join('/mnt/cluster/workspaces/jinjingxu/proj/UniSfMLearner/submodule/Endo_FASt3r/', "af_sfmlearner_weights", "pose.pth")
+                self.models["pose_encoder"] = networks.ResnetEncoder(
+                    self.opt.num_layers,
+                    self.opt.weights_init == "pretrained",
+                    num_input_images=self.num_pose_frames)
+                assert os.path.exists(pose_encoder_path), f"pose_encoder_path {pose_encoder_path} does not exist"
+                self.models["pose_encoder"].load_state_dict(torch.load(pose_encoder_path))
+                self.models["pose_encoder"].to(self.device)
+                self.parameters_to_train += list(self.models["pose_encoder"].parameters())
+
+                self.models["pose"] = networks.PoseDecoder(
+                    self.models["pose_encoder"].num_ch_enc,
+                    num_input_features=1,
+                    num_frames_to_predict_for=2)
+                assert os.path.exists(pose_decoder_path), f"pose_decoder_path {pose_decoder_path} does not exist"
+                self.models["pose"].load_state_dict(torch.load(pose_decoder_path))
+
+            elif self.opt.pose_model_type == "endofast3r":
                 # reloc3r_ckpt_path = f"{RELOC3R_PRETRAINED_ROOT}/Reloc3r-512.pth"
                 assert os.path.exists(self.opt.backbone_pretrain_ckpt_path), f"backbone_pretrain_ckpt_path {self.opt.backbone_pretrain_ckpt_path} does not exist"
                 assert self.opt.backbone_pretrain_ckpt_path == f"{RELOC3R_PRETRAINED_ROOT}/Reloc3r-512.pth", f"backbone_pretrain_ckpt_path {self.opt.backbone_pretrain_ckpt_path} is not correct"
@@ -1382,8 +1401,6 @@ class Trainer:
             for f_i in self.opt.frame_ids[1:]:
 
                 if f_i != "s":
-                    
-
                     # position - handle both custom networks and RAFT
                     if self.opt.use_raft_flow:
                         num_flow_udpates = 12
@@ -1632,6 +1649,16 @@ class Trainer:
 
                         outputs[("cam_T_cam", 0, f_i)] = pose2["pose"] # we need pose tgt2src, ie: pose2to1, i.e the pose2 in breif in reloc3r model.
 
+                    elif self.opt.pose_model_type == 'separate_resnet':
+                        # pose
+                        pose_inputs = [self.models["pose_encoder"](torch.cat(inputs_all, 1))]
+                        axisangle, translation = self.models["pose"](pose_inputs)
+
+                        outputs[("axisangle", 0, f_i)] = axisangle
+                        outputs[("translation", 0, f_i)] = translation
+                        outputs[("cam_T_cam", 0, f_i)] = transformation_from_parameters(
+                            axisangle[:, 0], translation[:, 0])
+                        # tran scale from af sfmlearner: [-5.2260e-06, -1.7639e-05, -3.6466e-04]
                     elif self.opt.pose_model_type in ["endofast3r",
                                                       'endofast3r_pose_trained_dbg',
                                                       "uni_reloc3r", 
