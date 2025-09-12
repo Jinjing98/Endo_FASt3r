@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
+from .quaternion_utils import soft_clamp_quaternion_angle, soft_clamp_translation_magnitude
+
 
 def qrot(q, v):
     """
@@ -161,6 +163,26 @@ class PCRNetTransform:
         return vector.view([-1, 7])
 
     @staticmethod
+    def create_pose_7d_modest(vector: torch.Tensor, max_angle_rad=0.01, max_magnitude=0.001):
+        # can you create a function which sooth the estimated pose
+        # soft clamp the rotatio part
+        # soft clamp the translation magnitude
+        # return the vector
+        quaternion = vector[:, 0:4]
+        translation = vector[:, 4:]
+        quaternion_smooth = soft_clamp_quaternion_angle(quaternion, 
+                                                        max_angle_rad= max_angle_rad)
+        translation_smooth = soft_clamp_translation_magnitude(translation, 
+                                                              max_magnitude = max_magnitude)
+        # print('quaternion_smooth:', quaternion_smooth)
+        # print('translation_smooth:', translation_smooth)
+
+        quaternion_normalized = F.normalize(quaternion_smooth, dim=1)
+        vector = torch.cat([quaternion_normalized, translation_smooth], dim=1)
+        return vector.view([-1, 7])
+
+
+    @staticmethod
     def get_quaternion(pose_7d: torch.Tensor):
         return pose_7d[:, 0:4]
 
@@ -198,6 +220,7 @@ class PCRNetTransform:
         return transformation_matrix
 
     def __call__(self, template):
+        assert 0, f'temporally disabled'
         self.igt = self.transformations[self.index]
         igt = self.create_pose_7d(self.igt)
         self.igt_rotation = self.quaternion_rotate(torch.eye(3), igt).permute(1, 0)        # [3x3]

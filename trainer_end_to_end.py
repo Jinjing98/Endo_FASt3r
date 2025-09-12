@@ -64,7 +64,8 @@ class Trainer:
             options.num_epochs = 50000
             options.batch_size = 1
             # options.batch_size = 2
-            # options.accumulate_steps = 4  # Effective batch size = 1 * 12 = 12
+            # options.batch_size = 4
+            options.accumulate_steps = 4  # Effective batch size = 1 * 12 = 12
             options.log_frequency = 10
             options.save_frequency = 100000# no save
             # options.log_dir = "/mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm_debug"
@@ -133,9 +134,9 @@ class Trainer:
             # options.is_train = False # no augmentation
 
             # # big step might lead to inf?
-            # options.frame_ids = [0, -1, 1]
+            options.frame_ids = [0, -1, 1]
             # options.frame_ids = [0, -3, 3]
-            options.frame_ids = [0, -14, 14]
+            # options.frame_ids = [0, -14, 14]
 
             # # # # not okay to use: we did not adjust the init_K accordingly yet
             # DYNASCARED IS FINE?
@@ -143,9 +144,9 @@ class Trainer:
             options.width = 224
 
 
-            # raft can use this?
-            options.height = 192
-            options.width = 192
+            # # raft can use this?
+            # options.height = 192
+            # options.width = 192
 
 
             options.dataset = "endovis"
@@ -166,6 +167,7 @@ class Trainer:
             # options.split_appendix = "_CaToTi000" #critical
             # options.split_appendix = "_CaToTi001" #critical reason for nan raft flow
 
+
             #debug nan present in geoaware with static scene traning
             options.model_name = "debug_geoaware_in_unireloc3r"
             options.pose_model_type = "uni_reloc3r"
@@ -182,10 +184,12 @@ class Trainer:
             options.depth_model_type = "endofast3r_depth_trained_dbg" #critical! we better init with optimized DAM
 
 
-            # options.pose_model_type = "ptnet"
+            options.pose_model_type = "pcrnet"
+
+            options.pose_model_type = "separate_resnet"
 
             # # # debug trained fast3r (understand its learned scale)
-            options.pose_model_type = "endofast3r_pose_trained_dbg"
+            # options.pose_model_type = "endofast3r_pose_trained_dbg"
             options.depth_model_type = "endofast3r_depth_trained_dbg" #critical! we better init with optimized DAM
             # options.gt_metric_rel_pose_as_estimates_debug = True
             options.min_depth = 0.1 # bigger safer
@@ -446,6 +450,11 @@ class Trainer:
 
                 self.models["pose"] = torch.nn.Module()
                 print('init epropnp  pose solver.....')
+            elif self.opt.pose_model_type == "pcrnet":
+                # load pcrnet pose model
+                from pcrnet_integration import load_pcrnet_pose_head
+                self.models["pose"] = load_pcrnet_pose_head(emb_dims=1024)
+                print("loaded PCRNet pose estimator...")
 
             elif self.opt.pose_model_type == "shared":
                 self.models["pose"] = networks.PoseDecoder(
@@ -1482,7 +1491,27 @@ class Trainer:
                                 print('level of the poses for frame_id: {} and scale: {}'.format(f_i, sc_scale))
                                 print(outputs[("cam_T_cam", sc_scale, f_i)][:,:3,3])
 
-                            # print('translation of the poses: {}'.format(outputs[("cam_T_cam", sc_scale, f_i)][:,:3,3]))
+                    elif self.opt.pose_model_type == "pcrnet":
+                        
+                        for scale in self.opt.scales:
+                            depth_fi = outputs[("depth", f_i, scale)]
+                            depth_f0 = outputs[("depth", 0, scale)]
+                            # we are in fact use high res depth
+                            inv_K_fi = inputs[("inv_K", 0)]
+                            inv_K_f0 = inputs[("inv_K", 0)]
+
+                            # we are in fact use high res depth
+                            cam_points_fi = self.backproject_depth[0](depth_fi, inv_K_fi)[:,:3,...].permute(0, 2, 1)
+                            cam_points_f0 = self.backproject_depth[0](depth_f0, inv_K_f0)[:,:3,...].permute(0, 2, 1)
+                            debug_only = True
+                            debug_only = False
+                            if debug_only:
+                                # cam_points_fi = cam_points_fi * 0.01
+                                # cam_points_f0 = cam_points_f0 * 0.01
+                                print('cam_points_fi shape at scale:', scale, cam_points_fi.shape)
+                                print('cam_points_fi mean xyz:', cam_points_fi[:,:,0].mean(), cam_points_fi[:,:,1].mean(), cam_points_fi[:,:,2].mean())
+                            
+                            outputs[("cam_T_cam", scale, f_i)] = self.models["pose"](cam_points_fi, cam_points_f0, 1)['est_T']
 
                     elif self.opt.pose_model_type == "diffposer_epropnp":
                         from layers import disp_to_depth, depth_to_3d
@@ -1631,9 +1660,12 @@ class Trainer:
 
                             # infact the disp2depth gives improper supervision for scale----what about given stereo metric depth or GT depth?
                             # simple disp2depth control the min depth to be big (8 RATHER 0.1)
-                    elif self.opt.pose_model_type == "posenet":
-                        assert 0, 'posenet is not implemented'
 
+
+
+
+
+ 
 
                     else:
                         assert 0, f'{self.opt.pose_model_type} is not implemented'

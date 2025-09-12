@@ -3,8 +3,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from .pointnet import PointNet
 from .pooling import Pooling
+from .quaternion_utils import soft_clamp_quaternion_angle, soft_clamp_translation_magnitude
 from .transform_functions import PCRNetTransform as transform
-
 
 class iPCRNet(nn.Module):
 	def __init__(self, feature_model=PointNet(), droput=0.0, pooling='max'):
@@ -30,8 +30,17 @@ class iPCRNet(nn.Module):
 
 		self.source_features = self.pooling(self.feature_model(source))
 		y = torch.cat([template_features, self.source_features], dim=1)
+		
 		pose_7d = self.linear(y)
-		pose_7d = transform.create_pose_7d(pose_7d)
+		debug_only = True
+		debug_only = False
+		if debug_only:
+			pose_7d = transform.create_pose_7d_modest(pose_7d, 
+											 max_angle_rad=0.1, 
+											 max_magnitude=0.01)
+		else:
+			pose_7d = transform.create_pose_7d(pose_7d)
+
 
 		# Find current rotation and translation.
 		identity = torch.eye(3).to(source).view(1,3,3).expand(batch_size, 3, 3).contiguous()
@@ -51,12 +60,16 @@ class iPCRNet(nn.Module):
 		est_t = torch.zeros(1,3).to(template).view(1, 1, 3).expand(template.size(0), 1, 3).contiguous()     # (Bx1x3)
 		template_features = self.pooling(self.feature_model(template))
 
+
+
 		if max_iteration == 1:
 			est_R, est_t, source = self.spam(template_features, source, est_R, est_t)
 		else:
 			assert 0, f'temporally disabled'
 			for i in range(max_iteration):
 				est_R, est_t, source = self.spam(template_features, source, est_R, est_t)
+
+
 
 		result = {'est_R': est_R,				# source -> template
 				  'est_t': est_t,				# source -> template

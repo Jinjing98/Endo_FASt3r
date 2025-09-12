@@ -9,7 +9,61 @@ import torch
 import numpy as np
 
 # PyTorch-backed implementations
+import torch
 
+def soft_clamp_quaternion_angle(q: torch.Tensor, max_angle_rad: float) -> torch.Tensor:
+    """
+    Softly clamp quaternion rotations by max_angle_rad using a smooth squash.
+    
+    Args:
+        q: (B, 4) quaternions (w, x, y, z), not necessarily normalized
+        max_angle_rad: float, maximum allowed rotation angle in radians
+    
+    Returns:
+        (B, 4) softly clamped, normalized quaternions
+    """
+    # normalize in case of drift
+    q = q / q.norm(dim=-1, keepdim=True)
+
+    w, xyz = q[:, 0], q[:, 1:]
+    theta = 2 * torch.acos(torch.clamp(w, -1.0, 1.0))  # (B,)
+
+    # avoid div by zero: if theta ~ 0, just keep axis as xyz
+    axis = torch.zeros_like(xyz)
+    mask = theta > 1e-8
+    axis[mask] = xyz[mask] / torch.sin(theta[mask] / 2).unsqueeze(-1)
+
+    # squash angle smoothly
+    theta_clamped = max_angle_rad * torch.tanh(theta / max_angle_rad)
+
+    # rebuild quaternion
+    w_new = torch.cos(theta_clamped / 2)
+    xyz_new = axis * torch.sin(theta_clamped / 2).unsqueeze(-1)
+
+    q_new = torch.cat([w_new.unsqueeze(-1), xyz_new], dim=-1)
+    return q_new / q_new.norm(dim=-1, keepdim=True)
+
+def soft_clamp_translation_magnitude(t: torch.Tensor, max_magnitude: float) -> torch.Tensor:
+    """
+    Softly clamp translation magnitude using a smooth squash.
+    
+    Args:
+        t: (B, 3) translation vectors
+        max_magnitude: float, maximum allowed translation magnitude
+    
+    Returns:
+        (B, 3) softly clamped translation vectors
+    """
+    # Get current magnitude
+    magnitude = torch.norm(t, dim=-1, keepdim=True)  # (B, 1)
+    
+    # Apply soft clamping
+    magnitude_clamped = max_magnitude * torch.tanh(magnitude / max_magnitude)
+    
+    # Preserve direction while clamping magnitude
+    direction = t / (magnitude + 1e-8)  # avoid division by zero
+    return direction * magnitude_clamped
+ 
 
 def qmul(q, r):
     """
