@@ -359,7 +359,7 @@ class MonodepthOptions:
         self.parser.add_argument("--pose_model_type",
                                  type=str,
                                  help="normal or shared",
-                                 default="separate_resnet",
+                                 default="endofast3r",
                                  choices=["posecnn", 
                                           "shared",
                                           "geoaware_pnet",

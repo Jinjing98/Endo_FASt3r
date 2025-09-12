@@ -395,7 +395,7 @@ class Trainer:
 
         if self.use_pose_net:
 
-            if self.opt.pose_model_type == "separate_resnet":
+            if self.opt.pose_model_type == "endofast3r":
                 # reloc3r_ckpt_path = f"{RELOC3R_PRETRAINED_ROOT}/Reloc3r-512.pth"
                 assert os.path.exists(self.opt.backbone_pretrain_ckpt_path), f"backbone_pretrain_ckpt_path {self.opt.backbone_pretrain_ckpt_path} does not exist"
                 assert self.opt.backbone_pretrain_ckpt_path == f"{RELOC3R_PRETRAINED_ROOT}/Reloc3r-512.pth", f"backbone_pretrain_ckpt_path {self.opt.backbone_pretrain_ckpt_path} is not correct"
@@ -1632,7 +1632,7 @@ class Trainer:
 
                         outputs[("cam_T_cam", 0, f_i)] = pose2["pose"] # we need pose tgt2src, ie: pose2to1, i.e the pose2 in breif in reloc3r model.
 
-                    elif self.opt.pose_model_type in ["separate_resnet",
+                    elif self.opt.pose_model_type in ["endofast3r",
                                                       'endofast3r_pose_trained_dbg',
                                                       "uni_reloc3r", 
                                                       ]:
