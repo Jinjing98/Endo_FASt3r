@@ -189,7 +189,7 @@ class Trainer:
             options.pose_model_type = "separate_resnet"
 
             # # # debug trained fast3r (understand its learned scale)
-            options.pose_model_type = "endofast3r_pose_trained_dbg"
+            # options.pose_model_type = "endofast3r_pose_trained_dbg"
             options.depth_model_type = "endofast3r_depth_trained_dbg" #critical! we better init with optimized DAM
             # options.gt_metric_rel_pose_as_estimates_debug = True
             options.min_depth = 0.1 # bigger safer
@@ -205,6 +205,7 @@ class Trainer:
 
 
             options.enable_mutual_motion = True
+            options.enable_mutual_motion = False
             # options.use_soft_motion_mask = True
             options.use_soft_motion_mask = False
             # options.use_MF_network = False
@@ -1469,6 +1470,8 @@ class Trainer:
                         from layers import BackprojectDepth
                         cam_points = self.backproject_depth[scale](
                             depth, inputs[("inv_K", scale)])
+                        
+                        
                         print('Used cam_points shape:')
                         print(cam_points.shape)
                         print('Used cam_points max min z:')
@@ -1519,7 +1522,13 @@ class Trainer:
 
                             # we are in fact use high res depth
                             cam_points_fi = self.backproject_depth[0](depth_fi, inv_K_fi)[:,:3,...].permute(0, 2, 1)
-                            cam_points_f0 = self.backproject_depth[0](depth_f0, inv_K_f0)[:,:3,...].permute(0, 2, 1)
+                            cam_points_f0 = self.backproject_depth[0](depth_f0, inv_K_f0)[:,:3,...].permute(0, 2, 1) \
+                                if outputs.get(tuple(["cam_points", scale, 0])) is None else outputs[("cam_points", scale, 0)]
+                            
+                            outputs[("cam_points", scale, f_i)] = cam_points_fi
+                            if outputs.get(tuple(["cam_points", scale, 0])) is None:
+                                outputs[("cam_points", scale, 0)] = cam_points_f0 
+
                             debug_only = True
                             debug_only = False
                             if debug_only:
@@ -1972,8 +1981,23 @@ class Trainer:
         # print(inputs[("K", source_scale)])
         
         # we used the same scale mesh_grid as 'depth' are high res depth across all 'scales'
-        cam_points = self.backproject_depth[source_scale](
-            outputs[("depth", tgt_frame_id, scale)], inputs[("inv_K", source_scale)])# 3D pts
+        if compute_tgt2src_sampling:
+            cam_points = self.backproject_depth[source_scale](
+                outputs[("depth", 0, scale)], inputs[("inv_K", source_scale)])# 3D pts
+            if outputs.get(tuple(["cam_points", 0, scale])) is None:
+                outputs[("cam_points", 0, scale)] = cam_points
+            else:
+                assert (outputs[("cam_points", 0, scale)] == cam_points).all(), f'cam_points mismatch: {outputs[("cam_points", 0, scale)]} != {cam_points}'
+        else:
+            cam_points = self.backproject_depth[source_scale](
+                outputs[("depth", frame_id, scale)], inputs[("inv_K", source_scale)])# 3D pts
+            if outputs.get(tuple(["cam_points", frame_id, scale])) is None:
+                print(f'////////////cam points already computed ...pcrnet?{frame_id}, {scale}')
+                outputs[("cam_points", frame_id, scale)] = cam_points
+            else:
+                assert (outputs[("cam_points", frame_id, scale)] == cam_points).all(), f'cam_points mismatch: {outputs[("cam_points", frame_id, scale)]} != {cam_points}'
+
+
         # print('cam_points.shape:')
         # print(cam_points.shape)
         # Project3D: it saves values in range [-1,1] for direct sampling
@@ -2453,11 +2477,26 @@ class Trainer:
                 metrics_list_dict[k] = metrics_list_dict.get(k, []) + [v]
 
             # log in scale of estimated translation
-            # print('pred_rel_poses_batch shape:')
-            # print(pred_rel_poses_batch.shape)
-            # print(pred_rel_poses_batch)
-            pred_rel_trans_scale = pred_rel_poses_batch[:, :3, 3].norm(dim=1).mean()
+            pred_rel_trans_scale = outputs[("cam_T_cam", 0, frame_id)][:, :3, 3].norm(dim=1).mean()
             metrics_list_dict['pred_rel_trans_scale'] = metrics_list_dict.get('pred_rel_trans_scale', []) + [pred_rel_trans_scale]
+            # log in scale of depth
+            pred_f0_depth_scale = outputs[("depth", 0, 0)].mean()
+            metrics_list_dict['pred_f0_depth_scale'] = metrics_list_dict.get('pred_f0_depth_scale', []) + [pred_f0_depth_scale]
+            if self.opt.enable_mutual_motion:
+                pred_fi_depth_scale = outputs[("depth", frame_id, 0)].mean()
+                metrics_list_dict['pred_fi_depth_scale'] = metrics_list_dict.get('pred_fi_depth_scale', []) + [pred_fi_depth_scale]
+
+            # log in scale of cam_points
+            # cam_points: B 4 N
+            def add_cam_points_metrics(frame_id, prefix, metrics_list_dict):
+                cam_points = outputs[("cam_points", frame_id, 0)]
+                for i, coord in enumerate(['x', 'y', 'z']):
+                    mean_val = cam_points[:, i, :].mean()
+                    metrics_list_dict[f'{prefix}_cam_points_{coord}_mean'] = metrics_list_dict.get(f'{prefix}_cam_points_{coord}_mean', []) + [mean_val]
+            
+            add_cam_points_metrics(0, 'pred_f0', metrics_list_dict=metrics_list_dict)
+            if self.opt.enable_mutual_motion:
+                add_cam_points_metrics(frame_id, 'pred_fi', metrics_list_dict=metrics_list_dict)
 
             # # convert 
             # print('pred_rel_trans_scale shape:')
