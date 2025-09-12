@@ -361,11 +361,13 @@ class MonodepthOptions:
                                  help="normal or shared",
                                  default="separate_resnet",
                                  choices=["posecnn", 
-                                          "separate_resnet", 
                                           "shared",
                                           "geoaware_pnet",
-                                          "endofast3r_pose_trained_dbg",
                                           "diffposer_epropnp",
+                                          "separate_resnet", 
+                                          "endofast3r_pose_trained_dbg",
+                                          "uni_reloc3r",
+                                          "ptnet"
                                           ])
         
         self.parser.add_argument("--depth_model_type",

@@ -29,6 +29,8 @@ from PIL import Image
 from utils import color_to_cv_img, gray_to_cv_img, flow_to_cv_img
 from networks.utils.endofas3r_data_utils import prepare_images, resize_pil_image
 
+
+
 AF_PRETRAINED_ROOT = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/DARES/af_sfmlearner_weights"
 RELOC3R_PRETRAINED_ROOT = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/reloc3r/checkpoints/reloc3r-512"
 
@@ -132,7 +134,7 @@ class Trainer:
 
             # # big step might lead to inf?
             # options.frame_ids = [0, -1, 1]
-            # # options.frame_ids = [0, -3, 3]
+            # options.frame_ids = [0, -3, 3]
             options.frame_ids = [0, -14, 14]
 
             # # # # not okay to use: we did not adjust the init_K accordingly yet
@@ -165,15 +167,18 @@ class Trainer:
             # options.split_appendix = "_CaToTi001" #critical reason for nan raft flow
 
             #debug nan present in geoaware with static scene traning
-            # options.model_name = "debug_epropnp_pretrainedMetricMast3r"
-            # options.pose_model_type = "uni_reloc3r"
-            # options.init_3d_scene_flow = True
-            # options.scene_flow_estimator_type = "dpt"
-            # options.backbone_pretrain_ckpt_path = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/DUSt3R_ViTLarge_BaseDecoder_512_dpt.pth"
-            # options.backbone_pretrain_ckpt_path = '/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric.pth'
-            # options.use_soft_motion_mask = True
-            # options.unireloc3r_pose_estimation_mode = "epropnp"
-            # options.depth_model_type = "endofast3r_depth_trained_dbg" #critical! we better init with optimized DAM
+            options.model_name = "debug_geoaware_in_unireloc3r"
+            options.pose_model_type = "uni_reloc3r"
+            options.init_3d_scene_flow = True
+            options.scene_flow_estimator_type = "dpt"
+            options.backbone_pretrain_ckpt_path = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/DUSt3R_ViTLarge_BaseDecoder_512_dpt.pth"
+            options.backbone_pretrain_ckpt_path = '/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric.pth'
+            options.use_soft_motion_mask = True
+            options.unireloc3r_pose_estimation_mode = "epropnp"
+            options.unireloc3r_pose_estimation_mode = "geoaware_pnet"
+            options.geoaware_cfg_path = "/mnt/cluster/workspaces/jinjingxu/proj/UniSfMLearner/submodule/Endo_FASt3r/geoaware_pnet/transformer/config/config_geoaware_in_unireloc3r.json"
+            options.load_geoaware_pretrain_model = True
+            options.depth_model_type = "endofast3r_depth_trained_dbg" #critical! we better init with optimized DAM
 
 
             # # # debug trained fast3r (understand its learned scale)
@@ -186,10 +191,9 @@ class Trainer:
             # options.enable_motion_computation = True
 
             # a new pose model varient:
-            # options.pose_model_type = "diffposer_epropnp"
+            # options.pose_model_type = "diffposer_epropnp" # not possible ?
 
-            options.pose_model_type = "geoaware_pnet"
-            options.load_geoaware_pretrain_model = True
+            # options.pose_model_type = "geoaware_pnet" #not possible ?
 
 
 
@@ -423,49 +427,13 @@ class Trainer:
                                                  self.log_path
                                                  )
                 print('loaded UniReloc3r...')
+
+
             elif self.opt.pose_model_type == "geoaware_pnet":
-                from geoaware_pnet.geoaware_network import PoseRegressor
-                import json
-                assert os.path.exists(self.opt.geoaware_cfg_path), f"geoaware_cfg_path {self.opt.geoaware_cfg_path} does not exist"
-                f = open(self.opt.geoaware_cfg_path)
-                config = json.load(f)
-                f.close()
-                mean_cam_center = torch.tensor([0.0, 0.0, 0.0])
-                default_img_H = config["default_img_H"]#480
-                default_img_W = config["default_img_W"]#640
-                # default_img_H = 256
-                # default_img_W = 320    
-
-                # extend: not included in the json
-                # transformer_pose_mean will be applied internnally in pose_regression_head
-                config["transformer_pose_mean"] = mean_cam_center # for us, we set to zero as we predict only the relative pose.
-                config["default_img_HW"] = [default_img_H, default_img_W]
-                config["px_resample_rule_dict_scale_step"] = self.opt.px_resample_rule_dict_scale_step
-
-
-                if self.opt.load_geoaware_pretrain_model:
-    
-                    pose_model = PoseRegressor(config)
-
-                    transformer_root = '/mnt/cluster/workspaces/jinjingxu/proj/UniSfMLearner/submodule/Endo_FASt3r/geoaware_pnet/trained_ckpt2/paper_model'
-                    if config["rotation_representation"] == "9D":
-                        transformer_path = os.path.join(transformer_root, 
-                                                        "marepo_9D/marepo_9D.pt",
-                                                        )
-                    else:
-                        transformer_path = os.path.join(transformer_root, 
-                                                        "marepo/marepo.pt",
-                                                        )
-                    assert os.path.exists(transformer_path), f"transformer_path {transformer_path} does not exist"
-                    print('loading pretrained GeoAwarePNet pose regressor from with default img HW {}'.format(config["default_img_HW"]), transformer_path)
-                    pose_model.load_pose_regressor_from_state_dict(transformer_path)
-                else:
-                    pose_model = PoseRegressor(config)
-                    print('init GeoAwarePNet pose regressor from scratch with default img HW {}'.format(config["default_img_HW"]))
-   
-                self.models["pose"] = pose_model
-
-                # self.models["pose"] = PoseRegressor(config)
+                from geoaware_pnet.geoaware_network import load_geoaware_pose_head
+                self.models["pose"] = load_geoaware_pose_head(self.opt.geoaware_cfg_path, 
+                                                              self.opt.load_geoaware_pretrain_model, 
+                                                              self.opt.px_resample_rule_dict_scale_step)
 
 
             elif self.opt.pose_model_type == "diffposer_epropnp":
@@ -590,7 +558,8 @@ class Trainer:
 
         self.spatial_transform = SpatialTransformer((self.opt.height, self.opt.width))
         self.spatial_transform.to(self.device)
-        if self.opt.pose_model_type == "geoaware_pnet":
+        if self.opt.pose_model_type == "geoaware_pnet" or \
+            (self.opt.pose_model_type == "uni_reloc3r" and self.opt.unireloc3r_pose_estimation_mode == "geoaware_pnet"):
             print('using spatial_transform_used_to_warp_sc_3d.....')
             self.spatial_transform_warp_sc3d_geoaware_pnet = {}
             for scale in self.opt.scales:
@@ -1512,9 +1481,6 @@ class Trainer:
 
                             # print('translation of the poses: {}'.format(outputs[("cam_T_cam", sc_scale, f_i)][:,:3,3]))
 
-                        
-                        
-
                     elif self.opt.pose_model_type == "diffposer_epropnp":
                         from layers import disp_to_depth, depth_to_3d
                         # sc_scale = 3 # lowest 
@@ -1634,31 +1600,19 @@ class Trainer:
 
                         outputs[("cam_T_cam", 0, f_i)] = pose2["pose"] # we need pose tgt2src, ie: pose2to1, i.e the pose2 in breif in reloc3r model.
 
-                    else:
-                        # view0 = {'img':prepare_images(pose_feats[f_i],self.device, size = 512)}
-                        # view1 = {'img':prepare_images(pose_feats[0], self.device, size = 512)}
-                        # # pose2 = self.models["pose"](view0,view1)
-                        # pose2, _ = self.models["pose"](view0,view1)# notice we save pose2to1 as usually saved by reloc3r/fast3r/mvp3r; dares saved rel pose1to2
-                        # outputs[("cam_T_cam", 0, f_i)] = pose2["pose"] # it shoudl save transformation: tgt to src
-
+                    elif self.opt.pose_model_type in ["separate_resnet",
+                                                      'endofast3r_pose_trained_dbg',
+                                                      "reloc3r_uni", 
+                                                      ]:
                         resized_img1, adapted_K1 = prepare_images(inputs["color_aug", f_i, 0],self.device, size = 512, Ks=scale0_camera_intrinsics[f_i])
                         resized_img2, adapted_K2 = prepare_images(inputs["color_aug", 0, 0], self.device, size = 512, Ks=scale0_camera_intrinsics[0])
                         view1 = {'img':resized_img1, 'camera_intrinsics':adapted_K1}
                         view2 = {'img':resized_img2, 'camera_intrinsics':adapted_K2}
-                        # we need to scale back to the dim where reloc3r need?
-                        # print('resized_img1.shape:', resized_img1.shape)
-                        # print('adapted_K1:', adapted_K1)
-                        # print('', adapted_K1)
-                        # assert 0, f"view1['camera_intrinsics'].shape: {view1['camera_intrinsics'].shape}"
+
+                        # compute mean_cam_center; we infact compute the mean map center for the 3 frames
+                        
 
 
-
-                        # udpate reloc3r_relpose forward returning and below to be consistent with original reloc3r
-                        # view1 = {'img':prepare_images(inputs["color_aug", f_i, 0],self.device, size = 512)}
-                        # view2 = {'img':prepare_images(inputs["color_aug", 0, 0], self.device, size = 512)}
-
-                        # pose2 = self.models["pose"](view0,view1)
-                        # pose2, _ = self.models["pose"](view0,view1)
                         # # notice we save pose2to1 as usually saved by reloc3r/fast3r/mvp3r; dares saved rel pose1to2
                         _ , pose2 = self.models["pose"](view1,view2)
                         # notice we save pose2to1 as usually saved by reloc3r/fast3r/mvp3r; dares saved rel pose1to2
@@ -1674,6 +1628,12 @@ class Trainer:
 
                             # infact the disp2depth gives improper supervision for scale----what about given stereo metric depth or GT depth?
                             # simple disp2depth control the min depth to be big (8 RATHER 0.1)
+                    elif self.opt.pose_model_type == "posenet":
+                        assert 0, 'posenet is not implemented'
+
+                        
+                    else:
+                        assert 0, f'{self.opt.pose_model_type} is not implemented'
         return outputs
 
 

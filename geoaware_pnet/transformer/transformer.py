@@ -386,7 +386,7 @@ class Transformer_Head(nn.Module):
 
         return T
 
-    def convert_pose_to_4x4(self, B, out_r, out_t, device, addtional_scale=0.001):
+    def convert_pose_to_4x4_fast3r(self, B, out_r, out_t, device, addtional_scale=0.001):
         out_r = addtional_scale * out_r
         out_t = addtional_scale * out_t
 
@@ -403,7 +403,7 @@ class Transformer_Head(nn.Module):
         pose = self.transformation_from_parameters(out_r.unsqueeze(1), out_t)
         return pose
     
-    def convert_pose_to_4x4_ori(self, B, out_r, out_t, device, addtional_scale=1.0):
+    def convert_pose_to_4x4(self, B, out_r, out_t, device, addtional_scale=1.0):
         # out_r = addtional_scale * out_r
         # out_t = addtional_scale * out_t
 

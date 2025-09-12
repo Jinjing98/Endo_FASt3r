@@ -15,6 +15,51 @@ from geoaware_pnet.transformer.transformer import Transformer_Head
 _logger = logging.getLogger(__name__)
 
 
+# from geoaware_pnet.geoaware_network import PoseRegressor
+import json
+import os
+
+
+def load_geoaware_pose_head(geoaware_cfg_path, load_geoaware_pretrain_model, px_resample_rule_dict_scale_step):
+    assert os.path.exists(geoaware_cfg_path), f"geoaware_cfg_path {geoaware_cfg_path} does not exist"
+    f = open(geoaware_cfg_path)
+    config = json.load(f)
+    f.close()
+    mean_cam_center = torch.tensor([0.0, 0.0, 0.0])
+    default_img_H = config["default_img_H"]#480
+    default_img_W = config["default_img_W"]#640
+    # default_img_H = 256
+    # default_img_W = 320    
+
+    # extend: not included in the json
+    # transformer_pose_mean will be applied internnally in pose_regression_head
+    config["transformer_pose_mean"] = mean_cam_center # for us, we set to zero as we predict only the relative pose.
+    config["default_img_HW"] = [default_img_H, default_img_W]
+    config["px_resample_rule_dict_scale_step"] = px_resample_rule_dict_scale_step
+
+
+    if load_geoaware_pretrain_model:
+
+        pose_model = PoseRegressor(config)
+
+        transformer_root = '/mnt/cluster/workspaces/jinjingxu/proj/UniSfMLearner/submodule/Endo_FASt3r/geoaware_pnet/trained_ckpt2/paper_model'
+        if config["rotation_representation"] == "9D":
+            transformer_path = os.path.join(transformer_root, 
+                                            "marepo_9D/marepo_9D.pt",
+                                            )
+        else:
+            transformer_path = os.path.join(transformer_root, 
+                                            "marepo/marepo.pt",
+                                            )
+        assert os.path.exists(transformer_path), f"transformer_path {transformer_path} does not exist"
+        print('loading pretrained GeoAwarePNet pose regressor from with default img HW {}'.format(config["default_img_HW"]), transformer_path)
+        pose_model.load_pose_regressor_from_state_dict(transformer_path)
+    else:
+        pose_model = PoseRegressor(config)
+        print('init GeoAwarePNet pose regressor from scratch with default img HW {}'.format(config["default_img_HW"]))
+    
+    return pose_model
+
 
 class Encoder(nn.Module):
     """

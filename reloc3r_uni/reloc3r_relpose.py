@@ -925,6 +925,122 @@ class Reloc3rRelpose(nn.Module, PyTorchModelHubMixin):
                 pose1 = self._downstream_head('', [tok.float() for tok in pose_regress_input1], shape1, pose_esti_mask1)  
                 pose2 = self._downstream_head('', [tok.float() for tok in pose_regress_input2], shape2, pose_esti_mask2)  # relative camera pose from 2 to 1. 
                 return pose1, pose2
+            elif self.unireloc3r_pose_estimation_mode == 'geoaware_pnet':
+                print('/////Using geoaware for pose estimation in unireloc3r...')
+                B, C, H, W = view1['img'].shape
+                pose1, pose2 = {}, {}
+                
+
+                pts3d_1 = depth1['pts3d']
+                pts3d_2 = depth2['pts3d']
+                pts3d_1in2view = scene_flow1['pts3d']
+                pts3d_2in1view = scene_flow2['pts3d']# B H W 3
+                pts3d_1in2view_conf = scene_flow1['conf'] # B H W 
+                pts3d_2in1view_conf = scene_flow2['conf'] # B H W 
+
+                #extract from external
+                # optic_flow1 = view1['optic_flow'] # B 2 H W
+                # optic_flow2 = view2['optic_flow'] # B 2 H W
+                K_1 = view1['camera_intrinsics'] # B 4 4
+                K_2 = view2['camera_intrinsics'] # B 4 4 # view2 comes from tgt img f0
+                
+                # # we use tgt img depth+K to compute mean_map # referemce frame is f0
+                # depth_f0 = view2['depth']
+                # # compute scene coordinate of f0 based on depth_f0 and K_2
+                # # reuse existing function
+
+
+
+                sample_level=3
+                down_grad_sample_3d = 2**3
+                pts3d_1in2view = pts3d_1in2view[:,::down_grad_sample_3d,::down_grad_sample_3d,:]
+                pts3d_2in1view = pts3d_2in1view[:,::down_grad_sample_3d,::down_grad_sample_3d,:]
+                pts3d_1in2view_conf = pts3d_1in2view_conf[:,::down_grad_sample_3d,::down_grad_sample_3d]
+                pts3d_2in1view_conf = pts3d_2in1view_conf[:,::down_grad_sample_3d,::down_grad_sample_3d]
+                
+                # permute pts3d
+                pts3d_1in2view = pts3d_1in2view.permute(0, 3, 1, 2)
+                pts3d_2in1view = pts3d_2in1view.permute(0, 3, 1, 2)
+
+                scale_pts3d = 0.25
+                pts3d_1in2view = pts3d_1in2view * scale_pts3d
+                pts3d_2in1view = pts3d_2in1view * scale_pts3d
+
+                print('report sc 3d:')
+                print('pts3d_1in2view min z:', pts3d_1in2view[:, 2,:,:].min())
+                print('pts3d_1in2view max z:', pts3d_1in2view[:, 2,:,:].max())
+                print('pts3d_1in2view mean xyz:', pts3d_1in2view.permute(0, 2, 3, 1).reshape(B, -1, 3).mean(dim=1))
+
+                mean_fi_neg = torch.tensor([ 0.0153, -0.0029,  0.2663], device=view1['img'].device)
+                mean_fi_pos = torch.tensor([ 0.0104,  0.0058,  0.2740], device=view1['img'].device)
+                # assert 0,f'compute mean from f0_depth+K; while the challenge to make sc from dus3r be on the same scale as cam_points based on depth estimatetion'
+                mean_fi = (mean_fi_neg + mean_fi_pos) / 2
+                assert 0, f'mean_fi: {mean_fi}'
+                # debug_only = True
+                # if debug_only:
+                #     mean_fi = torch.tensor([ 0.0,  0.0,  0.25], device=view1['img'].device)
+                print('mean_fi:', mean_fi)
+                print('deduct pts3d_fi with mean_fi...')
+                pts3d_1in2view = pts3d_1in2view - mean_fi.unsqueeze(-1).unsqueeze(-1)
+                pts3d_2in1view = pts3d_2in1view - mean_fi.unsqueeze(-1).unsqueeze(-1)
+
+                print('report sc 3d after mean deduction:')
+                print('pts3d_1in2view min z:', pts3d_1in2view[:, 2,:,:].min())
+                print('pts3d_1in2view max z:', pts3d_1in2view[:, 2,:,:].max())
+                print('pts3d_1in2view mean xyz:', pts3d_1in2view.permute(0, 2, 3, 1).reshape(B, -1, 3).mean(dim=1))
+
+
+                # print('pts3d_2in1view min z:', pts3d_2in1view[:, 2,:,:].min())
+                # print('pts3d_2in1view max z:', pts3d_2in1view[:, 2,:,:].max())
+                # print('pts3d_2in1view mean x:', pts3d_2in1view[:, 0,:,:].mean())
+                # print('pts3d_2in1view mean y:', pts3d_2in1view[:, 1,:,:].mean())
+                # print('pts3d_2in1view mean z:', pts3d_2in1view[:, 2,:,:].mean())
+
+
+ 
+ 
+
+                
+                # down grid sampling the pts3d
+                
+                # to get pose1to2: we need pts3d_2in1view, K_2, 
+                # we do not need opticflow_to_establish 3d-2d matches(no need)
+                # print('pts3d_2in1view shape:', pts3d_2in1view.shape)
+                pose_1to2 = self.pose_head(pts3d_2in1view, 
+                                                intrinsics_B33=K_2,
+                                                sample_level=sample_level)[-1]# elsewise the TR would conduct too much computation
+                pose_2to1 = self.pose_head(pts3d_1in2view, 
+                                                intrinsics_B33=K_1,
+                                                sample_level=sample_level)[-1]# elsewise the TR would conduct too much computation
+                
+                print('pose_1to2 shape:', pose_1to2.shape)
+                print('pose_2to1 shape:', pose_2to1.shape)
+                print('pose_1to2:', pose_1to2[:,:3,3])
+                print('pose_2to1:', pose_2to1[:,:3,3])
+                      
+                pose1['pose'] = pose_1to2
+                pose2['pose'] = pose_2to1
+                return pose1, pose2
+
+
+
+                # from reloc3r_uni.utils.epropnp_utils import xyz_quat_to_matrix_kornia,quaternion_wxyz_to_matrix_pytorch3d
+                # x3d_1, x2d_1, w2d_1, cam_mats_1, pose_init_1 = self.prepare_epropnp_input(pts3d_2in1view,pts3d_2in1view_conf, 
+                #                                                                      K_2, B, H, W, view1['img'].device)
+                # x3d_2, x2d_2, w2d_2, cam_mats_2, pose_init_2 = self.prepare_epropnp_input(pts3d_1in2view,pts3d_1in2view_conf,
+                #                                                                      K_1, B, H, W, view2['img'].device)
+
+                # # print the max and min dpeth in x3d_2
+                # print('ori x3d_2 min z:', x3d_2[:, :, 2].min())
+                # print('ori x3d_2 max z:', x3d_2[:, :, 2].max())
+                # print('ori x3d_2 mean x:', x3d_2[:, :, 0].mean())
+                # print('ori x3d_2 mean y:', x3d_2[:, :, 1].mean())
+                # print('ori x3d_2 mean z:', x3d_2[:, :, 2].mean())
+
+                # pose1['pose'] = pose_init_1
+                # pose2['pose'] = pose_init_2
+                # return pose1, pose2
+
             elif self.unireloc3r_pose_estimation_mode == 'epropnp':
                 '''
                 # return pose1(pose1to2), pose2(pose2to1)
@@ -950,150 +1066,7 @@ class Reloc3rRelpose(nn.Module, PyTorchModelHubMixin):
                 K_1 = view1['camera_intrinsics'] # B 4 4
                 K_2 = view2['camera_intrinsics'] # B 4 4
 
-                # def quaternion_wxyz_to_matrix_pytorch3d(quaternions: torch.Tensor) -> torch.Tensor:
-                #     """
-                #     Convert rotations given as quaternions to rotation matrices.
-
-                #     Args:
-                #         quaternions(wxyz): quaternions with real part first,
-                #             as tensor of shape (..., 4).
-
-                #     Returns:
-                #         Rotation matrices as tensor of shape (..., 3, 3).
-                #     """
-                #     r, i, j, k = torch.unbind(quaternions, -1)
-                #     # pyre-fixme[58]: `/` is not supported for operand types `float` and `Tensor`.
-                #     two_s = 2.0 / (quaternions * quaternions).sum(-1)
-
-                #     o = torch.stack(
-                #         (
-                #             1 - two_s * (j * j + k * k),
-                #             two_s * (i * j - k * r),
-                #             two_s * (i * k + j * r),
-                #             two_s * (i * j + k * r),
-                #             1 - two_s * (i * i + k * k),
-                #             two_s * (j * k - i * r),
-                #             two_s * (i * k - j * r),
-                #             two_s * (j * k + i * r),
-                #             1 - two_s * (i * i + j * j),
-                #         ),
-                #         -1,
-                #     )
-                #     return o.reshape(quaternions.shape[:-1] + (3, 3))
-
-                # def xyz_quat_to_matrix_kornia(
-                #     xyz_quat: torch.Tensor, 
-                #     quat_format: str = 'wxyz',
-                #     soft_clamp_quat: bool = False,
-                #     max_angle_rad: float = 0.1,
-                # ) -> torch.Tensor:
-                #     """
-                #     Convert [B, 7] tensor (tx,ty,tz,qx,qy,qz,qw or wxyz) to [B,4,4] homogeneous matrices.
-                    
-                #     Args:
-                #         xyz_quat: [B, 7] tensor, where the last 4 are quaternion components.
-                #         quat_format: 'xyzw' if input quaternions are (x,y,z,w), 
-                #                     'wxyz' if input is (w,x,y,z)
-                                    
-                #     Returns:
-                #         T: [B,4,4] homogeneous transformation matrices
-                #     """
-                #     assert xyz_quat.dim() == 2, f'xyz_quat.dim() should be 3, but got {xyz_quat.dim()}'
-                #     assert xyz_quat.shape[1] == 7, f'xyz_quat.shape[2] should be 7, but got {xyz_quat.shape[2]}'
-                #     assert quat_format in ('xyzw', 'wxyz'), "quat_format must be 'xyzw' or 'wxyz'"
-                #     B = xyz_quat.shape[0]
-                #     t = xyz_quat[:, :3]   # [B,3]
-                #     quat = xyz_quat[:, 3:]  # [B,4]
-                #     # Reorder quaternion for Kornia (expects w,x,y,z)
-                #     if quat_format == 'xyzw':
-                #         quat_wxyz = torch.cat([quat[:, 3:], quat[:, :3]], dim=-1)  # x,y,z,w -> w,x,y,z
-                #     elif quat_format == 'wxyz':  # already wxyz
-                #         quat_wxyz = quat
-                #     else:
-                #         assert 0, f'Unknown quat_format {quat_format}, should be one of [xyzw, wxyz]'
-
-                #     def clamp_quaternion_angle(q: torch.Tensor, max_angle_rad: float) -> torch.Tensor:
-                #         """
-                #         Clamp quaternion rotations by maximum angle.
-                        
-                #         Args:
-                #             q: (B, 4) tensor of quaternions (w, x, y, z), not necessarily normalized
-                #             max_angle_rad: float, maximum allowed rotation angle in radians
-
-                #         Returns:
-                #             (B, 4) tensor of clamped, normalized quaternions
-                #         """
-                #         # normalize in case of drift
-                #         q = q / q.norm(dim=-1, keepdim=True)
-
-                #         w, xyz = q[:, 0], q[:, 1:]
-                #         theta = 2 * torch.acos(torch.clamp(w, -1.0, 1.0))  # (B,)
-
-                #         # scale factor = sin(new_theta/2) / sin(theta/2)
-                #         scale = torch.ones_like(theta)
-                #         mask = theta > max_angle_rad
-                #         if mask.any():
-                #             new_theta = torch.full_like(theta[mask], max_angle_rad)
-                #             scale_val = torch.sin(new_theta / 2) / torch.sin(theta[mask] / 2)
-                #             scale[mask] = scale_val
-
-                #         # apply scaling to xyz
-                #         xyz = xyz * scale.unsqueeze(-1)
-
-                #         # recompute w for clamped ones
-                #         w = torch.where(mask, torch.cos(max_angle_rad / 2).expand_as(w), w)
-
-                #         q_clamped = torch.cat([w.unsqueeze(-1), xyz], dim=-1)
-                #         # normalize again for safety
-                #         return q_clamped / q_clamped.norm(dim=-1, keepdim=True)
-
-                #     def soft_clamp_quaternion_angle(q: torch.Tensor, max_angle_rad: float) -> torch.Tensor:
-                #         """
-                #         Softly clamp quaternion rotations by max_angle_rad using a smooth squash.
-                        
-                #         Args:
-                #             q: (B, 4) quaternions (w, x, y, z), not necessarily normalized
-                #             max_angle_rad: float, maximum allowed rotation angle in radians
-                        
-                #         Returns:
-                #             (B, 4) softly clamped, normalized quaternions
-                #         """
-                #         # normalize in case of drift
-                #         q = q / q.norm(dim=-1, keepdim=True)
-
-                #         w, xyz = q[:, 0], q[:, 1:]
-                #         theta = 2 * torch.acos(torch.clamp(w, -1.0, 1.0))  # (B,)
-
-                #         # avoid div by zero: if theta ~ 0, just keep axis as xyz
-                #         axis = torch.zeros_like(xyz)
-                #         mask = theta > 1e-8
-                #         axis[mask] = xyz[mask] / torch.sin(theta[mask] / 2).unsqueeze(-1)
-
-                #         # squash angle smoothly
-                #         theta_clamped = max_angle_rad * torch.tanh(theta / max_angle_rad)
-
-                #         # rebuild quaternion
-                #         w_new = torch.cos(theta_clamped / 2)
-                #         xyz_new = axis * torch.sin(theta_clamped / 2).unsqueeze(-1)
-
-                #         q_new = torch.cat([w_new.unsqueeze(-1), xyz_new], dim=-1)
-                #         return q_new / q_new.norm(dim=-1, keepdim=True)
-
-
-                #     if soft_clamp_quat:
-                #         quat_wxyz = soft_clamp_quaternion_angle(quat_wxyz, max_angle_rad=max_angle_rad)
-
-                #     # Convert quaternion to rotation matrix: [B,3,3]
-                #     # R = kornia.geometry.conversions.quaternion_to_rotation_matrix(quat_wxyz) # seems have issue for kornia implementation
-                #     R = quaternion_wxyz_to_matrix_pytorch3d(quat_wxyz)
-
-                #     # Build homogeneous matrices
-                #     T = torch.eye(4, device=xyz_quat.device, dtype=xyz_quat.dtype).unsqueeze(0).repeat(B,1,1)
-
-                #     T[:, :3, :3] = R
-                #     T[:, :3, 3] = t
-
-                #     return T
+ 
 
                 from reloc3r_uni.utils.epropnp_utils import xyz_quat_to_matrix_kornia,quaternion_wxyz_to_matrix_pytorch3d
                 x3d_1, x2d_1, w2d_1, cam_mats_1, pose_init_1 = self.prepare_epropnp_input(pts3d_2in1view,pts3d_2in1view_conf, 
@@ -1167,8 +1140,7 @@ class Reloc3rRelpose(nn.Module, PyTorchModelHubMixin):
 
                 return pose1, pose2
 
-            elif self.unireloc3r_pose_estimation_mode == 'geoaware_pnet':
-                assert 0, NotImplementedError
+
             else:
                 assert 0, f'Unknown unireloc3r_pose_estimation_mode {self.unireloc3r_pose_estimation_mode}, should be one of [vanilla_pose_head_regression, epropnp, geoaware_pnet]'
         
@@ -1263,6 +1235,7 @@ class Reloc3rRelpose(nn.Module, PyTorchModelHubMixin):
                                         depth1, depth2,
                                         scene_flow1, scene_flow2
                                         )
+            
         # wrap up the output
         pose1, pose2 = self._wrap_output( 
                                     pose1, pose2,

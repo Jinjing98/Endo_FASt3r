@@ -227,6 +227,16 @@ def UniReloc3r(path: str, opt, output_dir = None):
         print('overwrite the pose_head with endofast3r format...')
         reloc3r_relpose.pose_head = PoseHead(net=reloc3r_relpose)
         reloc3r_relpose.head = transpose_to_landscape(reloc3r_relpose.pose_head, activate=True)
+
+    if opt.unireloc3r_pose_estimation_mode == "geoaware_pnet":
+        # load the geoaware_pose_head
+        from geoaware_pnet.geoaware_network import load_geoaware_pose_head
+        reloc3r_relpose.pose_head = load_geoaware_pose_head(opt.geoaware_cfg_path, 
+                                                    opt.load_geoaware_pretrain_model, 
+                                                    opt.px_resample_rule_dict_scale_step)
+        # reloc3r_relpose.head = transpose_to_landscape(reloc3r_relpose.pose_head, activate=True)# redundant
+
+
     return reloc3r_relpose
 
 
