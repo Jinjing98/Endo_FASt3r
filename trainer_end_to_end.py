@@ -63,7 +63,7 @@ class Trainer:
             print('update options for debug purposes...')
             options.num_epochs = 50000
             options.batch_size = 1
-            # options.batch_size = 2
+            options.batch_size = 2
             # options.batch_size = 4
             options.accumulate_steps = 4  # Effective batch size = 1 * 12 = 12
             options.log_frequency = 10
@@ -2452,6 +2452,21 @@ class Trainer:
                 assert k in ['trans_err_ang', 'trans_err_ang_deg', 'trans_err_scale', 'trans_err_scale_norm', 'rot_err', 'rot_err_deg']
                 metrics_list_dict[k] = metrics_list_dict.get(k, []) + [v]
 
+            # log in scale of estimated translation
+            # print('pred_rel_poses_batch shape:')
+            # print(pred_rel_poses_batch.shape)
+            # print(pred_rel_poses_batch)
+            pred_rel_trans_scale = pred_rel_poses_batch[:, :3, 3].norm(dim=1).mean()
+            metrics_list_dict['pred_rel_trans_scale'] = metrics_list_dict.get('pred_rel_trans_scale', []) + [pred_rel_trans_scale]
+
+            # # convert 
+            # print('pred_rel_trans_scale shape:')
+            # print(pred_rel_trans_scale)
+            # print('pred_rel_trans_scale:')
+            # print(pred_rel_trans_scale)
+            # print('metrics_list_dict:')
+            # print(metrics_list_dict['trans_err_scale'])
+
 
             # print('gt_tgt2src_rel_poses shape:')
             # print(gt_tgt2src_rel_poses.shape)
@@ -2475,9 +2490,9 @@ class Trainer:
         # print esti_rel and gt_rel for debug purpose
         # return trans_err_list.mean(), rot_err_list.mean()
 
-        # print('Report all metrics:')
-        # for k, v in metrics_list_dict.items():
-        #     print(f'{k}: {v}')
+        print('Report all metrics:')
+        for k, v in metrics_list_dict.items():
+            print(f'{k}: {v}')
 
         # return trans_err_list, rot_err_list
         return metrics_list_dict
@@ -2922,7 +2937,7 @@ class Trainer:
         # for j in range(min(4, self.opt.batch_size)):  # write a maxmimum of four images
         tgt_scale_to_vis = [0]
         tgt_frame_id_to_vis = self.opt.frame_ids[1:2]
-        
+
         # debug_only = True
         # if debug_only:
         #     #vis more

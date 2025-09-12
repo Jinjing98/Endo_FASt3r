@@ -69,6 +69,7 @@ def rot_ang_loss(R, Rgt, eps=1e-6):
 
 def compute_pose_error_v2(gt_rel_poses, pred_rel_poses):
     """
+    Return batched mean err.
     Compute pose errors between ground truth and predicted relative poses.
     Args:
         gt_rel_poses: (B, 4, 4) Ground truth relative poses
