@@ -3263,17 +3263,6 @@ class Trainer:
                         img_order_strs.append('Brightness-')
                         concat_imgs_list.append(brightness_concat_img)
 
-                        # concat_img = np.concatenate([
-                        #                             src_concat_img, 
-                        #                                 colored_tgt_concat_img, 
-                        #                                 tgt_concat_img, 
-                        #                             registered_tgt_concat_img, refined_tgt_concat_img, 
-                        #                             colored_motion_tgt_concat_img, 
-                        #                             optic_flow_concat_img, 
-                        #                                 pose_flow_concat_img, 
-                        #                                 occlursion_mask_concat_img, 
-                        #                                 depth_concat_img, brightness_concat_img], axis=1)
-
                         if self.opt.enable_motion_computation:
                             # colored_motion_tgt_concat_img = np.concatenate(colored_motion_tgt_imgs, axis=0)
                             # img_order_strs.append('Colored_Motion_Tgt-')
@@ -3284,30 +3273,11 @@ class Trainer:
                             img_order_strs.append('Motion_Mask-')
                             concat_imgs_list.append(motion_mask_concat_img)
 
-
-
-                            # print('print dim of each concat img:')
-                            # print(src_concat_img.shape)
-                            # print(colored_tgt_concat_img.shape)
-                            # print(tgt_concat_img.shape)
-                            # print(registered_tgt_concat_img.shape)
-                            # print(refined_tgt_concat_img.shape)
-                            # print(colored_motion_tgt_concat_img.shape)
-                            # print(optic_flow_concat_img.shape)
-                            # print(occlursion_mask_concat_img.shape)
-                            # print(pose_flow_concat_img.shape)
-                            # print(depth_concat_img.shape)
-                            # print(brightness_concat_img.shape)
-                            # print(motion_flow_concat_img.shape)
-                            # print(motion_mask_concat_img.shape)
-
                             if self.opt.enable_mutual_motion:
                                 motion_mask_s2t_concat_img = np.concatenate(motion_mask_s2t_imgs, axis=0)
                                 img_order_strs.append('Motion_Mask_S2T-')
                                 concat_imgs_list.append(motion_mask_s2t_concat_img)
-                                # concat_img = np.concatenate([concat_img, motion_flow_concat_img, motion_mask_concat_img, motion_mask_s2t_concat_img], axis=1)
-                            # else:
-                                # concat_img = np.concatenate([concat_img, motion_flow_concat_img, motion_mask_concat_img], axis=1)
+
                         concat_img = np.concatenate(concat_imgs_list, axis=1)
 
                         joined_img_order_strs = ''.join(img_order_strs)
@@ -3326,16 +3296,8 @@ class Trainer:
                             print(f"saved {joined_img_order_strs}.png in {save_path}")
                         
                         concat_img_list.append(concat_img)
-                        # print('joined_img_order_strs:')
-                        # print(joined_img_order_strs)
-                        # print('scale_frameid_str:')
-                        # print(scale_frameid_str)
                         img_name_list.append(f'{joined_img_order_strs}_{scale_frameid_str}')
 
-                    
-        # return concat_img, img_order_strs
-        #return the last one within the loop
-        # return concat_img, f'{img_order_strs}_{scale_frameid_str}'
         return concat_img_list, img_name_list
 
 
