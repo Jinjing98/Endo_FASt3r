@@ -108,6 +108,10 @@ class MonodepthOptions:
         self.parser.add_argument("--enable_mutual_motion",
                                  help="can be expensive as evertyhign including depth need to computer s2t version, it will compute: motion_flow, pose_flow, motion_mask, color_motion_warped",
                                  action="store_true")
+        self.parser.add_argument("--enable_all_depth",
+                                 help="have to be on when pose_model_type is pcrnet",
+                                 action="store_true")
+
         self.parser.add_argument("--reg_mutual_raw_disp_based_OF_for_consistency_and_correctness",
                                  help="inspired from VDA; hope to address noisy depth problem",
                                  action="store_true")        
@@ -378,6 +382,14 @@ class MonodepthOptions:
                                  choices=["dam", 
                                           "endofast3r_depth_trained_dbg",
                                           ])        
+         #pcrnet arch:
+        self.parser.add_argument("--pcrnet_max_iteration",
+                                 type=int,
+                                 help="max iteration for pcrnet",
+                                 default=3)
+        self.parser.add_argument("--pcrnet_enable_flow_based_matching",
+                                 help="if set, enables flow based matching for pcrnet as input",
+                                 action="store_true")
          # geoaware_pnet arch:
         self.parser.add_argument("--use_pyramid",
                                  help="if set disables CUDA",

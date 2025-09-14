@@ -1,3 +1,30 @@
+#
+99901 unfzD_000_b3accu1_posePCRnet_detachdepth_e2e2_iter1_depthScratchDAM_motionRAFTFlow_allRegLoss_doubleB
+
+
+#final models
+af-sfm(resnet pose) + damTuning + MM
+99851(depth gone)(99853 b3accu1) 000 MFraft_PFresnet_DscratchDAM_all_the_motion_design + b1_accu3---expect works nicely on dynamic img
+X99852 (raft nan issue; stopped; replace with Dftflow X99854; also have nan issue) scared MFraft_PFresnet_DscratchDAM_all_the_motion_design + b1_accu3---expect being better than dares 
+
+#best doubleB+reloc3r+resumeD  flow supervised with gt_Raw  b1acc3
+
+x 99848 pcrnet using best setting (b3_accu1)
+
+(to be check)99849 165848 pcrnet using best setting + scratchD + Dscale1 (b1_accu3)---depth gone
+(to be check)X99842 pcrnet using best setting  + resumeD + Dscale100 (b1_accu3)--depth none; depth scale get insane big
+
+colored_MotionCorrected_loss2nomo_000_unfzD_b1_accu3_hardmask_RegMask_ignoreMotionAreaAtCalib_OFgtSup_raft_useMFnet_sharedMOF_doubleB_resumeD_pcrnete2e2iter1_detachD_100D
+99444(aacidently ruin due to missing saved model...cancel ) our net with best setting
+best doubleB+reloc3r+resumeD  flow supervised with gt_Raw  b1acc3 
+
+
+# verify pcrnet under our motion SSL framework: batchsize 3; using default OFnet(raft have nan risk for static scared scene)
+99747 unfzD_SCARED_posePCRnet_detachdepth_e2e2_iter1_depthScratchDAM_motionDftFlow_allRegLoss_doubleB
+replace with dyna000
+99748 unfzD_000_posePCRnet_detachdepth_e2e2_iter1_depthScratchDAM_motionRAFTFlow_allRegLoss_doubleB
+
+
 # think of reattention during offline use?---only then we have motion mask....
 # think of masked pose net as input
 

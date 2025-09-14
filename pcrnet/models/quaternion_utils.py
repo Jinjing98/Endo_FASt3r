@@ -11,6 +11,55 @@ import numpy as np
 # PyTorch-backed implementations
 import torch
 
+
+def axis_angle_to_quaternion(axis_angle: torch.Tensor) -> torch.Tensor:
+    """
+    SRC: pytorch3d.  quant in order of wxyz
+
+
+    Convert rotations given as axis/angle to quaternions.
+
+    Args:
+        axis_angle: Rotations given as a vector in axis angle form,
+            as a tensor of shape (..., 3), where the magnitude is
+            the angle turned anticlockwise in radians around the
+            vector's direction.
+
+    Returns:
+        quaternions with real part first, as tensor of shape (..., 4).
+    """
+    angles = torch.norm(axis_angle, p=2, dim=-1, keepdim=True)
+    sin_half_angles_over_angles = 0.5 * torch.sinc(angles * 0.5 / torch.pi)
+    return torch.cat(
+        [torch.cos(angles * 0.5), axis_angle * sin_half_angles_over_angles], dim=-1
+    )
+
+
+def quaternion_to_axis_angle(quaternions: torch.Tensor) -> torch.Tensor:
+    """
+    SRC: pytorch3d.  quant in order of wxyz
+
+    Convert rotations given as quaternions to axis/angle.
+
+    Args:
+        quaternions: quaternions with real part first,
+            as tensor of shape (..., 4).
+
+    Returns:
+        Rotations given as a vector in axis angle form, as a tensor
+            of shape (..., 3), where the magnitude is the angle
+            turned anticlockwise in radians around the vector's
+            direction.
+    """
+    norms = torch.norm(quaternions[..., 1:], p=2, dim=-1, keepdim=True)
+    half_angles = torch.atan2(norms, quaternions[..., :1])
+    sin_half_angles_over_angles = 0.5 * torch.sinc(half_angles / torch.pi)
+    # angles/2 are between [-pi/2, pi/2], thus sin_half_angles_over_angles
+    # can't be zero
+    return quaternions[..., 1:] / sin_half_angles_over_angles
+
+ 
+
 def soft_clamp_quaternion_angle(q: torch.Tensor, max_angle_rad: float) -> torch.Tensor:
     """
     Softly clamp quaternion rotations by max_angle_rad using a smooth squash.
@@ -98,8 +147,10 @@ def qrot(q, v):
     assert q.shape[:-1] == v.shape[:-1]
 
     original_shape = list(v.shape)
-    q = q.view(-1, 4)
-    v = v.view(-1, 3)
+    # q = q.view(-1, 4)
+    # v = v.view(-1, 3)
+    q = q.reshape(-1, 4)
+    v = v.reshape(-1, 3)
 
     qvec = q[:, 1:]
     uv = torch.cross(qvec, v, dim=1)

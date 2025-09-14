@@ -32,20 +32,25 @@ class iPCRNet(nn.Module):
 		y = torch.cat([template_features, self.source_features], dim=1)
 		
 		pose_7d = self.linear(y)
-		debug_only = True
-		debug_only = False
-		if debug_only:
-			pose_7d = transform.create_pose_7d_modest(pose_7d, 
-											 max_angle_rad=0.1, 
-											 max_magnitude=0.01)
-		else:
-			pose_7d = transform.create_pose_7d(pose_7d)
 
+		# pose_7d = transform.create_pose_7d(pose_7d)
+		#critical downscale?
+		# debug_only = True
+		pose_7d = transform.create_pose_7d_downscale(pose_7d, 
+													 trans_downscale_factor=0.001,
+													 rot_downscale_factor=0.001)
+
+		# pose_7d = transform.create_pose_7d_modest(pose_7d, 
+		# 									max_angle_rad=0.1, 
+		# 									max_magnitude=0.01)
 
 		# Find current rotation and translation.
 		identity = torch.eye(3).to(source).view(1,3,3).expand(batch_size, 3, 3).contiguous()
 		est_R_temp = transform.quaternion_rotate(identity, pose_7d).permute(0, 2, 1)
 		est_t_temp = transform.get_translation(pose_7d).view(-1, 1, 3)
+
+		# scale down the est_R_temp and est_t_temp for surgical data
+
 
 		# update translation matrix.
 		est_t = torch.bmm(est_R_temp, est_t.permute(0, 2, 1)).permute(0, 2, 1) + est_t_temp
@@ -63,9 +68,9 @@ class iPCRNet(nn.Module):
 
 
 		if max_iteration == 1:
+			# assert 0, f'temporally disabled'
 			est_R, est_t, source = self.spam(template_features, source, est_R, est_t)
 		else:
-			assert 0, f'temporally disabled'
 			for i in range(max_iteration):
 				est_R, est_t, source = self.spam(template_features, source, est_R, est_t)
 

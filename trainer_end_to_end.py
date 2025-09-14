@@ -63,7 +63,7 @@ class Trainer:
             print('update options for debug purposes...')
             options.num_epochs = 50000
             options.batch_size = 1
-            options.batch_size = 2
+            # options.batch_size = 2
             # options.batch_size = 4
             options.accumulate_steps = 4  # Effective batch size = 1 * 12 = 12
             options.log_frequency = 10
@@ -71,10 +71,10 @@ class Trainer:
             # options.log_dir = "/mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm_debug"
 
 
-            options.shared_MF_OF_network = True
+            # options.shared_MF_OF_network = True
 
-            options.enable_motion_computation = True
-            options.use_MF_network = True
+            # options.enable_motion_computation = True
+            # options.use_MF_network = True
             # options.shared_MF_OF_network = True
             # options.enable_mutual_motion = True
             # options.reg_mutual_raw_disp_based_OF_for_consistency_and_correctness = True
@@ -107,12 +107,12 @@ class Trainer:
 
             # options.zero_pose_debug = True
 
-            options.freeze_depth_debug = True
+            # options.freeze_depth_debug = True
 
             # options.ignore_motion_area_at_calib = True
 
-            options.use_raft_flow = True
-            options.use_raft_flow = False
+            # options.use_raft_flow = True
+            # options.use_raft_flow = False
 
             # # options.zero_pose_flow_debug = True
             # # options.reproj_supervised_with_which = "raw_tgt_gt"
@@ -149,9 +149,9 @@ class Trainer:
             # options.width = 192
 
 
-            options.dataset = "endovis"
-            options.data_path = "/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/"
-            options.split_appendix = ""
+            # options.dataset = "endovis"
+            # options.data_path = "/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/"
+            # options.split_appendix = ""
 
             # options.dataset = "DynaSCARED"
             # options.data_path = "/mnt/cluster/datasets/Surg_oclr_stereo/"
@@ -168,29 +168,30 @@ class Trainer:
             # options.split_appendix = "_CaToTi001" #critical reason for nan raft flow
 
 
-            #debug nan present in geoaware with static scene traning
-            options.model_name = "debug_geoaware_in_unireloc3r"
-            options.pose_model_type = "uni_reloc3r"
-            options.init_3d_scene_flow = True
-            options.scene_flow_estimator_type = "dpt"
-            options.backbone_pretrain_ckpt_path = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/DUSt3R_ViTLarge_BaseDecoder_512_dpt.pth"
-            options.backbone_pretrain_ckpt_path = '/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric.pth'
-            options.use_soft_motion_mask = True
-            options.unireloc3r_pose_estimation_mode = "epropnp"
-            options.unireloc3r_pose_estimation_mode = "geoaware_pnet"
-            options.unireloc3r_pose_estimation_mode = "vanilla_pose_head_regression"
-            options.geoaware_cfg_path = "/mnt/cluster/workspaces/jinjingxu/proj/UniSfMLearner/submodule/Endo_FASt3r/geoaware_pnet/transformer/config/config_geoaware_in_unireloc3r.json"
-            options.load_geoaware_pretrain_model = True
-            options.depth_model_type = "endofast3r_depth_trained_dbg" #critical! we better init with optimized DAM
+            # #debug nan present in geoaware with static scene traning
+            # # options.model_name = "debug_geoaware_in_unireloc3r"
+            # options.pose_model_type = "uni_reloc3r"
+            # options.init_3d_scene_flow = True
+            # options.scene_flow_estimator_type = "dpt"
+            # options.backbone_pretrain_ckpt_path = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/DUSt3R_ViTLarge_BaseDecoder_512_dpt.pth"
+            # options.backbone_pretrain_ckpt_path = '/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/monst3r/checkpoints/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric.pth'
+            # # options.use_soft_motion_mask = True
+            # options.unireloc3r_pose_estimation_mode = "epropnp"
+            # options.unireloc3r_pose_estimation_mode = "geoaware_pnet"
+            # options.unireloc3r_pose_estimation_mode = "vanilla_pose_head_regression"
+            # options.geoaware_cfg_path = "/mnt/cluster/workspaces/jinjingxu/proj/UniSfMLearner/submodule/Endo_FASt3r/geoaware_pnet/transformer/config/config_geoaware_in_unireloc3r.json"
+            # options.load_geoaware_pretrain_model = True
+            # options.depth_model_type = "endofast3r_depth_trained_dbg" #critical! we better init with optimized DAM
 
 
             options.pose_model_type = "pcrnet"
+            options.enable_all_depth = True
 
-            options.pose_model_type = "separate_resnet"
+            # options.pose_model_type = "separate_resnet"
 
             # # # debug trained fast3r (understand its learned scale)
             # options.pose_model_type = "endofast3r_pose_trained_dbg"
-            options.depth_model_type = "endofast3r_depth_trained_dbg" #critical! we better init with optimized DAM
+            # options.depth_model_type = "endofast3r_depth_trained_dbg" #critical! we better init with optimized DAM
             # options.gt_metric_rel_pose_as_estimates_debug = True
             options.min_depth = 0.1 # bigger safer
             options.max_depth = 150.0 # bigger safer
@@ -204,10 +205,10 @@ class Trainer:
 
 
 
-            options.enable_mutual_motion = True
-            options.enable_mutual_motion = False
+            # options.enable_mutual_motion = True
+            # options.enable_mutual_motion = False
             # options.use_soft_motion_mask = True
-            options.use_soft_motion_mask = False
+            # options.use_soft_motion_mask = False
             # options.use_MF_network = False
             
             options.num_workers = 0
@@ -244,7 +245,8 @@ class Trainer:
             assert self.opt.enable_grad_flow_motion_mask, "enable_grad_flow_motion_mask must be True when use_loss_motion_mask_reg is True"
         if self.opt.reg_mutual_raw_disp_based_OF_for_consistency_and_correctness:
             assert self.opt.enable_mutual_motion, "enable_mutual_motion must be True when reg_mutual_depth_based_OF_for_consistency_and_correctness is True"
-
+        if self.opt.pose_model_type == "pcrnet":
+            assert self.opt.enable_all_depth, "enable_motion_computation must be True when pose_model_type is pcrnet"
 
         # #/////
         # if not self.opt.debug:
@@ -404,7 +406,7 @@ class Trainer:
                     self.opt.weights_init == "pretrained",
                     num_input_images=self.num_pose_frames)
                 assert os.path.exists(pose_encoder_path), f"pose_encoder_path {pose_encoder_path} does not exist"
-                self.models["pose_encoder"].load_state_dict(torch.load(pose_encoder_path))
+                # self.models["pose_encoder"].load_state_dict(torch.load(pose_encoder_path))
                 self.models["pose_encoder"].to(self.device)
                 self.parameters_to_train += list(self.models["pose_encoder"].parameters())
 
@@ -413,7 +415,8 @@ class Trainer:
                     num_input_features=1,
                     num_frames_to_predict_for=2)
                 assert os.path.exists(pose_decoder_path), f"pose_decoder_path {pose_decoder_path} does not exist"
-                self.models["pose"].load_state_dict(torch.load(pose_decoder_path))
+                # self.models["pose"].load_state_dict(torch.load(pose_decoder_path))
+                print('loaded separate_resnet pose model...')
 
             elif self.opt.pose_model_type == "endofast3r":
                 # reloc3r_ckpt_path = f"{RELOC3R_PRETRAINED_ROOT}/Reloc3r-512.pth"
@@ -1224,7 +1227,7 @@ class Trainer:
         # for scale in self.opt.scales:
             # print(f'disp dim: {outputs["disp", scale].shape}')
 
-        if self.opt.enable_mutual_motion:
+        if self.opt.enable_mutual_motion or self.opt.enable_all_depth:
             # extend the depth prediction for srcs
             for frame_id in self.opt.frame_ids[1:]:
                 outputs_i = self.models["depth_model"](inputs["color_aug", frame_id, 0])
@@ -1514,30 +1517,71 @@ class Trainer:
                     elif self.opt.pose_model_type == "pcrnet":
                         
                         for scale in self.opt.scales:
-                            depth_fi = outputs[("depth", f_i, scale)]
-                            depth_f0 = outputs[("depth", 0, scale)]
+                            depth_fi = outputs[("depth", f_i, scale)].detach()# seems not matters much
+                            depth_f0 = outputs[("depth", 0, scale)].detach()
                             # we are in fact use high res depth
                             inv_K_fi = inputs[("inv_K", 0)]
                             inv_K_f0 = inputs[("inv_K", 0)]
 
                             # we are in fact use high res depth
-                            cam_points_fi = self.backproject_depth[0](depth_fi, inv_K_fi)[:,:3,...].permute(0, 2, 1)
-                            cam_points_f0 = self.backproject_depth[0](depth_f0, inv_K_f0)[:,:3,...].permute(0, 2, 1) \
-                                if outputs.get(tuple(["cam_points", scale, 0])) is None else outputs[("cam_points", scale, 0)]
+                            cam_points_fi = self.backproject_depth[0](depth_fi, inv_K_fi)
+                            cam_points_f0 = self.backproject_depth[0](depth_f0, inv_K_f0) \
+                                if outputs.get(tuple(["cam_points", 0, scale])) is None else outputs[("cam_points", 0, scale)]
                             
-                            outputs[("cam_points", scale, f_i)] = cam_points_fi
-                            if outputs.get(tuple(["cam_points", scale, 0])) is None:
-                                outputs[("cam_points", scale, 0)] = cam_points_f0 
+                            # # training is getting unstable--it is possible to ignore points where the x/y magnitude are too small?
+                            # print('the range of magnitude of cam_points_fi:', torch.norm(cam_points_fi[:,:2,...], dim=1).min(), torch.norm(cam_points_fi[:,:2,...], dim=1).max())
+                            # print('the range of magnitude of cam_points_f0:', torch.norm(cam_points_f0[:,:2,...], dim=1).min(), torch.norm(cam_points_f0[:,:2,...], dim=1).max())
+                            # B, _, _ = cam_points_fi.shape
+                            # cam_points_fi = cam_points_fi[torch.norm(cam_points_fi[:,:2,...].detach(), dim=1).repeat(1, 4, 1)>0.5].view(B, 4, -1)
+                            # cam_points_f0 = cam_points_f0[torch.norm(cam_points_f0[:,:2,...].detach(), dim=1).repeat(1, 4, 1)>0.5].view(B, 4, -1)
+                            # print('after ignoring', torch.norm(cam_points_fi[:,:2,...], dim=1).min(), torch.norm(cam_points_fi[:,:2,...], dim=1).max())
+                            # print('after ignoring', torch.norm(cam_points_f0[:,:2,...], dim=1).min(), torch.norm(cam_points_f0[:,:2,...], dim=1).max())
+
+
 
                             debug_only = True
                             debug_only = False
                             if debug_only:
-                                # cam_points_fi = cam_points_fi * 0.01
-                                # cam_points_f0 = cam_points_f0 * 0.01
-                                print('cam_points_fi shape at scale:', scale, cam_points_fi.shape)
-                                print('cam_points_fi mean xyz:', cam_points_fi[:,:,0].mean(), cam_points_fi[:,:,1].mean(), cam_points_fi[:,:,2].mean())
+                                # seems to be critical ot be big: bigger than 100
+                                cam_points_fi = 100*cam_points_fi
+                                cam_points_f0 = 100*cam_points_f0
+
+
+
+                            outputs[("cam_points", f_i, scale)] = cam_points_fi
+                            if outputs.get(tuple(["cam_points", 0, scale])) is None:
+                                outputs[("cam_points", 0, scale)] = cam_points_f0 
+
+                            pcd_fi = cam_points_fi[:,:3,...].permute(0, 2, 1)
+                            pcd_f0 = cam_points_f0[:,:3,...].permute(0, 2, 1)
+
+                            # B, _, _ = pcd_fi.shape
+                            # debug_only = True
+                            # debug_only = False
+                            # if debug_only:
+                            #     # ignore pts where the xy magnitude are too small
+                            #     # print('process scale {} frame_id {}'.format(scale, f_i))
+                            #     # print('the range of magnitude of pcd_fi:', torch.norm(pcd_fi[:,:,:2], dim=-1).min(), torch.norm(pcd_fi[:,:,:2], dim=-1).max())
+                            #     # print('the range of magnitude of pcd_f0:', torch.norm(pcd_f0[:,:,:2], dim=-1).min(), torch.norm(pcd_f0[:,:,:2], dim=-1).max())
+                            #     pcd_fi = pcd_fi[torch.norm(pcd_fi[:,:,:2], dim=-1)>0.01].view(B, -1, 3)
+                            #     pcd_f0 = pcd_f0[torch.norm(pcd_f0[:,:,:2], dim=-1)>0.01].view(B, -1, 3)
+                            #     # print('after ignoring pcd_fi shape:', pcd_fi.shape)
+                            #     # print('after ignoring', torch.norm(pcd_fi[:,:,:2], dim=-1).min(), torch.norm(pcd_fi[:,:,:2], dim=-1).max())
+                            #     # print('after ignoring', torch.norm(pcd_f0[:,:,:2], dim=-1).min(), torch.norm(pcd_f0[:,:,:2], dim=-1).max())
                             
-                            outputs[("cam_T_cam", scale, f_i)] = self.models["pose"](cam_points_fi, cam_points_f0, 1)['est_T']
+                            # subtraction: 
+                            pcd_fi = pcd_fi - torch.mean(pcd_fi, dim=1, keepdim=True).detach()
+                            pcd_f0 = pcd_f0 - torch.mean(pcd_f0, dim=1, keepdim=True).detach()
+                             
+
+                            outputs[("cam_T_cam", scale, f_i)] = self.models["pose"](pcd_fi, pcd_f0, 
+                                                                                     max_iteration = self.opt.pcrnet_max_iteration)['est_T']
+
+                            # print('check if requires_grad is on cam_T_cam')
+                            # print(pcd_fi.requires_grad)
+                            # print(pcd_f0.requires_grad)
+                            # print(outputs[("cam_T_cam", scale, f_i)].requires_grad)
+                            # assert outputs[("cam_T_cam", scale, f_i)].requires_grad , "cam_T_cam must have requires_grad"
 
                     elif self.opt.pose_model_type == "diffposer_epropnp":
                         from layers import disp_to_depth, depth_to_3d
@@ -1660,7 +1704,7 @@ class Trainer:
 
                     elif self.opt.pose_model_type == 'separate_resnet':
                         # tran scale from af sfmlearner: [-5.2260e-06, -1.7639e-05, -3.6466e-04]
-                        pose_inputs = [self.models["pose_encoder"](torch.cat(inputs_all, 1))]
+                        pose_inputs = [self.models["pose_encoder"](torch.cat([pose_feats[f_i], pose_feats[0]], 1))]
                         axisangle, translation = self.models["pose"](pose_inputs)
 
                         outputs[("axisangle", 0, f_i)] = axisangle
@@ -1982,20 +2026,27 @@ class Trainer:
         
         # we used the same scale mesh_grid as 'depth' are high res depth across all 'scales'
         if compute_tgt2src_sampling:
+            
             cam_points = self.backproject_depth[source_scale](
-                outputs[("depth", 0, scale)], inputs[("inv_K", source_scale)])# 3D pts
+                outputs[("depth", 0, scale)], inputs[("inv_K", source_scale)])# 3D pts  B 4 N
             if outputs.get(tuple(["cam_points", 0, scale])) is None:
                 outputs[("cam_points", 0, scale)] = cam_points
             else:
-                assert (outputs[("cam_points", 0, scale)] == cam_points).all(), f'cam_points mismatch: {outputs[("cam_points", 0, scale)]} != {cam_points}'
+                # print(f'////////////cam points already computed ...pcrnet?{frame_id}, {scale}')
+                # print('logged cam points shape:', outputs[("cam_points", 0, scale)].shape)
+                # print('recomputed cam points shape:', cam_points.shape)
+
+                pass
+                # assert (outputs[("cam_points", 0, scale)] == cam_points).all(), f'cam_points mismatch: {outputs[("cam_points", 0, scale)]} != {cam_points}'
         else:
             cam_points = self.backproject_depth[source_scale](
-                outputs[("depth", frame_id, scale)], inputs[("inv_K", source_scale)])# 3D pts
-            if outputs.get(tuple(["cam_points", frame_id, scale])) is None:
-                print(f'////////////cam points already computed ...pcrnet?{frame_id}, {scale}')
-                outputs[("cam_points", frame_id, scale)] = cam_points
+                outputs[("depth", tgt_frame_id, scale)], inputs[("inv_K", source_scale)])# 3D pts
+            if outputs.get(tuple(["cam_points", tgt_frame_id, scale])) is None:
+                outputs[("cam_points", tgt_frame_id, scale)] = cam_points
             else:
-                assert (outputs[("cam_points", frame_id, scale)] == cam_points).all(), f'cam_points mismatch: {outputs[("cam_points", frame_id, scale)]} != {cam_points}'
+                pass
+                # print(f'////////////cam points already computed ...pcrnet?{frame_id}, {scale}')
+                # assert (outputs[("cam_points", tgt_frame_id, scale)] == cam_points).all(), f'cam_points mismatch: {outputs[("cam_points", tgt_frame_id, scale)]} != {cam_points}'
 
 
         # print('cam_points.shape:')
@@ -2177,10 +2228,10 @@ class Trainer:
                 outputs = self.gen_sample_and_pose_flow(inputs, outputs, mesh_gird_high_res, scale, source_scale = 0, 
                                                         tgt_frame_id = 0, frame_id = frame_id)
 
-                if self.opt.enable_mutual_motion and self.opt.enable_motion_computation:
-                    # it will update: samples_s2t and pose_flow_s2t in outputs
-                    outputs = self.gen_sample_and_pose_flow(inputs, outputs, mesh_gird_high_res, scale, source_scale = 0, 
-                                                        tgt_frame_id = frame_id, frame_id = 0)
+                if (self.opt.enable_motion_computation and self.opt.enable_mutual_motion) or self.opt.enable_all_depth:
+                        # it will update: samples_s2t and pose_flow_s2t in outputs
+                        outputs = self.gen_sample_and_pose_flow(inputs, outputs, mesh_gird_high_res, scale, source_scale = 0, 
+                                                            tgt_frame_id = frame_id, frame_id = 0)
 
                 outputs[("color", frame_id, scale)] = F.grid_sample(
                     inputs[("color", frame_id, source_scale)],
@@ -2206,18 +2257,20 @@ class Trainer:
             _, depth = disp_to_depth(disp, self.opt.min_depth, self.opt.max_depth)
             outputs[("depth", 0, scale)] = depth
 
-            if self.opt.enable_mutual_motion and self.opt.enable_motion_computation:
-                # collected depth--prepared for mutual pose flow, finally mutual motion_mask
-                for frame_id in self.opt.frame_ids[1:]:
-                    assert frame_id != 0,f'frame_id == 0 already computed'
-                    disp_i = outputs[("disp", scale, frame_id)]
+            if (self.opt.enable_motion_computation and self.opt.enable_mutual_motion) or self.opt.enable_all_depth:
+            # if self.opt.enable_motion_computation:
+            #     if self.opt.enable_mutual_motion or self.opt.enable_all_depth:
+                    # collected depth--prepared for mutual pose flow, finally mutual motion_mask
+                    for frame_id in self.opt.frame_ids[1:]:
+                        assert frame_id != 0,f'frame_id == 0 already computed'
+                        disp_i = outputs[("disp", scale, frame_id)]
 
-                    assert not self.opt.v1_multiscale,f'v1_multiscale is not supported for mutual motion'
-                    disp_i = F.interpolate(
-                        disp_i, [self.opt.height, self.opt.width], mode="bilinear", align_corners=True)
-                    
-                    _, depth_i = disp_to_depth(disp_i, self.opt.min_depth, self.opt.max_depth)
-                    outputs[("depth", frame_id, scale)] = depth_i
+                        assert not self.opt.v1_multiscale,f'v1_multiscale is not supported for mutual motion'
+                        disp_i = F.interpolate(
+                            disp_i, [self.opt.height, self.opt.width], mode="bilinear", align_corners=True)
+                        
+                        _, depth_i = disp_to_depth(disp_i, self.opt.min_depth, self.opt.max_depth)
+                        outputs[("depth", frame_id, scale)] = depth_i
 
             source_scale = 0
 
@@ -2236,10 +2289,12 @@ class Trainer:
                 outputs = self.gen_sample_and_pose_flow(inputs, outputs, mesh_gird_high_res, scale, source_scale = 0, 
                                                         tgt_frame_id = 0, frame_id = frame_id)
 
-                if self.opt.enable_mutual_motion and self.opt.enable_motion_computation:
-                    # it will update: samples_s2t and pose_flow_s2t in outputs
-                    outputs = self.gen_sample_and_pose_flow(inputs, outputs, mesh_gird_high_res, scale, source_scale = 0, 
-                                                        tgt_frame_id = frame_id, frame_id = 0)
+                if (self.opt.enable_motion_computation and self.opt.enable_mutual_motion) or self.opt.enable_all_depth:
+                # if self.opt.enable_motion_computation:
+                #    if self.opt.enable_mutual_motion or self.opt.enable_all_depth:
+                        # it will update: samples_s2t and pose_flow_s2t in outputs
+                        outputs = self.gen_sample_and_pose_flow(inputs, outputs, mesh_gird_high_res, scale, source_scale = 0, 
+                                                            tgt_frame_id = frame_id, frame_id = 0)
 
                 outputs[("color", frame_id, scale)] = F.grid_sample(
                     inputs[("color", frame_id, source_scale)],
@@ -2266,18 +2321,21 @@ class Trainer:
             _, depth = disp_to_depth(disp, self.opt.min_depth, self.opt.max_depth)
             outputs[("depth", 0, scale)] = depth
 
-            if self.opt.enable_mutual_motion and self.opt.enable_motion_computation:
-                # collected depth--prepared for mutual pose flow, finally mutual motion_mask
-                for frame_id in self.opt.frame_ids[1:]:
-                    assert frame_id != 0,f'frame_id == 0 already computed'
-                    disp_i = outputs[("disp", scale, frame_id)]
 
-                    assert not self.opt.v1_multiscale,f'v1_multiscale is not supported for mutual motion'
-                    disp_i = F.interpolate(
-                        disp_i, [self.opt.height, self.opt.width], mode="bilinear", align_corners=True)
-                    
-                    _, depth_i = disp_to_depth(disp_i, self.opt.min_depth, self.opt.max_depth)
-                    outputs[("depth", frame_id, scale)] = depth_i
+            if (self.opt.enable_motion_computation and self.opt.enable_mutual_motion) or self.opt.enable_all_depth:
+            # if self.opt.enable_motion_computation:
+                # if self.opt.enable_mutual_motion or self.opt.enable_all_depth:
+                    # collected depth--prepared for mutual pose flow, finally mutual motion_mask
+                    for frame_id in self.opt.frame_ids[1:]:
+                        assert frame_id != 0,f'frame_id == 0 already computed'
+                        disp_i = outputs[("disp", scale, frame_id)]
+
+                        assert not self.opt.v1_multiscale,f'v1_multiscale is not supported for mutual motion'
+                        disp_i = F.interpolate(
+                            disp_i, [self.opt.height, self.opt.width], mode="bilinear", align_corners=True)
+                        
+                        _, depth_i = disp_to_depth(disp_i, self.opt.min_depth, self.opt.max_depth)
+                        outputs[("depth", frame_id, scale)] = depth_i
 
             #debug
             debug_only = True
@@ -2336,18 +2394,20 @@ class Trainer:
             _, depth = disp_to_depth(disp, self.opt.min_depth, self.opt.max_depth)
             outputs[("depth", 0, scale)] = depth
 
-            if self.opt.enable_mutual_motion and self.opt.enable_motion_computation:
-                # collected depth--prepared for mutual pose flow, finally mutual motion_mask
-                for frame_id in self.opt.frame_ids[1:]:
-                    assert frame_id != 0,f'frame_id == 0 already computed'
-                    disp_i = outputs[("disp", scale, frame_id)]
+            if (self.opt.enable_motion_computation and self.opt.enable_mutual_motion) or self.opt.enable_all_depth:
+            # if self.opt.enable_motion_computation:
+            #    if self.opt.enable_mutual_motion or self.opt.enable_all_depth:
+                    # collected depth--prepared for mutual pose flow, finally mutual motion_mask
+                    for frame_id in self.opt.frame_ids[1:]:
+                        assert frame_id != 0,f'frame_id == 0 already computed'
+                        disp_i = outputs[("disp", scale, frame_id)]
 
-                    assert not self.opt.v1_multiscale,f'v1_multiscale is not supported for mutual motion'
-                    disp_i = F.interpolate(
-                        disp_i, [self.opt.height, self.opt.width], mode="bilinear", align_corners=True)
-                    
-                    _, depth_i = disp_to_depth(disp_i, self.opt.min_depth, self.opt.max_depth)
-                    outputs[("depth", frame_id, scale)] = depth_i
+                        assert not self.opt.v1_multiscale,f'v1_multiscale is not supported for mutual motion'
+                        disp_i = F.interpolate(
+                            disp_i, [self.opt.height, self.opt.width], mode="bilinear", align_corners=True)
+                        
+                        _, depth_i = disp_to_depth(disp_i, self.opt.min_depth, self.opt.max_depth)
+                        outputs[("depth", frame_id, scale)] = depth_i
 
             source_scale = 0
 
@@ -2366,10 +2426,12 @@ class Trainer:
                 outputs = self.gen_sample_and_pose_flow(inputs, outputs, mesh_gird_high_res, scale, source_scale = 0, 
                                                         tgt_frame_id = 0, frame_id = frame_id)
 
-                if self.opt.enable_mutual_motion and self.opt.enable_motion_computation:
-                    # it will update: samples_s2t and pose_flow_s2t in outputs
-                    outputs = self.gen_sample_and_pose_flow(inputs, outputs, mesh_gird_high_res, scale, source_scale = 0, 
-                                                        tgt_frame_id = frame_id, frame_id = 0)
+                if (self.opt.enable_motion_computation and self.opt.enable_mutual_motion) or self.opt.enable_all_depth:
+                # if self.opt.enable_motion_computation:
+                #    if self.opt.enable_mutual_motion or self.opt.enable_all_depth:
+                        # it will update: samples_s2t and pose_flow_s2t in outputs
+                        outputs = self.gen_sample_and_pose_flow(inputs, outputs, mesh_gird_high_res, scale, source_scale = 0, 
+                                                            tgt_frame_id = frame_id, frame_id = 0)
 
                 if self.opt.enable_motion_computation:
                     # If you want to warp the source image src to the target view tgt, you need the flow that maps pixels from the target frame to the source frame, i.e., tgt → src.
@@ -2529,9 +2591,9 @@ class Trainer:
         # print esti_rel and gt_rel for debug purpose
         # return trans_err_list.mean(), rot_err_list.mean()
 
-        print('Report all metrics:')
-        for k, v in metrics_list_dict.items():
-            print(f'{k}: {v}')
+        # print('Report all metrics:')
+        # for k, v in metrics_list_dict.items():
+        #     print(f'{k}: {v}')
 
         # return trans_err_list, rot_err_list
         return metrics_list_dict
@@ -3108,6 +3170,7 @@ class Trainer:
                         reproj_supervised_tgt_color_debug_imgs = []
 
                         img_order_strs = []
+                        concat_imgs_list =[]
 
                         assert self.opt.frame_ids[0] == 0, "frame_id 0 must be the first frame"
                         src_imgs.append(inputs[("color", frame_id, 0)][j].data)
@@ -3162,49 +3225,65 @@ class Trainer:
                         # concat src_imgs and tgt_imgs vertically
                         src_concat_img = np.concatenate(src_imgs, axis=0)
                         img_order_strs.append('Src-')
+                        concat_imgs_list.append(src_concat_img)
                         colored_tgt_concat_img = np.concatenate(colored_tgt_imgs, axis=0)
                         img_order_strs.append('Colored_Tgt-')
+                        concat_imgs_list.append(colored_tgt_concat_img)
                         tgt_concat_img = np.concatenate(tgt_imgs, axis=0)
                         img_order_strs.append('Tgt-')
+                        concat_imgs_list.append(tgt_concat_img)
                         # add reproj_supervised_tgt_color_debug
                         # reproj_supervised_tgt_color_debug_concat_img = np.concatenate(reproj_supervised_tgt_color_debug_imgs, axis=0)
                         # img_order_strs.append('Reproj_Sup-')
 
                         registered_tgt_concat_img = np.concatenate(registered_tgt_imgs, axis=0)
                         img_order_strs.append('Registered_Tgt-')
+                        concat_imgs_list.append(registered_tgt_concat_img)
                         refined_tgt_concat_img = np.concatenate(refined_tgt_imgs, axis=0)
                         img_order_strs.append('Refined_Tgt-')
-                        # if self.opt.enable_motion_computation:
-                        colored_motion_tgt_concat_img = np.concatenate(colored_motion_tgt_imgs, axis=0)
-                        img_order_strs.append('Colored_Motion_Tgt-')
+                        concat_imgs_list.append(refined_tgt_concat_img)
+                        if self.opt.enable_motion_computation:
+                            colored_motion_tgt_concat_img = np.concatenate(colored_motion_tgt_imgs, axis=0)
+                            img_order_strs.append('Colored_Motion_Tgt-')
+                            concat_imgs_list.append(colored_motion_tgt_concat_img)
 
                         optic_flow_concat_img = np.concatenate(optic_flow_imgs, axis=0)
                         img_order_strs.append('Optic_Flow-')
+                        concat_imgs_list.append(optic_flow_concat_img)
                         pose_flow_concat_img = np.concatenate(pose_flow_imgs, axis=0)
                         img_order_strs.append('Pose_Flow-')
+                        concat_imgs_list.append(pose_flow_concat_img)
                         occlursion_mask_concat_img = np.concatenate(occlursion_mask_imgs, axis=0)
                         img_order_strs.append('Occlursion_Mask-')
+                        concat_imgs_list.append(occlursion_mask_concat_img)
                         depth_concat_img = np.concatenate(depth_imgs, axis=0)
                         img_order_strs.append('Depth-')
+                        concat_imgs_list.append(depth_concat_img)
                         brightness_concat_img = np.concatenate(brightness_imgs, axis=0)
                         img_order_strs.append('Brightness-')
+                        concat_imgs_list.append(brightness_concat_img)
 
-                        concat_img = np.concatenate([
-                                                    src_concat_img, 
-                                                        colored_tgt_concat_img, 
-                                                        tgt_concat_img, 
-                                                    registered_tgt_concat_img, refined_tgt_concat_img, colored_motion_tgt_concat_img, optic_flow_concat_img, \
-                                                        pose_flow_concat_img, 
-                                                        occlursion_mask_concat_img, 
-                                                        depth_concat_img, brightness_concat_img], axis=1)
+                        # concat_img = np.concatenate([
+                        #                             src_concat_img, 
+                        #                                 colored_tgt_concat_img, 
+                        #                                 tgt_concat_img, 
+                        #                             registered_tgt_concat_img, refined_tgt_concat_img, 
+                        #                             colored_motion_tgt_concat_img, 
+                        #                             optic_flow_concat_img, 
+                        #                                 pose_flow_concat_img, 
+                        #                                 occlursion_mask_concat_img, 
+                        #                                 depth_concat_img, brightness_concat_img], axis=1)
 
                         if self.opt.enable_motion_computation:
                             # colored_motion_tgt_concat_img = np.concatenate(colored_motion_tgt_imgs, axis=0)
                             # img_order_strs.append('Colored_Motion_Tgt-')
                             motion_flow_concat_img = np.concatenate(motion_flow_imgs, axis=0)
                             img_order_strs.append('Motion_Flow-')
+                            concat_imgs_list.append(motion_flow_concat_img)
                             motion_mask_concat_img = np.concatenate(motion_mask_imgs, axis=0)
                             img_order_strs.append('Motion_Mask-')
+                            concat_imgs_list.append(motion_mask_concat_img)
+
 
 
                             # print('print dim of each concat img:')
@@ -3225,9 +3304,11 @@ class Trainer:
                             if self.opt.enable_mutual_motion:
                                 motion_mask_s2t_concat_img = np.concatenate(motion_mask_s2t_imgs, axis=0)
                                 img_order_strs.append('Motion_Mask_S2T-')
-                                concat_img = np.concatenate([concat_img, motion_flow_concat_img, motion_mask_concat_img, motion_mask_s2t_concat_img], axis=1)
-                            else:
-                                concat_img = np.concatenate([concat_img, motion_flow_concat_img, motion_mask_concat_img], axis=1)
+                                concat_imgs_list.append(motion_mask_s2t_concat_img)
+                                # concat_img = np.concatenate([concat_img, motion_flow_concat_img, motion_mask_concat_img, motion_mask_s2t_concat_img], axis=1)
+                            # else:
+                                # concat_img = np.concatenate([concat_img, motion_flow_concat_img, motion_mask_concat_img], axis=1)
+                        concat_img = np.concatenate(concat_imgs_list, axis=1)
 
                         joined_img_order_strs = ''.join(img_order_strs)
                         
