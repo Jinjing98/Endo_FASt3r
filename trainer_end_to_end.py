@@ -71,6 +71,10 @@ class Trainer:
             # options.log_dir = "/mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm_debug"
 
 
+            options.pose_model_type = "geoaware_pnet"
+            options.model_name = "debug_tr_posenet"
+
+
             # options.shared_MF_OF_network = True
 
             # options.enable_motion_computation = True
@@ -184,8 +188,8 @@ class Trainer:
             # options.depth_model_type = "endofast3r_depth_trained_dbg" #critical! we better init with optimized DAM
 
 
-            options.pose_model_type = "pcrnet"
-            options.enable_all_depth = True
+            # options.pose_model_type = "pcrnet"
+            # options.enable_all_depth = True
 
             # options.pose_model_type = "separate_resnet"
 
