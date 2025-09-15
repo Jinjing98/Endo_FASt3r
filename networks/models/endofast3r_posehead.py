@@ -40,15 +40,28 @@ class PoseHead(nn.Module):
     def __init__(self, 
                  net, 
                  num_resconv_block=2,
-                 rot_representation='axis-angle'):
+                 rot_representation='axis-angle',
+                 patch_size=None,
+                 dec_embed_dim=None):
         super().__init__()
-        self.patch_size = net.patch_embed.patch_size[0]
         self.num_resconv_block = num_resconv_block
         self.rot_representation = rot_representation  
 
-        output_dim = 4*self.patch_size**2
+        if patch_size is None:
+            assert dec_embed_dim is None, 'dec_embed_dim must be provided'
+            self.patch_size = net.patch_embed.patch_size[0]
+            # used for reloc3r and endofast3r
+            output_dim = 4*self.patch_size**2
+            dec_embed_dim = net.dec_embed_dim
+        else:
+            assert dec_embed_dim is not None, 'dec_embed_dim must be provided'
+            assert net is None, 'net must be provided'
+            # used for resnet feature
+            self.patch_size = patch_size
+            output_dim = 4*self.patch_size**2
+            dec_embed_dim = dec_embed_dim
 
-        self.proj = nn.Linear(net.dec_embed_dim, output_dim)
+        self.proj = nn.Linear(dec_embed_dim, output_dim)
         self.res_conv = nn.ModuleList([copy.deepcopy(ResConvBlock(output_dim, output_dim)) 
             for _ in range(self.num_resconv_block)])
         self.avgpool = nn.AdaptiveAvgPool2d(1)

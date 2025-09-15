@@ -38,6 +38,10 @@ if __name__ == "__main__":
 
         # put i in the front
         pose_inputs = [pose_encoder(torch.cat([img_i, img_0], 1))]
+        for i in range(len(pose_inputs[0])):
+            print('pose_inputs[0][{}].shape'.format(i), pose_inputs[0][i].shape)
+
+
         axisangle, translation = pose_head(pose_inputs)
 
         print(axisangle.shape)
