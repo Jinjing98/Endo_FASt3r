@@ -28,17 +28,21 @@ class PoseDecoder(nn.Module):
 
     def forward(self, input_features):
         last_features = [f[-1] for f in input_features]
+        print('last features dimension:', [ f.shape for f in last_features ])
 
         cat_features = [self.relu(self.convs["squeeze"](f)) for f in last_features]
         cat_features = torch.cat(cat_features, 1)
+        print('cat feature dimension:', cat_features.shape)
 
         out = cat_features
         for i in range(3):
             out = self.convs[("pose", i)](out)
             if i != 2:
                 out = self.relu(out)
+            print('out dimension:', out.shape)
 
         out = out.mean(3).mean(2)
+        print('out dimension:', out.shape)
 
         out = 0.001*out.view(-1, self.num_frames_to_predict_for, 1, 6)
 
