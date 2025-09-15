@@ -1,3 +1,7 @@
+# Use MIX to train---Hope to get better depth.
+99956  unfzD_MIX_b3accu1_poseScratchSeperateResnet_depthScratchDAM_motionRAFTFlow_allRegLoss_doubleB
+
+
 #
 99901 unfzD_000_b3accu1_posePCRnet_detachdepth_e2e2_iter1_depthScratchDAM_motionRAFTFlow_allRegLoss_doubleB
 
@@ -30,7 +34,7 @@ replace with dyna000
 
 # fix PF multi level bug
 ////best fast3r+doubleB
-99306 colored_MotionCorrected_loss2nomo_000_unfzD_b3_accu1_hardmask_RegMask_ignoreMotionAreaAtCalib_OFgtSup_raft_useMFnet_sharedMOF_doubleB_scratch_fixPFbug_resumeTrainedDAM
+99306(done) colored_MotionCorrected_loss2nomo_000_unfzD_b3_accu1_hardmask_RegMask_ignoreMotionAreaAtCalib_OFgtSup_raft_useMFnet_sharedMOF_doubleB_scratch_fixPFbug_resumeTrainedDAM
 ////best fast3r+doubleB b1accu3 quicker
 99444 colored_MotionCorrected_loss2nomo_000_unfzD_b1_accu3_hardmask_RegMask_ignoreMotionAreaAtCalib_OFgtSup_raft_useMFnet_sharedMOF_doubleB_scratch_fixPFbug_resumeTrainedDAM_quick
 ////geoaware_net

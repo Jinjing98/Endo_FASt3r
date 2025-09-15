@@ -117,11 +117,295 @@ def compute_re(gtruth_r, pred_r):
     return RE / gtruth_r.shape[0]
 
 
-def evaluate(opt):
+def create_pose_model(opt, device, model_root=None):
+    """Create pose model based on pose_model_type"""
+    pose_model_type = getattr(opt, 'pose_model_type', 'endofast3r')
+    
+    if model_root is None:
+        model_root = opt.load_weights_folder
+    
+    if pose_model_type == "endofast3r":
+        return create_endofast3r_model(opt, device, model_root)
+    elif pose_model_type == "endofast3r_pose_trained_dbg":
+        return create_endofast3r_trained_model(opt, device, model_root)
+    elif pose_model_type == "uni_reloc3r":
+        return create_uni_reloc3r_model(opt, device, model_root)
+    # elif pose_model_type == "pcrnet":
+    #     return create_pcrnet_model(opt, device, model_root)
+    # elif pose_model_type == "geoaware_pnet":
+    #     return create_geoaware_pnet_model(opt, device, model_root)
+    # elif pose_model_type == "diffposer_epropnp":
+    #     return create_diffposer_epropnp_model(opt, device, model_root)
+    elif pose_model_type == "separate_resnet":
+        return create_separate_resnet_model(opt, device, model_root)
+    # elif pose_model_type == "shared":
+    #     return create_shared_model(opt, device, model_root)
+    # elif pose_model_type == "posecnn":
+    #     return create_posecnn_model(opt, device, model_root)
+    else:
+        raise ValueError(f"Unsupported pose_model_type: {pose_model_type}")
+
+def create_endofast3r_model(opt, device, model_root):
+    """Create EndoFASt3r model"""
+    # Default backbone path
+    reloc3r_ckpt_path = os.path.join(model_root, "Reloc3r-512.pth")
+    if not os.path.exists(reloc3r_ckpt_path):
+        # Fallback to default path
+        reloc3r_ckpt_path = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/reloc3r/checkpoints/reloc3r-512/Reloc3r-512.pth"
+    
+    pose_model = networks.Reloc3rX(reloc3r_ckpt_path)
+    
+    # Load trained weights if available
+    pose_model_path = os.path.join(model_root, "pose.pth")
+    if os.path.exists(pose_model_path):
+        pose_model_dict = torch.load(pose_model_path)
+        model_dict = pose_model.state_dict()
+        
+        # Log overwritten/remaining layers
+        overwritten_layers = [k for k in pose_model_dict.keys() if k in model_dict]
+        remain_layers = [k for k in pose_model_dict.keys() if k not in model_dict]
+        print("Overwritten layers:", set([k.split(".")[0] for k in overwritten_layers]))
+        print("Remaining layers:", set([k.split(".")[0] for k in remain_layers]))
+        
+        pose_model.load_state_dict({k: v for k, v in pose_model_dict.items() if k in model_dict})
+        print(f"Loaded trained EndoFASt3r weights from {pose_model_path}")
+    else:
+        print(f"Using pretrained EndoFASt3r from {reloc3r_ckpt_path}")
+    
+    return pose_model
+
+def create_endofast3r_trained_model(opt, device, model_root):
+    """Create trained EndoFASt3r model"""
+    pose_model_path = os.path.join(model_root, "pose.pth")
+    if not os.path.exists(pose_model_path):
+        raise FileNotFoundError(f"Trained pose model not found at {pose_model_path}")
+    
+    pose_model_dict = torch.load(pose_model_path)
+    
+    # Try to find backbone in model_root first
+    reloc3r_ckpt_path = os.path.join(model_root, "Reloc3r-512.pth")
+    if not os.path.exists(reloc3r_ckpt_path):
+        # Fallback to default path
+        reloc3r_ckpt_path = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/reloc3r/checkpoints/reloc3r-512/Reloc3r-512.pth"
+    
+    pose_model = networks.Reloc3rX(reloc3r_ckpt_path)
+    model_dict = pose_model.state_dict()
+    
+    # Log overwritten/remaining layers
+    overwritten_layers = [k for k in pose_model_dict.keys() if k in model_dict]
+    remain_layers = [k for k in pose_model_dict.keys() if k not in model_dict]
+    print("Overwritten layers:", set([k.split(".")[0] for k in overwritten_layers]))
+    print("Remaining layers:", set([k.split(".")[0] for k in remain_layers]))
+    
+    pose_model.load_state_dict({k: v for k, v in pose_model_dict.items() if k in model_dict})
+    print(f"Loaded endofast3r_pose_trained_dbg pose model from {pose_model_path}")
+    return pose_model
+
+def create_uni_reloc3r_model(opt, device, model_root):
+    """Create UniReloc3r model"""
+    # Try to find backbone in model_root first
+    reloc3r_ckpt_path = os.path.join(model_root, "Reloc3r-512.pth")
+    if not os.path.exists(reloc3r_ckpt_path):
+        # Fallback to default path
+        reloc3r_ckpt_path = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/reloc3r/checkpoints/reloc3r-512/Reloc3r-512.pth"
+    
+    pose_model = networks.UniReloc3r(reloc3r_ckpt_path, opt)
+    
+    # Load trained weights if available
+    pose_model_path = os.path.join(model_root, "pose.pth")
+    if os.path.exists(pose_model_path):
+        pose_model_dict = torch.load(pose_model_path)
+        pose_model.load_state_dict(pose_model_dict)
+        print(f"Loaded trained UniReloc3r weights from {pose_model_path}")
+    else:
+        print(f"Using pretrained UniReloc3r from {reloc3r_ckpt_path}")
+    
+    return pose_model
+
+# def create_pcrnet_model(opt, device, model_root):
+#     """Create PCRNet model"""
+#     try:
+#         from pcrnet_integration import load_pcrnet_pose_head
+        
+#         # Try to load from model_root first
+#         pcrnet_path = os.path.join(model_root, "pcrnet.pth")
+#         if os.path.exists(pcrnet_path):
+#             pose_model = load_pcrnet_pose_head(emb_dims=1024, checkpoint_path=pcrnet_path)
+#             print(f"Loaded PCRNet from {pcrnet_path}")
+#         else:
+#             pose_model = load_pcrnet_pose_head(emb_dims=1024)
+#             print("Loaded default PCRNet pose estimator...")
+        
+#         return pose_model
+#     except ImportError:
+#         raise ImportError("PCRNet integration not available. Please install required dependencies.")
+
+ 
+
+def create_separate_resnet_model(opt, device, model_root):
+    """Create separate ResNet model"""
+    pose_encoder_path = os.path.join(model_root, "pose_encoder.pth")
+    pose_decoder_path = os.path.join(model_root, "pose.pth")
+    
+    # Fallback to default paths if not found in model_root
+    if not os.path.exists(pose_encoder_path):
+        assert False, "pose_encoder.pth not found in model_root"
+    if not os.path.exists(pose_decoder_path):
+        assert False, "pose.pth not found in model_root"
+    
+    pose_encoder = networks.ResnetEncoder(
+        getattr(opt, 'num_layers', 18),
+        getattr(opt, 'weights_init', 'pretrained') == "pretrained",
+        num_input_images=2
+    )
+    pose_decoder = networks.PoseDecoder(
+        pose_encoder.num_ch_enc,
+        num_input_features=1,
+        num_frames_to_predict_for=2
+    )
+    
+    # Load weights if available
+    if os.path.exists(pose_encoder_path):
+        pose_encoder.load_state_dict(torch.load(pose_encoder_path))
+        print(f"Loaded pose encoder from {pose_encoder_path}")
+    if os.path.exists(pose_decoder_path):
+        pose_decoder.load_state_dict(torch.load(pose_decoder_path))
+        print(f"Loaded pose decoder from {pose_decoder_path}")
+    
+    # Combine encoder and decoder
+    pose_model = torch.nn.ModuleDict({
+        'encoder': pose_encoder,
+        'decoder': pose_decoder
+    })
+    
+    print("Loaded separate ResNet pose model...")
+    return pose_model
+
+ 
+
+def predict_pose_for_model(pose_model, pose_model_type, inputs, device, opt=None):
+    """Predict pose based on different pose_model_type implementations"""
+    
+    if pose_model_type in ["endofast3r", "endofast3r_pose_trained_dbg", "uni_reloc3r"]:
+        # These models use the same interface: view1, view2 -> _, pose2
+        view1 = {'img': prepare_images(inputs[("color", 1, 0)], device, size=512, Ks=None)}
+        view2 = {'img': prepare_images(inputs[("color", 0, 0)], device, size=512, Ks=None)}
+        _, pose2 = pose_model(view1, view2)
+        return pose2["pose"]
+    
+    # elif pose_model_type == "pcrnet":
+    #     # PCRNet requires depth and camera points
+    #     # For evaluation, we need to provide depth - this is a limitation
+    #     # In practice, you'd need a depth model or GT depth
+    #     raise NotImplementedError("PCRNet evaluation requires depth input. Please provide depth model or GT depth.")
+    
+    # elif pose_model_type == "geoaware_pnet":
+    #     # GeoAware PNet requires depth and specific processing
+    #     # Similar to PCRNet, needs depth input
+    #     raise NotImplementedError("GeoAware PNet evaluation requires depth input. Please provide depth model or GT depth.")
+    
+    # elif pose_model_type == "diffposer_epropnp":
+    #     # DiffPoseR epropnp requires specific setup
+    #     raise NotImplementedError("DiffPoseR epropnp evaluation not implemented yet.")
+    
+    elif pose_model_type == "separate_resnet":
+        # Separate ResNet uses encoder + decoder
+        pose_inputs = [pose_model['encoder'](torch.cat([inputs[("color", 1, 0)], inputs[("color", 0, 0)]], 1))]
+        axisangle, translation = pose_model['decoder'](pose_inputs)
+        
+        # Convert to transformation matrix
+        from layers import transformation_from_parameters
+        pose_matrix = transformation_from_parameters(axisangle[:, 0], translation[:, 0])
+        return pose_matrix
+    
+    # elif pose_model_type == "shared":
+    #     # Shared model uses encoder from depth model
+    #     raise NotImplementedError("Shared pose model evaluation requires depth model integration.")
+    
+    # elif pose_model_type == "posecnn":
+    #     # PoseCNN takes concatenated images
+    #     concat_input = torch.cat([inputs[("color", 0, 0)], inputs[("color", 1, 0)]], 1)
+    #     pose_output = pose_model(concat_input)
+        
+    #     # PoseCNN typically outputs axis-angle and translation
+    #     if hasattr(pose_output, 'axisangle') and hasattr(pose_output, 'translation'):
+    #         from layers import transformation_from_parameters
+    #         pose_matrix = transformation_from_parameters(pose_output.axisangle, pose_output.translation)
+    #     else:
+    #         # Assume direct pose matrix output
+    #         pose_matrix = pose_output
+    #     return pose_matrix
+    
+    else:
+        raise ValueError(f"Unsupported pose_model_type for evaluation: {pose_model_type}")
+
+# def predict_pose_with_depth(pose_model, pose_model_type, inputs, device, depth_model=None, opt=None):
+#     """Predict pose for models that require depth input (PCRNet, GeoAware PNet)"""
+    
+#     if pose_model_type == "pcrnet":
+#         # Get depth predictions
+#         if depth_model is not None:
+#             with torch.no_grad():
+#                 depth_f0 = depth_model(inputs[("color", 0, 0)])
+#                 depth_f1 = depth_model(inputs[("color", 1, 0)])
+#         else:
+#             # Use GT depth if available
+#             if ("depth", 0, 0) in inputs and ("depth", 1, 0) in inputs:
+#                 depth_f0 = inputs[("depth", 0, 0)]
+#                 depth_f1 = inputs[("depth", 1, 0)]
+#             else:
+#                 raise ValueError("PCRNet requires depth input. Provide depth_model or GT depth.")
+        
+#         # Get camera intrinsics
+#         K = inputs[("K", 0)][:, :3, :3]  # Assuming K is available
+#         inv_K = torch.inverse(K)
+        
+#         # Create backproject_depth function (simplified version)
+#         def backproject_depth(depth, inv_K):
+#             B, H, W = depth.shape
+#             i, j = torch.meshgrid(torch.linspace(0, W-1, W, device=device), 
+#                                  torch.linspace(0, H-1, H, device=device), indexing='xy')
+#             i = i.t().float()
+#             j = j.t().float()
+            
+#             pts = torch.stack([i, j, torch.ones_like(i)], dim=0).unsqueeze(0).repeat(B, 1, 1, 1)
+#             pts = pts.view(B, 3, -1)
+#             pts = inv_K.unsqueeze(-1) @ pts
+#             pts = pts * depth.view(B, 1, -1)
+#             pts = torch.cat([pts, torch.ones(B, 1, H*W, device=device)], dim=1)
+#             return pts
+        
+#         # Get camera points
+#         cam_points_f0 = backproject_depth(depth_f0, inv_K)
+#         cam_points_f1 = backproject_depth(depth_f1, inv_K)
+        
+#         # Convert to point clouds
+#         pcd_f0 = cam_points_f0[:, :3, :].permute(0, 2, 1)
+#         pcd_f1 = cam_points_f1[:, :3, :].permute(0, 2, 1)
+        
+#         # Center the point clouds
+#         pcd_f0 = pcd_f0 - torch.mean(pcd_f0, dim=1, keepdim=True).detach()
+#         pcd_f1 = pcd_f1 - torch.mean(pcd_f1, dim=1, keepdim=True).detach()
+        
+#         # Get pose estimation
+#         pose_result = pose_model(pcd_f1, pcd_f0, max_iteration=getattr(opt, 'pcrnet_max_iteration', 10))
+#         return pose_result['est_T']
+    
+#     elif pose_model_type == "geoaware_pnet":
+#         # Similar to PCRNet but with different processing
+#         raise NotImplementedError("GeoAware PNet depth-based evaluation not fully implemented yet.")
+    
+#     else:
+#         raise ValueError(f"pose_model_type {pose_model_type} does not require depth input.")
+
+def evaluate(opt, model_root=None, depth_model=None):
     """Evaluate odometry on the SCARED dataset
     """
-    assert os.path.isdir(opt.load_weights_folder), \
-        "Cannot find a folder at {}".format(opt.load_weights_folder)
+    if model_root is None:
+        model_root = opt.load_weights_folder
+    
+    assert os.path.isdir(model_root), \
+        "Cannot find a folder at {}".format(model_root)
 
     if opt.dataset == 'endovis':
         assert opt.eval_split_appendix in ['1','2'], "eval_split_appendix should be empty for endovis"
@@ -147,33 +431,18 @@ def evaluate(opt):
     dataloader = DataLoader(dataset, opt.batch_size, shuffle=False,
                             num_workers=opt.num_workers, pin_memory=True, drop_last=False)
     
-    # load reloc3r pose model, then overwrite if saved in pose.pth
-    pose_model_path = os.path.join(opt.load_weights_folder, "pose.pth")
-    pose_model_dict = torch.load(pose_model_path)
+    # Create pose model based on pose_model_type
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    
-    reloc3r_ckpt_path = "/mnt/cluster/workspaces/jinjingxu/proj/MVP3R/baselines/reloc3r/checkpoints/reloc3r-512/Reloc3r-512.pth"
-    pose_model = networks.Reloc3rX(reloc3r_ckpt_path)
-    # we tested the framework should be correct as above when eval on pose_eval task.
-    # pose_model = networks.UniReloc3r(reloc3r_ckpt_path, 
-    #                                  opt,
-    #                                  )
-    model_dict = pose_model.state_dict()
-    
-    # log in the layers that are overwritten or remain
-    # only the 1st level name should be fine
-    overwritten_layers = [k for k in pose_model_dict.keys() if k in model_dict]
-    remain_layers = [k for k in pose_model_dict.keys() if k not in model_dict]
-    print("Overwritten layers:", set([k.split(".")[0] for k in overwritten_layers]))
-    print("Remaining layers:", set([k.split(".")[0] for k in remain_layers]))
-
-    pose_model.load_state_dict({k: v for k, v in pose_model_dict.items() if k in model_dict})
+    pose_model = create_pose_model(opt, device, model_root)
     pose_model.cuda()
     pose_model.eval()
 
     pred_poses = []
+    pose_model_type = getattr(opt, 'pose_model_type', 'endofast3r')
 
     print("-> Computing pose predictions")
+    print(f"Using pose_model_type: {pose_model_type}")
+    print(f"Model root: {model_root}")
 
     opt.frame_ids = [0, 1]  # pose network only takes two frames as input
 
@@ -182,15 +451,23 @@ def evaluate(opt):
             for key, ipt in inputs.items():
                 inputs[key] = ipt.to(device)
 
-            # view1 = {'img':prepare_images(inputs[("color", 1, 0)] , device,  size = 512)}
-            # view0 = {'img':prepare_images(inputs[("color", 0, 0)], device, size = 512)}
-            # pose2,_  = pose_model(view0,view1)
-
-            view1 = {'img':prepare_images(inputs[("color", 1, 0)], device, size = 512, Ks = None)}
-            view2 = {'img':prepare_images(inputs[("color", 0, 0)], device, size = 512, Ks = None)}
-            _ , pose2 = pose_model(view1,view2)# 
-
-            pred_poses.append(pose2["pose"].cpu().numpy())
+            try:
+                # # Check if model requires depth input
+                # if pose_model_type in ["pcrnet", "geoaware_pnet"]:
+                #     pose_matrix = predict_pose_with_depth(pose_model, pose_model_type, inputs, device, depth_model, opt)
+                # else:
+                pose_matrix = predict_pose_for_model(pose_model, pose_model_type, inputs, device, opt)
+                
+                pred_poses.append(pose_matrix.cpu().numpy())
+                
+            except NotImplementedError as e:
+                print(f"Error: {e}")
+                print(f"Skipping evaluation for pose_model_type: {pose_model_type}")
+                return
+            except Exception as e:
+                print(f"Error during pose prediction: {e}")
+                print(f"pose_model_type: {pose_model_type}")
+                raise
 
     pred_poses = np.concatenate(pred_poses)
     np.savez_compressed(os.path.join(os.path.dirname(__file__), "splits", opt.dataset, "pred_pose_sq{}.npz".format(opt.eval_split_appendix)), data=np.array(pred_poses))

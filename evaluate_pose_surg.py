@@ -171,7 +171,7 @@ def compute_re(gtruth_r, pred_r):
     return RE / gtruth_r.shape[0]
 
 
-def run_pose_network_on_images(image_paths, height, width, pose_encoder, pose_decoder):
+def run_pose_network_on_images(image_paths, height, width, pose_encoder, pose_decoder, pose_model_type = 'separate_resnet', pose_model = None):
     pred_rels = []
     with torch.no_grad():
         for i in range(1, len(image_paths)):
@@ -183,9 +183,20 @@ def run_pose_network_on_images(image_paths, height, width, pose_encoder, pose_de
             t1 = to_tensor(img_t1)
             # Network expects [B, 6, H, W] stacked as (t1, t0) like evaluate_pose.py
             all_color_aug = torch.cat([t1.unsqueeze(0), t0.unsqueeze(0)], dim=1).to(device)
-            features = [pose_encoder(all_color_aug)]
-            axisangle, translation = pose_decoder(features)
-            T_rel = transformation_from_parameters(axisangle[:, 0], translation[:, 0]).cpu().numpy()[0]
+            if pose_model_type == 'separate_resnet':
+                features = [pose_encoder(all_color_aug)]
+                axisangle, translation = pose_decoder(features)
+                T_rel = transformation_from_parameters(axisangle[:, 0], translation[:, 0]).cpu().numpy()[0]
+            elif pose_model_type in ['endofast3r', 'uni_reloc3r', 'endofast3r_pretrained']:
+                # These models use the same interface: view1, view2 -> _, pose2
+                from evaluate_pose import prepare_images
+                view1 = {'img': prepare_images(t1.unsqueeze(0), device, size=512, Ks=None)}
+                view2 = {'img': prepare_images(t0.unsqueeze(0), device, size=512, Ks=None)}
+                _, pose2 = pose_model(view1, view2)
+                T_rel = pose2["pose"].cpu().numpy()[0]
+            else:
+                assert False, f"Unsupported pose_model_type: {pose_model_type}"
+
             pred_rels.append(T_rel)
     return np.array(pred_rels)
 
@@ -246,7 +257,10 @@ def _best_offset_by_step_dist(gt_rels: np.ndarray, pred_rels: np.ndarray, max_of
     return best_off, best_score
 
 
-def next_indexed_filepath(results_dir: str, base: str = 'trajectory_pose_surg', ext: str = '.png'):
+def next_indexed_filepath(results_dir: str, 
+                          base: str = 'trajectory_pose_surg', 
+                          ext: str = '.png',
+                          pose_model_type: str = 'separate_resnet'):
     os.makedirs(results_dir, exist_ok=True)
     existing = glob.glob(os.path.join(results_dir, f"{base}_*{ext}"))
     idx = 1
@@ -256,7 +270,7 @@ def next_indexed_filepath(results_dir: str, base: str = 'trajectory_pose_surg', 
             m = re.search(rf"{re.escape(base)}_(\d+){re.escape(ext)}$", name)
             return int(m.group(1)) if m else 0
         idx = max(_extract(e) for e in existing) + 1
-    return os.path.join(results_dir, f"{base}_{idx:03d}{ext}")
+    return os.path.join(results_dir, f"{base}_{pose_model_type}_{idx:03d}{ext}")
 
 
 def main():
@@ -276,20 +290,32 @@ def main():
     image_paths = list_image_pairs(image_dir, left_suffix='l')
     assert len(image_paths) >= 2, f"No images found at {image_dir}/final_*l.png"
 
-    # Load model weights
-    assert os.path.isdir(opt.load_weights_folder), f"Cannot find model folder: {opt.load_weights_folder}"
-    pose_encoder_path = os.path.join(opt.load_weights_folder, "pose_encoder.pth")
-    pose_decoder_path = os.path.join(opt.load_weights_folder, "pose.pth")
+    if opt.pose_model_type == 'separate_resnet':
+        # Load model weights
+        assert os.path.isdir(opt.load_weights_folder), f"Cannot find model folder: {opt.load_weights_folder}"
+        pose_encoder_path = os.path.join(opt.load_weights_folder, "pose_encoder.pth")
+        pose_decoder_path = os.path.join(opt.load_weights_folder, "pose.pth")
 
-    pose_encoder = networks.ResnetEncoder(opt.num_layers, False, 2)
-    pose_encoder.load_state_dict(torch.load(pose_encoder_path, map_location=device.type))
-    pose_decoder = networks.PoseDecoder(pose_encoder.num_ch_enc, 1, 2)
-    pose_decoder.load_state_dict(torch.load(pose_decoder_path, map_location=device.type))
-    pose_encoder.to(device).eval()
-    pose_decoder.to(device).eval()
+        pose_encoder = networks.ResnetEncoder(opt.num_layers, False, 2)
+        pose_encoder.load_state_dict(torch.load(pose_encoder_path, map_location=device.type))
+        pose_decoder = networks.PoseDecoder(pose_encoder.num_ch_enc, 1, 2)
+        pose_decoder.load_state_dict(torch.load(pose_decoder_path, map_location=device.type))
+        pose_encoder.to(device).eval()
+        pose_decoder.to(device).eval()
+        pred_rels = run_pose_network_on_images(image_paths, opt.height, opt.width, pose_encoder, pose_decoder)
+
+    elif opt.pose_model_type in ['endofast3r', 'uni_reloc3r', 'endofast3r_pretrained']:
+        assert os.path.isdir(opt.load_weights_folder), f"Cannot find model folder: {opt.load_weights_folder}"
+        from evaluate_pose import create_pose_model
+        print(f"Loading pose model from {opt.load_weights_folder}")
+        pose_model = create_pose_model(opt, device)
+        pose_model.load_state_dict(torch.load(os.path.join(opt.load_weights_folder, "pose.pth"), map_location=device.type))
+        pose_model.to(device).eval()
+        pred_rels = run_pose_network_on_images(image_paths, opt.height, opt.width, None, None, pose_model_type = opt.pose_model_type, pose_model = pose_model)
+    else: 
+        assert False, f"Unsupported pose_model_type: {opt.pose_model_type}"
 
     # Predict
-    pred_rels = run_pose_network_on_images(image_paths, opt.height, opt.width, pose_encoder, pose_decoder)
 
     # GT
     gt_abs = load_gt_poses_txt(gt_pose_path)
@@ -339,7 +365,8 @@ def main():
         print("   Overlay RMSE (m): {:0.4f}, max: {:0.4f}".format(float(np.sqrt((overlay_err**2).mean())), float(overlay_err.max())))
 
     # Visualization -> save to results/ with incremental index
-    results_dir = os.path.join(os.getcwd(), 'results')
+    # results_dir = os.path.join(os.getcwd(), 'results')
+    results_dir = os.path.join('/mnt/cluster/workspaces/jinjingxu/proj/UniSfMLearner/submodule/Endo_FASt3r/', 'results')
     out_png = next_indexed_filepath(results_dir, base='trajectory_pose_surg', ext='.png')
     visualize_trajectories(gt_rels, pred_rels, out_png)
     print(f"Saved trajectory figure to {out_png}")
