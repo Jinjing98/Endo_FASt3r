@@ -10,6 +10,8 @@ from layers import transformation_from_parameters
 from utils import readlines
 from options import MonodepthOptions
 from datasets import SCAREDRAWDataset
+from datasets import DynaSCAREDRAWDataset
+from datasets import StereoMISDataset
 import warnings
 
 from torch.cuda.amp import autocast, GradScaler
@@ -130,18 +132,10 @@ def create_pose_model(opt, device, model_root=None):
         return create_endofast3r_trained_model(opt, device, model_root)
     elif pose_model_type == "uni_reloc3r":
         return create_uni_reloc3r_model(opt, device, model_root)
-    # elif pose_model_type == "pcrnet":
-    #     return create_pcrnet_model(opt, device, model_root)
-    # elif pose_model_type == "geoaware_pnet":
-    #     return create_geoaware_pnet_model(opt, device, model_root)
-    # elif pose_model_type == "diffposer_epropnp":
-    #     return create_diffposer_epropnp_model(opt, device, model_root)
     elif pose_model_type == "separate_resnet":
         return create_separate_resnet_model(opt, device, model_root)
-    # elif pose_model_type == "shared":
-    #     return create_shared_model(opt, device, model_root)
-    # elif pose_model_type == "posecnn":
-    #     return create_posecnn_model(opt, device, model_root)
+    elif pose_model_type == "posetr_net":
+        return create_posetr_net_model(opt, device, model_root)
     else:
         raise ValueError(f"Unsupported pose_model_type: {pose_model_type}")
 
@@ -221,25 +215,37 @@ def create_uni_reloc3r_model(opt, device, model_root):
         print(f"Using pretrained UniReloc3r from {reloc3r_ckpt_path}")
     
     return pose_model
+ 
 
-# def create_pcrnet_model(opt, device, model_root):
-#     """Create PCRNet model"""
-#     try:
-#         from pcrnet_integration import load_pcrnet_pose_head
-        
-#         # Try to load from model_root first
-#         pcrnet_path = os.path.join(model_root, "pcrnet.pth")
-#         if os.path.exists(pcrnet_path):
-#             pose_model = load_pcrnet_pose_head(emb_dims=1024, checkpoint_path=pcrnet_path)
-#             print(f"Loaded PCRNet from {pcrnet_path}")
-#         else:
-#             pose_model = load_pcrnet_pose_head(emb_dims=1024)
-#             print("Loaded default PCRNet pose estimator...")
-        
-#         return pose_model
-#     except ImportError:
-#         raise ImportError("PCRNet integration not available. Please install required dependencies.")
+def create_posetr_net_model(opt, device, model_root):
+    """Create PoseTrNet model"""
 
+    from functools import partial
+    from posetr.posetr_model_v2 import PoseTransformerV2
+    pose_model = PoseTransformerV2(
+        img_size=(256, 320),
+        patch_size=16,
+        # embed_dim=384,              # Match DeiT-Small dimension
+        attention_depth=4,          # 2 self + 2 cross attention
+        attention_num_heads=6,       # 384/6 = 64 dim per head
+        croco_vit=True,
+        # skip_sa_ca=True,
+        # use_vit = False,
+        embed_dim=512,              # enable when no_use_vit so that exactly resnet_seperate_embedding
+
+    )
+
+    pose_model_path = os.path.join(model_root, "pose.pth")
+    if os.path.exists(pose_model_path):
+        pose_model_dict = torch.load(pose_model_path)
+        pose_model.load_state_dict(pose_model_dict, strict=True)
+        print(f"Loaded trained PoseTrNet weights from {pose_model_path}")
+    else:
+        assert False, "PoseTrNet weights not found in model_root"
+        print(f"Using pretrained PoseTrNet from {model_root}")
+
+ 
+    return pose_model
  
 
 def create_separate_resnet_model(opt, device, model_root):
@@ -292,7 +298,13 @@ def predict_pose_for_model(pose_model, pose_model_type, inputs, device, opt=None
         view2 = {'img': prepare_images(inputs[("color", 0, 0)], device, size=512, Ks=None)}
         _, pose2 = pose_model(view1, view2)
         return pose2["pose"]
-    
+    elif pose_model_type in ["posetr_net"]:
+        # These models use the same interface: view1, view2 -> _, pose2
+        view1 = {'img': inputs[("color", 1, 0)] }
+        view2 = {'img': inputs[("color", 0, 0)] }
+        _, pose2 = pose_model(view1, view2)
+        return pose2["pose"]
+
     # elif pose_model_type == "pcrnet":
     #     # PCRNet requires depth and camera points
     #     # For evaluation, we need to provide depth - this is a limitation
@@ -412,7 +424,7 @@ def evaluate(opt, model_root=None, depth_model=None):
         assert opt.data_path == '/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/', f"data_path {opt.data_path} is not correct"
     elif opt.dataset == 'StereoMIS':
         # /mnt/nct-zfs/TCO-All/SharedDatasets/StereoMIS_DARES_test/
-        assert opt.eval_split_appendix == '', "eval_split_appendix should be empty for StereoMIS"
+        # assert opt.eval_split_appendix == '', "eval_split_appendix should be empty for StereoMIS"
         assert opt.data_path == '/mnt/nct-zfs/TCO-All/SharedDatasets/StereoMIS_DARES_test/', f"data_path {opt.data_path} is not correct"
         assert NotImplementedError("StereoMIS is not supported for pose evaluation yet")
     elif opt.dataset == 'DynaSCARED':
@@ -426,55 +438,101 @@ def evaluate(opt, model_root=None, depth_model=None):
     fpath = os.path.join(os.path.dirname(__file__), "splits", opt.dataset, "test_files_sequence{}.txt".format(opt.eval_split_appendix))
     filenames = readlines(fpath)
 
-    dataset = SCAREDRAWDataset(opt.data_path, filenames, opt.height, opt.width,
-                               [0, 1], 4, is_train=False)
-    dataloader = DataLoader(dataset, opt.batch_size, shuffle=False,
-                            num_workers=opt.num_workers, pin_memory=True, drop_last=False)
+    # Check if skip_inference is enabled
+    skip_inference = opt.skip_inference#getattr(opt, 'skip_inference', False)
     
-    # Create pose model based on pose_model_type
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    pose_model = create_pose_model(opt, device, model_root)
-    pose_model.cuda()
-    pose_model.eval()
+    if skip_inference:
+        print("-> Skipping inference, loading pre-computed trajectory estimates")
+        
+        # Load pre-computed predictions
+        pred_poses_path = os.path.join(os.path.dirname(__file__), "splits", opt.dataset, "pred_pose_sq{}.npz".format(opt.eval_split_appendix))
+        
+        if not os.path.exists(pred_poses_path):
+            raise FileNotFoundError(f"Pre-computed predictions not found at {pred_poses_path}. Please run inference first or disable skip_inference.")
+        
+        pred_poses = np.load(pred_poses_path)["data"]
+        print(f"Loaded {len(pred_poses)} pre-computed pose predictions from {pred_poses_path}")
+        
+    else:
+        # Original inference pipeline
+        # data
+        if opt.dataset == 'DynaSCARED':
+            dataset = DynaSCAREDRAWDataset(opt.data_path, filenames, opt.height, opt.width,
+                                    [0, 1], 4, is_train=False)
+        elif opt.dataset == 'endovis':
+            dataset = SCAREDRAWDataset(opt.data_path, filenames, opt.height, opt.width,
+                                    [0, 1], 4, is_train=False)
+        elif opt.dataset == 'StereoMIS':
+            dataset = StereoMISDataset(opt.data_path, filenames, opt.height, opt.width,
+                                    [0, 1], 4, is_train=False)
+        else:
+            assert False, "Unknown dataset: {opt.dataset}"
 
-    pred_poses = []
-    pose_model_type = getattr(opt, 'pose_model_type', 'endofast3r')
+        dataloader = DataLoader(dataset, opt.batch_size, shuffle=False,
+                                num_workers=opt.num_workers, pin_memory=True, drop_last=False)
+        
+        # Create pose model based on pose_model_type
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        pose_model = create_pose_model(opt, device, model_root)
+        pose_model.cuda()
+        pose_model.eval()
 
-    print("-> Computing pose predictions")
-    print(f"Using pose_model_type: {pose_model_type}")
-    print(f"Model root: {model_root}")
+        pred_poses = []
+        pose_model_type = getattr(opt, 'pose_model_type', 'endofast3r')
 
-    opt.frame_ids = [0, 1]  # pose network only takes two frames as input
+        print("-> Computing pose predictions")
+        print(f"Using pose_model_type: {pose_model_type}")
+        print(f"Model root: {model_root}")
 
-    with torch.no_grad():
-        for inputs in dataloader:
-            for key, ipt in inputs.items():
-                inputs[key] = ipt.to(device)
+        opt.frame_ids = [0, 1]  # pose network only takes two frames as input
 
-            try:
-                # # Check if model requires depth input
-                # if pose_model_type in ["pcrnet", "geoaware_pnet"]:
-                #     pose_matrix = predict_pose_with_depth(pose_model, pose_model_type, inputs, device, depth_model, opt)
-                # else:
-                pose_matrix = predict_pose_for_model(pose_model, pose_model_type, inputs, device, opt)
-                
-                pred_poses.append(pose_matrix.cpu().numpy())
-                
-            except NotImplementedError as e:
-                print(f"Error: {e}")
-                print(f"Skipping evaluation for pose_model_type: {pose_model_type}")
-                return
-            except Exception as e:
-                print(f"Error during pose prediction: {e}")
-                print(f"pose_model_type: {pose_model_type}")
-                raise
+        with torch.no_grad():
+            for inputs in dataloader:
+                for key, ipt in inputs.items():
+                    inputs[key] = ipt.to(device)
 
-    pred_poses = np.concatenate(pred_poses)
-    np.savez_compressed(os.path.join(os.path.dirname(__file__), "splits", opt.dataset, "pred_pose_sq{}.npz".format(opt.eval_split_appendix)), data=np.array(pred_poses))
+                try:
+                    pose_matrix = predict_pose_for_model(pose_model, pose_model_type, inputs, device, opt)
+                    pred_poses.append(pose_matrix.cpu().numpy())
+                    
+                except NotImplementedError as e:
+                    print(f"Error: {e}")
+                    print(f"Skipping evaluation for pose_model_type: {pose_model_type}")
+                    return
+                except Exception as e:
+                    print(f"Error during pose prediction: {e}")
+                    print(f"pose_model_type: {pose_model_type}")
+                    raise
 
-    gt_path = os.path.join(os.path.dirname(__file__), "splits", opt.dataset, "gt_poses_sq{}.npz".format(opt.eval_split_appendix))
-    gt_local_poses = np.load(gt_path, fix_imports=True, encoding='latin1')["data"]
+        pred_poses = np.concatenate(pred_poses)
+        
+        # Save predictions for future use
+        np.savez_compressed(os.path.join(os.path.dirname(__file__), "splits", opt.dataset, "pred_pose_sq{}.npz".format(opt.eval_split_appendix)), data=np.array(pred_poses))
+        print(f"Saved predictions to splits/{opt.dataset}/pred_pose_sq{opt.eval_split_appendix}.npz")
 
+    # Load ground truth poses (same for both inference and skip_inference)
+    if opt.dataset == 'endovis':
+        gt_path = os.path.join(os.path.dirname(__file__), "splits", opt.dataset, "gt_poses_sq{}.npz".format(opt.eval_split_appendix))
+        gt_local_poses = np.load(gt_path, fix_imports=True, encoding='latin1')["data"]
+    elif opt.dataset == 'StereoMIS':
+        gt_path = os.path.join(os.path.dirname(__file__), "splits", opt.dataset, "gt_poses_sq{}.npz".format(opt.eval_split_appendix))
+        gt_local_poses = np.load(gt_path, fix_imports=True, encoding='latin1')["data"]
+        # scale the translation with 1000
+        gt_local_poses[:, :3, 3] = gt_local_poses[:, :3, 3] * 1000
+    elif opt.dataset == 'DynaSCARED':
+        # For DynaSCARED, we need to load the dataset to get ground truth poses
+        if opt.dataset == 'DynaSCARED':
+            dataset = DynaSCAREDRAWDataset(opt.data_path, filenames, opt.height, opt.width,
+                                    [0, 1], 4, is_train=False)
+            assert len(dataset.trajs_dict) == 1, f"Number of trajectories {len(dataset.trajs_dict)} does not match number of predictions {len(pred_poses)}"
+            gt_local_poses = dataset.trajs_dict[list(dataset.trajs_dict.keys())[0]]
+            print(f"Loaded {len(gt_local_poses)} gt poses")
+        else:
+            assert False, "Unknown dataset: {opt.dataset}"
+    else:
+        assert False, "Unknown dataset: {opt.dataset}"
+
+    # Compute evaluation metrics (same for both inference and skip_inference)
     ates = []
     res = []
     num_frames = gt_local_poses.shape[0]
@@ -488,8 +546,9 @@ def evaluate(opt, model_root=None, depth_model=None):
         ates.append(compute_ate(gt_local_xyzs, local_xyzs))
         res.append(compute_re(local_rs, gt_rs))
 
-    print("\n   Trajectory error: {:0.4f}, std: {:0.4f}\n".format(np.mean(ates), np.std(ates)))
-    print("\n   Rotation error: {:0.4f}, std: {:0.4f}\n".format(np.mean(res), np.std(res)))
+    print("\n   Trajectory error: {:0.8f}, std: {:0.8f}\n".format(np.mean(ates), np.std(ates)))
+    print("\n   Rotation error: {:0.8f}, std: {:0.8f}\n".format(np.mean(res), np.std(res)))
+
 
 
 if __name__ == "__main__":
