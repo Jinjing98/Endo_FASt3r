@@ -63,21 +63,21 @@ class Trainer:
             print('update options for debug purposes...')
             options.num_epochs = 50000
             options.batch_size = 1
-            # options.batch_size = 2
-            # options.batch_size = 4
-            options.accumulate_steps = 4  # Effective batch size = 1 * 12 = 12
+            # options.accumulate_steps = 4  # Effective batch size = 1 * 12 = 12
             options.log_frequency = 10
             options.save_frequency = 100000# no save
             # options.log_dir = "/mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm_debug"
 
 
-            options.pose_model_type = "geoaware_pnet"
-            options.model_name = "debug_tr_posenet"
+            # options.pose_model_type = "geoaware_pnet"
+            # options.pose_model_type = "posetr_net"
+            options.pose_model_type = "separate_resnet"
+            # options.model_name = "debug_tr_posenet"
 
 
             # options.shared_MF_OF_network = True
 
-            # options.enable_motion_computation = True
+            options.enable_motion_computation = True
             # options.use_MF_network = True
             # options.shared_MF_OF_network = True
             # options.enable_mutual_motion = True
@@ -139,19 +139,22 @@ class Trainer:
 
             # # big step might lead to inf?
             options.frame_ids = [0, -1, 1]
-            # options.frame_ids = [0, -3, 3]
+            options.frame_ids = [0, -3, 3]
             # options.frame_ids = [0, -14, 14]
 
             # # # # not okay to use: we did not adjust the init_K accordingly yet
             # DYNASCARED IS FINE?
-            options.height = 192
-            options.width = 224
+            # options.height = 192
+            # options.width = 224
 
 
             # # raft can use this?
             # options.height = 192
             # options.width = 192
 
+            options.dataset = "StereoMIS"
+            options.data_path = "/mnt/nct-zfs/TCO-All/SharedDatasets/StereoMIS_DARES_test/"
+            options.split_appendix = ""
 
             # options.dataset = "endovis"
             # options.data_path = "/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/"
@@ -409,8 +412,7 @@ class Trainer:
                     self.opt.num_layers,
                     self.opt.weights_init == "pretrained",
                     num_input_images=self.num_pose_frames)
-                assert os.path.exists(pose_encoder_path), f"pose_encoder_path {pose_encoder_path} does not exist"
-                # self.models["pose_encoder"].load_state_dict(torch.load(pose_encoder_path))
+
                 self.models["pose_encoder"].to(self.device)
                 self.parameters_to_train += list(self.models["pose_encoder"].parameters())
 
@@ -418,14 +420,60 @@ class Trainer:
                     self.models["pose_encoder"].num_ch_enc,
                     num_input_features=1,
                     num_frames_to_predict_for=2)
+                assert os.path.exists(pose_encoder_path), f"pose_encoder_path {pose_encoder_path} does not exist"
+                # self.models["pose_encoder"].load_state_dict(torch.load(pose_encoder_path))
                 assert os.path.exists(pose_decoder_path), f"pose_decoder_path {pose_decoder_path} does not exist"
                 # self.models["pose"].load_state_dict(torch.load(pose_decoder_path))
                 print('loaded separate_resnet pose model...')
 
+            elif self.opt.pose_model_type == "posetr_net":
+                from posetr.posetr_model import PoseTransformer
+                from functools import partial
+                # already load pretrained resnet18 internally
+                self.models["pose"] = PoseTransformer(enc_embed_dim=512,
+                                 enc_depth=6,
+                                 enc_num_heads=8,
+                                 dec_embed_dim=384,
+                                 dec_depth=4,
+                                 dec_num_heads=6,
+                                 mlp_ratio=4,
+                                 norm_layer=partial(nn.LayerNorm, eps=1e-6),
+                                 norm_im2_in_dec=True,
+                                 pos_embed='RoPE100')
+                
+                debug_only = True
+                # debug_only = False
+                if debug_only:
+
+                    from posetr.posetr_model_v2 import PoseTransformerV2
+                    # self.models["pose"]  = PoseTransformerV2(
+                    #     img_size=(256, 320),
+                    #     patch_size=16,
+                    #     embed_dim=384,              # Reduced from 768
+                    #     vit_depth=6,                # Reduced from 12
+                    #     vit_num_heads=6,            # 384/6 = 64 dim per head
+                    #     attention_depth=3,          # Reduced from 6
+                    #     attention_num_heads=6       # Keep consistent
+                    # )
+                    self.models["pose"] = PoseTransformerV2(
+                        img_size=(256, 320),
+                        patch_size=16,
+                        # embed_dim=384,              # Match DeiT-Small dimension
+                        attention_depth=4,          # 2 self + 2 cross attention
+                        attention_num_heads=6,       # 384/6 = 64 dim per head
+                        croco_vit=True,
+                        # skip_sa_ca=True,
+                        # use_vit = False,
+                        embed_dim=512,              # enable when no_use_vit so that exactly resnet_seperate_embedding
+
+                    )
+
+                print('loaded posetr_net pose model...')
+
             elif self.opt.pose_model_type == "endofast3r":
                 # reloc3r_ckpt_path = f"{RELOC3R_PRETRAINED_ROOT}/Reloc3r-512.pth"
                 assert os.path.exists(self.opt.backbone_pretrain_ckpt_path), f"backbone_pretrain_ckpt_path {self.opt.backbone_pretrain_ckpt_path} does not exist"
-                assert self.opt.backbone_pretrain_ckpt_path == f"{RELOC3R_PRETRAINED_ROOT}/Reloc3r-512.pth", f"backbone_pretrain_ckpt_path {self.opt.backbone_pretrain_ckpt_path} is not correct"
+                # assert self.opt.backbone_pretrain_ckpt_path == f"{RELOC3R_PRETRAINED_ROOT}/Reloc3r-512.pth", f"backbone_pretrain_ckpt_path {self.opt.backbone_pretrain_ckpt_path} is not correct"
                 from networks import Reloc3rX
                 self.models["pose"] = Reloc3rX(self.opt.backbone_pretrain_ckpt_path)
             elif self.opt.pose_model_type == "endofast3r_pose_trained_dbg":
@@ -560,6 +608,14 @@ class Trainer:
             assert self.opt.split_appendix == '', "split_appendix should be empty for endovis"
             fpath_train = fpath.format(f"train{self.opt.split_appendix}")
             fpath_val = fpath.format(f"val{self.opt.split_appendix}")
+        elif self.opt.dataset == 'StereoMIS':
+            assert self.opt.data_path == '/mnt/nct-zfs/TCO-All/SharedDatasets/StereoMIS_DARES_test/', f"data_path {self.opt.data_path} is not correct"
+            datasets_dict = {self.opt.dataset: datasets.StereoMISDataset}
+            fpath = os.path.join(os.path.dirname(__file__), "splits", self.opt.dataset, "{}_files.txt")
+            fpath_train = fpath.format(f"train{self.opt.split_appendix}")
+            fpath_val = fpath.format(f"val{self.opt.split_appendix}")
+            import warnings
+            warnings.warn(f"Using StereoMIS dataset with split_appendix {self.opt.split_appendix}")
         else:
             raise ValueError(f"Unknown dataset: {self.opt.dataset} {self.opt.data_path}")
         self.dataset = datasets_dict[self.opt.dataset]
@@ -830,6 +886,16 @@ class Trainer:
         #     param.requires_grad = True
         for param in self.models["pose"].parameters():
             param.requires_grad = True
+        
+        # debug_only = True
+        # # freeze self.models["pose"].feature_embed.parameters()
+        # if debug_only:
+        #     for param in self.models["pose"].feature_embed.parameters():
+        #         print(f'freeze feature_embed {param}')
+        #         param.requires_grad = False
+        #         continue
+
+
         for param in self.models["transform_encoder"].parameters():
             param.requires_grad = True
         for param in self.models["transform"].parameters():
@@ -1709,12 +1775,22 @@ class Trainer:
                     elif self.opt.pose_model_type == 'separate_resnet':
                         # tran scale from af sfmlearner: [-5.2260e-06, -1.7639e-05, -3.6466e-04]
                         pose_inputs = [self.models["pose_encoder"](torch.cat([pose_feats[f_i], pose_feats[0]], 1))]
+
                         axisangle, translation = self.models["pose"](pose_inputs)
 
                         outputs[("axisangle", 0, f_i)] = axisangle
                         outputs[("translation", 0, f_i)] = translation
                         outputs[("cam_T_cam", 0, f_i)] = transformation_from_parameters(
-                            axisangle[:, 0], translation[:, 0])
+                            axisangle[:, 0], translation[:, 0])# only extract the 0 
+                    elif self.opt.pose_model_type == "posetr_net":
+                        pass
+                        view1 = {'img':inputs["color_aug", f_i, 0]}
+                        view2 = {'img':inputs["color_aug", 0, 0]}
+                        # print('view1 shape:', view1['img'].shape)
+                        # print('view2 shape:', view2['img'].shape)
+                        _ , pose2 = self.models["pose"](view1,view2)
+                        outputs[("cam_T_cam", 0, f_i)] = pose2["pose"] # we need pose tgt2src, ie: pose2to1, i.e the pose2 in breif in reloc3r model.
+
                     elif self.opt.pose_model_type in ["endofast3r",
                                                       'endofast3r_pose_trained_dbg',
                                                       "uni_reloc3r", 
@@ -1743,15 +1819,7 @@ class Trainer:
                             gt_tgt2src_rel_poses = torch.inverse(gt_src_abs_poses) @ gt_tgt_abs_poses
                             outputs[("cam_T_cam", 0, f_i)] = gt_tgt2src_rel_poses
 
-                            # infact the disp2depth gives improper supervision for scale----what about given stereo metric depth or GT depth?
-                            # simple disp2depth control the min depth to be big (8 RATHER 0.1)
-
-
-
-
-
  
-
                     else:
                         assert 0, f'{self.opt.pose_model_type} is not implemented'
         return outputs
@@ -2004,6 +2072,9 @@ class Trainer:
                 # print('/////!waring..to be optimal later')
                 T = outputs[("cam_T_cam", 0, tgt_frame_id)]
                 T = torch.inverse(T) 
+        
+
+
 
         if self.opt.zero_pose_debug:
             T = torch.eye(4).to(self.device).repeat(T.shape[0], 1, 1)
@@ -2080,6 +2151,52 @@ class Trainer:
             # print('Used cam_points mean 4:')
             # print(cam_points[:,3,:].mean())
         pix_coords = self.project_3d[source_scale](cam_points, inputs[("K", source_scale)], T)# 2D pxs; T: f0 -> f1  f0->f-1
+        
+
+        debug_only = True
+        debug_only = False
+        if debug_only:
+            print('pix_coords shape:')
+            print(pix_coords.shape)
+            print('pix_coords max min:')
+            print(pix_coords.max())
+            # using tanh to clamp pix_coords
+            # pix_coords = torch.tanh(pix_coords)
+            print('pix_coords max min after tanh:')
+            print(pix_coords.max())
+            print(pix_coords.min())
+            # clamp pix_coords to be in range [-0.1,0.1]
+            # pix_coords = torch.clamp(pix_coords, -0.02, 0.02)
+
+            # reg the position wise sampling.
+
+            # loc_per_pixel = torch.meshgrid(torch.linspace(-1, 1, self.opt.width), torch.linspace(-1, 1, self.opt.height), indexing='ij')
+            # loc_per_pixel = torch.stack(loc_per_pixel, dim=-1)
+
+            # Create meshgrid with correct coordinate order
+            x_coords = torch.linspace(-1, 1, self.opt.width)   # Width dimension
+            y_coords = torch.linspace(-1, 1, self.opt.height)  # Height dimension
+
+            # Create meshgrid - this gives (height, width) for each coordinate
+            y_grid, x_grid = torch.meshgrid(y_coords, x_coords, indexing='ij')
+
+            # Stack to get (height, width, 2) where [..., 0] = x, [..., 1] = y
+            loc_per_pixel = torch.stack([x_grid, y_grid], dim=-1)
+
+            loc_per_pixel = loc_per_pixel.unsqueeze(0)
+            loc_per_pixel = loc_per_pixel.repeat(pix_coords.shape[0], 1, 1, 1)#.permute(0, 3, 1, 2)
+            loc_per_pixel = loc_per_pixel.to(self.device)
+
+            pix_delta_raw = pix_coords - loc_per_pixel
+            # pix_delta = torch.clamp(pix_delta_raw, -0.0, 0.0)
+            # pix_delta = torch.clamp(pix_delta_raw, -0.01, 0.01) # a good value
+            pix_delta = torch.clamp(pix_delta_raw, -0.05, 0.05) # a good value
+            # pix_delta = torch.tanh(pix_delta_raw)*0.05
+            
+            # pix_delta = torch.clamp(pix_delta_raw, -0.2, 0.2)
+            pix_coords = loc_per_pixel + pix_delta
+
+        
         if compute_tgt2src_sampling:
             outputs[("sample", frame_id, scale)] = pix_coords # b h w 2
         else:
@@ -2662,6 +2779,22 @@ class Trainer:
                 loss_reg_dice = 0
                 loss_reg_edge = 0
                 loss_reg_mag = 0
+            
+            debug_only = True
+            # debug_only = False
+            if debug_only:
+                self.opt.use_R_reg = True
+                self.opt.use_t_mag_reg = True
+                self.opt.use_R_reg = False
+                self.opt.use_t_mag_reg = False
+                self.opt.R_reg_weight = 10
+                self.opt.t_mag_reg_weight = 10
+                # use weight annelling
+                # use temporal reg: the relative pose of fi and fi' w.r.t to f0 should be inverse.
+
+
+                loss_R_reg = 0
+                loss_t_mag_reg = 0
 
             if self.opt.reg_mutual_raw_disp_based_OF_for_consistency_and_correctness:
                 loss_reg_mutual_raw_disp_based_OF = 0
@@ -2711,6 +2844,26 @@ class Trainer:
                 #register reproj_loss_supervised_tgt_color for debugging
                 outputs[("reproj_supervised_tgt_color_debug", scale, frame_id)] = reproj_loss_supervised_tgt_color.detach() #reproj_loss_supervised_tgt_color.detach()
                 outputs[("reproj_supervised_signal_color_debug", scale, frame_id)] = reproj_loss_supervised_signal_color.detach() #reproj_loss_supervised_tgt_color.detach()
+
+                if self.opt.use_R_reg:
+                    esti_rot = outputs[("cam_T_cam", 0, frame_id)][:, :3, :3]
+
+                    def rotation_angle_from_R(R, eps=1e-6):
+                        # R: (..., 3, 3)
+                        tr = R[..., 0, 0] + R[..., 1, 1] + R[..., 2, 2]
+                        cos_theta = ((tr - 1.0) / 2.0).clamp(-1.0+eps, 1.0-eps)
+                        theta = torch.acos(cos_theta)
+                        return theta  # shape (...)
+                    
+                    theta = rotation_angle_from_R(esti_rot)
+                    # regularize to be identity
+                    loss_R_reg += (theta ** 2).mean()
+                
+                if self.opt.use_t_mag_reg:
+                    esti_trans = outputs[("cam_T_cam", 0, frame_id)][:, :3, 3]
+                    esti_trans_mag = esti_trans.norm(dim=1)
+                    loss_t_mag_reg += (esti_trans_mag ** 2).mean()
+
 
 
                 if self.opt.enable_motion_computation:
@@ -2849,7 +3002,12 @@ class Trainer:
                             + weights[2] * loss_reg_dice) / 2.0 )
 
             if self.opt.use_loss_reproj2_nomotion:
-                loss += loss2_reprojection / 2.0
+                loss += self.opt.loss_reproj2_nomotion_weight * loss2_reprojection / 2.0
+
+            if self.opt.use_R_reg:
+                loss += self.opt.R_reg_weight * loss_R_reg
+            if self.opt.use_t_mag_reg:
+                loss += self.opt.t_mag_reg_weight * loss_t_mag_reg
 
             total_loss += loss
             # total

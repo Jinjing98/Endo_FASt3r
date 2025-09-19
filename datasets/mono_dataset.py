@@ -162,6 +162,11 @@ class MonoDataset(data.Dataset):
             keyframe = folder[-1]
         else:
             raise ValueError(f'Unknown dataset name: {self.dataset_name}')
+        # print('===============================================')
+        # print('read_folder:', folder)
+        # print('dataset_name:', self.dataset_name)
+        # print('components:', folder_components)
+        # print(f'sequence: {sequence}, keyframe: {keyframe}')
         inputs["sequence"] = torch.from_numpy(np.array(int(sequence)))
         inputs["keyframe"] = torch.from_numpy(np.array(int(keyframe)))  
 
@@ -369,7 +374,7 @@ class MonoDataset(data.Dataset):
                 import glob
                 traj_full_folder = os.path.join(self.traj_data_root, folder, 'vid')
                 traj_path = glob.glob(f'{traj_full_folder}/*.txt')
-                assert len(traj_path) == 1, f'Expected 1 trajectory file, but got {len(traj_path)} for {folder}'
+                assert len(traj_path) == 1, f'Expected 1 trajectory file, but got {len(traj_path)} for {traj_full_folder}'
                 traj_path = traj_path[0]
             elif self.dataset_name == 'SCARED':
                 traj_full_folder = self.map_traj_search(folder)

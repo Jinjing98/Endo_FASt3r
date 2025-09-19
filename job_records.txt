@@ -1,3 +1,28 @@
+# quick verify: scale down OPT_trans; Reg_rot_ang; Reg_trans_mag
+# b8 reloc3r_head_9D for stablize
+100140(failed; dpeth still gone) unfzD_SCARED_b8accu1_posetr_net_reloc3r_9D_OPTTranse03_regTrMagWt0_regRotAngMagWt10_386to1536rather4096_depthScratchDAM_motionDftFlow_allRegLoss_doubleB
+100144 unfzD_SCARED_b8accu1_posetr_net_reloc3r_9D_OPTTranse03_regTrMagWt10_regRotAngMagWt10_386to1536rather4096_depthScratchDAM_motionDftFlow_allRegLoss_doubleB
+100150 unfzD_SCARED_b8accu1_posetr_net_reloc3r_9D_OPTTranse03_regTrMagWt100_regRotAngMagWt10_386to1536rather4096_depthScratchDAM_motionDftFlow_allRegLoss_doubleB
+
+(for MIX, depth still not good---scale down OPT trans even much e-4)---if still not work; try training with real dataset----cholec80/stereoMIS
+
+Use MIX data
+100152 unfzD_SCARED_b8accu1_posetr_net_reloc3r_9D_OPTTranse03_regTrMagWt10_regRotAngMagWt10_386to1536rather4096_depthScratchDAM_motionDftFlow_allRegLoss_doubleB
+
+
+100042 backup job (mix data; Dftflow ; B32)unfzD_MIX_b32accu1_posetr_net_endofast3r_Transe03Rot02_386to1536rather4096_depthScratchDAM_motionDftFlow_allRegLoss_doubleB
+100040 (mix data; raftflow ; B8)unfzD_MIX_b8accu1_posetr_net_endofast3r_Transe03Rot02_386to1536rather4096_depthScratchDAM_motionRAFTFlow_allRegLoss_doubleB
+100036 (endofast3r_Transe03Rot02) unfzD_SCARED_b32accu1_posetr_net_endofast3r_Transe03Rot02_386to1536rather4096_depthScratchDAM_motionDftFlow_allRegLoss_doubleB
+X100027 still not good depth desipte not explode (raft failed; we go for dftflow)unfzD_SCARED_b8accu1_posetr_net_endofast3r_Transe03Rot01_386to1536rather4096_depthScratchDAM_motionDftFlow_allRegLoss_doubleB
+
+100022  b8(dftflow) unfzD_SCARED_b8accu1_posetr_net_9DscaleTranse03_386to1536rather4096_depthScratchDAM_motionDftFlow_allRegLoss_doubleB
+X100021  b8 unfzD_SCARED_b24accu1_posetr_net_9DscaleTranse03_386to1536rather4096_depthScratchDAM_motionRAFTFlow_allRegLoss_doubleB
+
+
+# depth gets insanely big
+X99996  SCARED: other be the same; use pose_tr net; USEDFT (99995 failed due to nan)
+99995(tran03rot03 making depth unstable; we realized it is the rot scale issue)  SCARED: other be the same; use pose_tr net; USEraft 
+X99994  MIX: other be the same; use pose_tr net; noraft (99993 failed due to nan)
 # Use MIX to train---Hope to get better depth.
 99956  unfzD_MIX_b3accu1_poseScratchSeperateResnet_depthScratchDAM_motionRAFTFlow_allRegLoss_doubleB
 

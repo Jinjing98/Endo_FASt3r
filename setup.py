@@ -24,8 +24,15 @@ from setuptools import setup, find_packages
 
 
 # install pcrnet
+# setup(
+#   name = 'pcrnet',  # it will look up /vit_cls with its current hierachy. notice, there shouldn’t be ‘-’ for the pkg name('_'is accepted tho)!!
+#   packages = find_packages(),  # it will look up the avaible directory where there are __init__.py under it!
+#   version = '0.0.1',
+#   license='MIT', 
+# )
+
 setup(
-  name = 'pcrnet',  # it will look up /vit_cls with its current hierachy. notice, there shouldn’t be ‘-’ for the pkg name('_'is accepted tho)!!
+  name = 'posetr',  # it will look up /vit_cls with its current hierachy. notice, there shouldn’t be ‘-’ for the pkg name('_'is accepted tho)!!
   packages = find_packages(),  # it will look up the avaible directory where there are __init__.py under it!
   version = '0.0.1',
   license='MIT', 

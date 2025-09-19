@@ -42,24 +42,38 @@ class PoseHead(nn.Module):
                  num_resconv_block=2,
                  rot_representation='axis-angle',
                  patch_size=None,
-                 dec_embed_dim=None):
+                 output_dim = None,
+                 dec_embed_dim=None,
+                 trans_emb_scale=0.001,
+                 rot_emb_scale=0.001,
+                 ):
         super().__init__()
+
+        self.trans_emb_scale = trans_emb_scale
+        self.rot_emb_scale = rot_emb_scale
+
         self.num_resconv_block = num_resconv_block
         self.rot_representation = rot_representation  
 
         if patch_size is None:
             assert dec_embed_dim is None, 'dec_embed_dim must be provided'
+            assert output_dim is None, 'output_dim must be provided'
             self.patch_size = net.patch_embed.patch_size[0]
             # used for reloc3r and endofast3r
             output_dim = 4*self.patch_size**2
             dec_embed_dim = net.dec_embed_dim
         else:
             assert dec_embed_dim is not None, 'dec_embed_dim must be provided'
+            assert output_dim is not None, 'output_dim must be provided'
             assert net is None, 'net must be provided'
             # used for resnet feature
             self.patch_size = patch_size
-            output_dim = 4*self.patch_size**2
+            # output_dim = 4*dec_embed_dim #4*self.patch_size**2
+            output_dim = dec_embed_dim
             dec_embed_dim = dec_embed_dim
+        
+        print('posehead proj linear layer:')
+        print(dec_embed_dim, output_dim)
 
         self.proj = nn.Linear(dec_embed_dim, output_dim)
         self.res_conv = nn.ModuleList([copy.deepcopy(ResConvBlock(output_dim, output_dim)) 
@@ -213,8 +227,9 @@ class PoseHead(nn.Module):
     #     return pose
 
     def convert_pose_to_4x4(self, B, out_r, out_t, device):
-        out_r = 0.001 * out_r
-        out_t = 0.001 * out_t
+        out_r = self.rot_emb_scale * out_r
+        out_t = self.trans_emb_scale * out_t
+        
         # if self.rot_representation=='9D':
         #     out_r = self.svd_orthogonalize(out_r)  # [N,3,3]
         # else:
@@ -236,13 +251,17 @@ class PoseHead(nn.Module):
         
         feat = self.proj(tokens)  # B,S,D
         feat = feat.transpose(-1, -2).view(B, -1, H//self.patch_size, W//self.patch_size)
+        # print('feat shape before resconv:', feat.shape)
         for i in range(self.num_resconv_block):
             feat = self.res_conv[i](feat)
+            # print('feat shape after resconv:', feat.shape)
 
         feat = self.avgpool(feat)
+        # print('feat shape after avgpool:', feat.shape)
         feat = feat.view(feat.size(0), -1)
-
+        # print('feat shape after view:', feat.shape)
         feat = self.more_mlps(feat)  # [B, D_]
+        # print('feat shape after more_mlps:', feat.shape)
         out_t = self.fc_t(feat)  # [B,3]
         out_r = self.fc_rot(feat)  # [B,3]
         pose = self.convert_pose_to_4x4(B, out_r, out_t, tokens.device)

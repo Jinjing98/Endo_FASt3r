@@ -29,7 +29,18 @@ def compute_scale(gtruth, pred):
     # Optimize the scaling factor
     scale = np.sum(gtruth[:, :3, 3] * pred[:, :3, 3]) / np.sum(pred[:, :3, 3] ** 2)
 
+    print('scale: ', scale)
+    # hard_code_scale = -0.25
+    # print('hard_code_scale: ', hard_code_scale)
+    # scale = hard_code_scale
+
     return scale
+
+debug_only = True
+debug_only = False
+if debug_only:
+    gt_local_poses = gt_local_poses[:150]
+    our_local_poses = our_local_poses[:150]
 
 dump_gt = np.array(dump(gt_local_poses))
 dump_our = np.array(dump(our_local_poses))

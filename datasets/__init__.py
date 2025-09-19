@@ -1,2 +1,3 @@
 from .scared_dataset import SCAREDRAWDataset
 from .dynascared_dataset import DynaSCAREDRAWDataset
+from .stereomis_dataset import StereoMISDataset

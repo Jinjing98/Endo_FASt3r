@@ -92,6 +92,12 @@ class MonodepthOptions:
         self.parser.add_argument("--use_loss_reproj2_nomotion",
                                  help="used to addtionally supervise the pose flow to be effective---imporant to get good pose when eval!",
                                  action="store_true")
+        
+        self.parser.add_argument("--loss_reproj2_nomotion_weight",
+                                 type=float,
+                                 help="weight for the reprojection loss",
+                                 default=1.0)
+
         self.parser.add_argument("--reproj2_supervised_with_which",
                                  type=str,
                                  help="which GT image to supervise with",
@@ -372,7 +378,8 @@ class MonodepthOptions:
                                           "endofast3r",
                                           "endofast3r_pose_trained_dbg",
                                           "uni_reloc3r",
-                                          "pcrnet"
+                                          "pcrnet",
+                                          "posetr_net"
                                           ])
         
         self.parser.add_argument("--depth_model_type",
@@ -469,11 +476,12 @@ class MonodepthOptions:
             "--eval_split_appendix",
             type=str,
             default="",
-            choices=["", "_CaToTi000", "_CaToTi011", "1", "2", "000_00597"],
+            choices=["", "_CaToTi000", "_CaToTi011", "1", "2", "000_00597", '3'],
             help=(
                 "Appendix to the eval split. Options:\n"
                 "  Endovis pose: 1, 2, (scared_pose_seq)\n"
                 "  StereoMIS pose: 1\n"
+                "  StereoMIS pose: 3\n"
                 "  Dynascared pose: 000_00597\n"
                 "  Endovis depth: ''\n"
                 "  Hamlyn_depth: ''\n"
