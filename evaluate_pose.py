@@ -410,6 +410,46 @@ def predict_pose_for_model(pose_model, pose_model_type, inputs, device, opt=None
 #     else:
 #         raise ValueError(f"pose_model_type {pose_model_type} does not require depth input.")
 
+def compute_rpe_translation(gt_poses, pred_poses, delta=1):
+    """Compute Relative Pose Error for translation"""
+    rpe_trans = []
+    
+    for i in range(len(gt_poses) - delta):
+        # Ground truth relative pose
+        gt_rel = np.linalg.inv(gt_poses[i]) @ gt_poses[i + delta]
+        gt_trans = gt_rel[:3, 3]
+        
+        # Predicted relative pose
+        pred_rel = np.linalg.inv(pred_poses[i]) @ pred_poses[i + delta]
+        pred_trans = pred_rel[:3, 3]
+        
+        # Translation error
+        trans_error = np.linalg.norm(gt_trans - pred_trans)
+        rpe_trans.append(trans_error)
+    
+    return np.array(rpe_trans)
+
+def compute_rpe_rotation(gt_poses, pred_poses, delta=1):
+    """Compute Relative Pose Error for rotation"""
+    rpe_rot = []
+    
+    for i in range(len(gt_poses) - delta):
+        # Ground truth relative pose
+        gt_rel = np.linalg.inv(gt_poses[i]) @ gt_poses[i + delta]
+        gt_rot = gt_rel[:3, :3]
+        
+        # Predicted relative pose
+        pred_rel = np.linalg.inv(pred_poses[i]) @ pred_poses[i + delta]
+        pred_rot = pred_rel[:3, :3]
+        
+        # Rotation error (angle between rotation matrices)
+        R = gt_rot @ np.linalg.inv(pred_rot)
+        trace = np.trace(R)
+        angle = np.arccos(np.clip((trace - 1) / 2, -1, 1))
+        rpe_rot.append(angle)
+    
+    return np.array(rpe_rot)
+
 def evaluate(opt, model_root=None, depth_model=None):
     """Evaluate odometry on the SCARED dataset
     """
@@ -445,7 +485,8 @@ def evaluate(opt, model_root=None, depth_model=None):
         print("-> Skipping inference, loading pre-computed trajectory estimates")
         
         # Load pre-computed predictions
-        pred_poses_path = os.path.join(os.path.dirname(__file__), "splits", opt.dataset, "pred_pose_sq{}.npz".format(opt.eval_split_appendix))
+        pred_poses_path = os.path.join(os.path.dirname(__file__), "splits", opt.dataset, 
+                                       "pred_pose_sq{}{}.npz".format(opt.eval_split_appendix, opt.eval_model_appendix))
         
         if not os.path.exists(pred_poses_path):
             raise FileNotFoundError(f"Pre-computed predictions not found at {pred_poses_path}. Please run inference first or disable skip_inference.")
@@ -521,35 +562,63 @@ def evaluate(opt, model_root=None, depth_model=None):
         gt_local_poses[:, :3, 3] = gt_local_poses[:, :3, 3] * 1000
     elif opt.dataset == 'DynaSCARED':
         # For DynaSCARED, we need to load the dataset to get ground truth poses
-        if opt.dataset == 'DynaSCARED':
-            dataset = DynaSCAREDRAWDataset(opt.data_path, filenames, opt.height, opt.width,
-                                    [0, 1], 4, is_train=False)
-            assert len(dataset.trajs_dict) == 1, f"Number of trajectories {len(dataset.trajs_dict)} does not match number of predictions {len(pred_poses)}"
-            gt_local_poses = dataset.trajs_dict[list(dataset.trajs_dict.keys())[0]]
-            print(f"Loaded {len(gt_local_poses)} gt poses")
-        else:
-            assert False, "Unknown dataset: {opt.dataset}"
+        dataset = DynaSCAREDRAWDataset(opt.data_path, filenames, opt.height, opt.width,
+                                [0, 1], 4, is_train=False)
+        assert len(dataset.trajs_dict) == 1, f"Number of trajectories {len(dataset.trajs_dict)} does not match number of predictions {len(pred_poses)}"
+        gt_local_poses = dataset.trajs_dict[list(dataset.trajs_dict.keys())[0]]
+        print(f"Loaded {len(gt_local_poses)} gt poses")
+
     else:
         assert False, "Unknown dataset: {opt.dataset}"
 
-    # Compute evaluation metrics (same for both inference and skip_inference)
-    ates = []
-    res = []
-    num_frames = gt_local_poses.shape[0]
-    track_length = 5
-    for i in range(0, num_frames - 1):
-        local_xyzs = np.array(dump_xyz(pred_poses[i:i + track_length - 1]))
-        gt_local_xyzs = np.array(dump_xyz(gt_local_poses[i:i + track_length - 1]))
-        local_rs = np.array(dump_r(pred_poses[i:i + track_length - 1]))
-        gt_rs = np.array(dump_r(gt_local_poses[i:i + track_length - 1]))
+    # Compute evaluation metrics
+    print("\n-> Computing evaluation metrics...")
+    
+    # ATE and RE (existing metrics)
+    def compute_metrics(gt_local_poses, pred_poses, track_length):
+        ates = []
+        res = []
+        num_frames = gt_local_poses.shape[0]
+        # Use consistent values
+        # track_length = 5
+        delta = track_length - 1  # delta = 4
 
-        ates.append(compute_ate(gt_local_xyzs, local_xyzs))
-        res.append(compute_re(local_rs, gt_rs))
+        for i in range(0, num_frames - 1):
+            local_xyzs = np.array(dump_xyz(pred_poses[i:i + track_length - 1]))
+            gt_local_xyzs = np.array(dump_xyz(gt_local_poses[i:i + track_length - 1]))
+            local_rs = np.array(dump_r(pred_poses[i:i + track_length - 1]))
+            gt_rs = np.array(dump_r(gt_local_poses[i:i + track_length - 1]))
 
-    print("\n   Trajectory error: {:0.8f}, std: {:0.8f}\n".format(np.mean(ates), np.std(ates)))
-    print("\n   Rotation error: {:0.8f}, std: {:0.8f}\n".format(np.mean(res), np.std(res)))
+            ates.append(compute_ate(gt_local_xyzs, local_xyzs))
+            res.append(compute_re(local_rs, gt_rs))
+
+        # RPE metrics (new)
+        # TODO: SCALE the esti
+        # rpe_trans = compute_rpe_translation(gt_local_poses, pred_poses, delta=delta)
+        # rpe_rot = compute_rpe_rotation(gt_local_poses, pred_poses, delta=delta)
+        
+
+        # Print results
+        print("\n" + "="*60)
+        print("EVALUATION RESULTS GIVEN TRACK LENGTH = {}".format(track_length))
+        print("="*60)
+        
+        print(f"\nAbsolute Trajectory Error (ATE):")
+        print(f"   Mean: {np.mean(ates):.8f}, Std: {np.std(ates):.8f}")
+        print(f"\nRotation Error (RE):")
+        print(f"   Mean: {np.mean(res):.8f}, Std: {np.std(res):.8f}")
+        
+        # print(f"\nRelative Pose Error - Translation (RPE-T):")
+        # print(f"   Delta={delta}: Mean: {np.mean(rpe_trans):.8f}, Std: {np.std(rpe_trans):.8f}")
+        # print(f"\nRelative Pose Error - Rotation (RPE-R):")
+        # print(f"   Delta={delta}: Mean: {np.mean(rpe_rot):.8f}, Std: {np.std(rpe_rot):.8f}")
+        
+        print("="*60)
 
 
+    compute_metrics(gt_local_poses, pred_poses, track_length=len(pred_poses))
+    compute_metrics(gt_local_poses, pred_poses, track_length=5)
+    compute_metrics(gt_local_poses, pred_poses, track_length=2)
 
 if __name__ == "__main__":
     options = MonodepthOptions()

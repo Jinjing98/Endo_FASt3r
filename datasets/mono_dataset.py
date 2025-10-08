@@ -160,6 +160,10 @@ class MonoDataset(data.Dataset):
         elif self.dataset_name == 'SCARED':
             sequence = folder[7]
             keyframe = folder[-1]
+        elif self.dataset_name == 'StereoMIS':
+            folder_components = folder.split('/')
+            sequence = folder.split('/')[0]
+            keyframe = folder.split('/')[1]
         else:
             raise ValueError(f'Unknown dataset name: {self.dataset_name}')
         # print('===============================================')
@@ -167,8 +171,12 @@ class MonoDataset(data.Dataset):
         # print('dataset_name:', self.dataset_name)
         # print('components:', folder_components)
         # print(f'sequence: {sequence}, keyframe: {keyframe}')
-        inputs["sequence"] = torch.from_numpy(np.array(int(sequence)))
-        inputs["keyframe"] = torch.from_numpy(np.array(int(keyframe)))  
+        if self.dataset_name == 'StereoMIS':
+            inputs["sequence"] = torch.from_numpy(np.array(int(sequence[-1])))
+            inputs["keyframe"] = torch.from_numpy(np.array(int(keyframe[-1])))
+        else:
+            inputs["sequence"] = torch.from_numpy(np.array(int(sequence)))
+            inputs["keyframe"] = torch.from_numpy(np.array(int(keyframe)))  
 
 
         if len(line) == 3:
@@ -193,8 +201,12 @@ class MonoDataset(data.Dataset):
         for scale in range(self.num_scales):
             if self.dataset_name == 'SCARED':
                 K = self.K.copy()
+            elif self.dataset_name == 'StereoMIS':
+                K = self.K.copy()
             elif self.dataset_name == 'DynaSCARED':
                 K = self.K_dict_registered[folder].copy()
+            else:
+                raise ValueError(f'Unknown dataset name: {self.dataset_name}')
 
             K[0, :] *= self.width // (2 ** scale)
             K[1, :] *= self.height // (2 ** scale)
@@ -234,6 +246,8 @@ class MonoDataset(data.Dataset):
                 offset = -1
             elif self.dataset_name == 'DynaSCARED':
                 offset = 0
+            elif self.dataset_name == 'StereoMIS':
+                offset = -1
             else:
                 raise ValueError(f'Unknown dataset name: {self.dataset_name}')
             
@@ -370,15 +384,20 @@ class MonoDataset(data.Dataset):
         print(f"Loading trajectories for {len(unique_folders)} unique folders...")
         # print('Load from folder:', unique_folders)
         for folder in unique_folders:
+            # print('**********dataset name:', self.dataset_name)
+            # print('**********folder:', folder)
             if self.dataset_name == 'DynaSCARED':
                 import glob
                 traj_full_folder = os.path.join(self.traj_data_root, folder, 'vid')
                 traj_path = glob.glob(f'{traj_full_folder}/*.txt')
                 assert len(traj_path) == 1, f'Expected 1 trajectory file, but got {len(traj_path)} for {traj_full_folder}'
                 traj_path = traj_path[0]
-            elif self.dataset_name == 'SCARED':
-                traj_full_folder = self.map_traj_search(folder)
+            elif self.dataset_name == 'StereoMIS':
+                traj_full_folder = os.path.join(self.traj_data_root, folder.split('/')[0])
                 traj_path = f'{traj_full_folder}/groundtruth.txt'
+            elif self.dataset_name == 'SCARED':
+                    traj_full_folder = self.map_traj_search(folder)
+                    traj_path = f'{traj_full_folder}/groundtruth.txt'
             else:
                 raise ValueError(f'Unknown dataset name: {self.dataset_name}')
             

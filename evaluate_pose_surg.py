@@ -194,6 +194,11 @@ def run_pose_network_on_images(image_paths, height, width, pose_encoder, pose_de
                 view2 = {'img': prepare_images(t0.unsqueeze(0), device, size=512, Ks=None)}
                 _, pose2 = pose_model(view1, view2)
                 T_rel = pose2["pose"].cpu().numpy()[0]
+            elif pose_model_type == 'posetr_net':
+                view1 = {'img': t1.unsqueeze(0).to(device)}
+                view2 = {'img': t0.unsqueeze(0).to(device)}
+                _, pose2 = pose_model(view1, view2)
+                T_rel = pose2["pose"].cpu().numpy()[0]
             else:
                 assert False, f"Unsupported pose_model_type: {pose_model_type}"
 
@@ -312,6 +317,30 @@ def main():
         pose_model.load_state_dict(torch.load(os.path.join(opt.load_weights_folder, "pose.pth"), map_location=device.type))
         pose_model.to(device).eval()
         pred_rels = run_pose_network_on_images(image_paths, opt.height, opt.width, None, None, pose_model_type = opt.pose_model_type, pose_model = pose_model)
+    elif opt.pose_model_type == 'posetr_net':
+        assert os.path.isdir(opt.load_weights_folder), f"Cannot find model folder: {opt.load_weights_folder}"
+        from functools import partial
+        from posetr.posetr_model_v2 import PoseTransformerV2
+        pose_model = PoseTransformerV2(
+            img_size=(256, 320),
+            patch_size=16,
+            # embed_dim=384,              # Match DeiT-Small dimension
+            attention_depth=4,          # 2 self + 2 cross attention
+            attention_num_heads=6,       # 384/6 = 64 dim per head
+            croco_vit=True,
+            # skip_sa_ca=True,
+            # use_vit = False,
+            embed_dim=512,              # enable when no_use_vit so that exactly resnet_seperate_embedding
+
+        )
+        pose_model_path = os.path.join(opt.load_weights_folder, "pose.pth")
+        assert os.path.exists(pose_model_path)
+        pose_model.load_state_dict(torch.load(pose_model_path), strict=True)
+        pose_model.to(device).eval()
+        pred_rels = run_pose_network_on_images(image_paths, opt.height, opt.width, None, None, pose_model_type = opt.pose_model_type, pose_model = pose_model)
+
+
+
     else: 
         assert False, f"Unsupported pose_model_type: {opt.pose_model_type}"
 

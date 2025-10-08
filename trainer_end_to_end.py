@@ -427,19 +427,18 @@ class Trainer:
                 print('loaded separate_resnet pose model...')
 
             elif self.opt.pose_model_type == "posetr_net":
-                from posetr.posetr_model import PoseTransformer
                 from functools import partial
                 # already load pretrained resnet18 internally
-                self.models["pose"] = PoseTransformer(enc_embed_dim=512,
-                                 enc_depth=6,
-                                 enc_num_heads=8,
-                                 dec_embed_dim=384,
-                                 dec_depth=4,
-                                 dec_num_heads=6,
-                                 mlp_ratio=4,
-                                 norm_layer=partial(nn.LayerNorm, eps=1e-6),
-                                 norm_im2_in_dec=True,
-                                 pos_embed='RoPE100')
+                # self.models["pose"] = PoseTransformer(enc_embed_dim=512,
+                #                  enc_depth=6,
+                #                  enc_num_heads=8,
+                #                  dec_embed_dim=384,
+                #                  dec_depth=4,
+                #                  dec_num_heads=6,
+                #                  mlp_ratio=4,
+                #                  norm_layer=partial(nn.LayerNorm, eps=1e-6),
+                #                  norm_im2_in_dec=True,
+                #                  pos_embed='RoPE100')
                 
                 debug_only = True
                 # debug_only = False

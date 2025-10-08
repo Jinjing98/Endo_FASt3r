@@ -9,6 +9,12 @@ file_dir = os.path.dirname(__file__)  # the directory that options.py resides in
 class MonodepthOptions:
     def __init__(self):
         self.parser = argparse.ArgumentParser(description="Monodepthv2 options")
+
+        # eval only
+        self.parser.add_argument("--skip_inference",
+                                 help="if set skips inference",
+                                 action="store_true")
+        
         # dataset options
         self.parser.add_argument("--of_samples",
                                  help="alwasy choose seveal samples for used for of",
@@ -488,6 +494,8 @@ class MonodepthOptions:
                 "  DynaSCARED_depth: '', '_CaToTi000', '_CaToTi011'\n"
             )
         )
+
+        self.parser.add_argument('--eval_model_appendix', type=str, default='')
 
         self.parser.add_argument("--save_pred_disps",
                                  help="if set saves predicted disparities",

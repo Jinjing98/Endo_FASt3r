@@ -93,5 +93,6 @@ if __name__ == "__main__":
         img_ext=".png",
     )
     
-    dataset[5]
+    # dataset[5]
     # print(dataset[0])
+    print(dataset[5][('K', 0)])

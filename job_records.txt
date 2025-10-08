@@ -1,3 +1,10 @@
+08.oct 
+
+111629 b3accu4_SM_MonFast3r_trainedNfzD
+111628 b3accu4_SM_MonFast3r_scratchD
+111238 b3accu4_smallSM_MonFast3r_scratchD  # not give good pose at all. okaish depth
+
+
 # quick verify: scale down OPT_trans; Reg_rot_ang; Reg_trans_mag
 # b8 reloc3r_head_9D for stablize
 100140(failed; dpeth still gone) unfzD_SCARED_b8accu1_posetr_net_reloc3r_9D_OPTTranse03_regTrMagWt0_regRotAngMagWt10_386to1536rather4096_depthScratchDAM_motionDftFlow_allRegLoss_doubleB

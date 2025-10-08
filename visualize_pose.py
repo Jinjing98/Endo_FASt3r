@@ -3,14 +3,18 @@ from mpl_toolkits.mplot3d import axes3d
 import os
 import matplotlib.pyplot as plt
 import numpy as np
+import argparse
 from options import MonodepthOptions
 opt = MonodepthOptions().parse()
+
 # load data from file
 # you replace this using with open
 gt_path = os.path.join(os.path.dirname(__file__), "splits", opt.dataset, "gt_poses_sq{}.npz".format(opt.eval_split_appendix))
 gt_local_poses = np.load(gt_path, fix_imports=True, encoding='latin1')["data"]
 
-our_path = os.path.join(os.path.dirname(__file__), "splits", opt.dataset, "pred_pose_sq{}.npz".format(opt.eval_split_appendix))
+# our_path = os.path.join(os.path.dirname(__file__), "splits", opt.dataset, "pred_pose_sq{}.npz".format(opt.eval_split_appendix))
+our_path = os.path.join(os.path.dirname(__file__), "splits", opt.dataset, "pred_pose_sq{}{}.npz".format(opt.eval_split_appendix, 
+                                                                                                        opt.eval_model_appendix))
 our_local_poses = np.load(our_path, fix_imports=True, encoding='latin1')["data"]
 
 
@@ -30,7 +34,7 @@ def compute_scale(gtruth, pred):
     scale = np.sum(gtruth[:, :3, 3] * pred[:, :3, 3]) / np.sum(pred[:, :3, 3] ** 2)
 
     print('scale: ', scale)
-    # hard_code_scale = -0.25
+    # hard_code_scale = -0.236
     # print('hard_code_scale: ', hard_code_scale)
     # scale = hard_code_scale
 
@@ -38,9 +42,11 @@ def compute_scale(gtruth, pred):
 
 debug_only = True
 debug_only = False
+plot_num = 150
+plot_num = 100
 if debug_only:
-    gt_local_poses = gt_local_poses[:150]
-    our_local_poses = our_local_poses[:150]
+    gt_local_poses = gt_local_poses[:plot_num]
+    our_local_poses = our_local_poses[:plot_num]
 
 dump_gt = np.array(dump(gt_local_poses))
 dump_our = np.array(dump(our_local_poses))
