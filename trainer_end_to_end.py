@@ -11,7 +11,7 @@ import torch.nn as nn
 
 from utils import *
 from layers import *
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, ConcatDataset
 from tensorboardX import SummaryWriter
 from torchmetrics.image import MultiScaleStructuralSimilarityIndexMeasure
 from metrics import compute_pose_error_v2
@@ -133,6 +133,7 @@ class Trainer:
             options.of_samples = True
             # options.of_samples_num = 100
             options.of_samples_num = 8
+            options.of_samples_num = 2
             # options.of_samples_num = 1
             # options.is_train = True
             # options.is_train = False # no augmentation
@@ -237,6 +238,18 @@ class Trainer:
             # options.enable_grad_flow_motion_mask = False #not checked this factor
 
             # # motion_flow net predict all nan after grads update when the there is no scene dynamics?
+
+            options.datasets = ['endovis', 'DynaSCARED']
+            options.split_appendixes = ['', '_CaToTi000']
+            options.data_paths = ['/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/', '/mnt/cluster/datasets/Surg_oclr_stereo/']
+            options.dataset_configs = [{'dataset': options.datasets[i],
+                                       'split_appendix': options.split_appendixes[i],
+                                       'data_path': options.data_paths[i]} for i in range(len(options.datasets))]
+
+        # '--datasets', 'endovis', 'DynaSCARED',
+        # '--split_appendixes', '', '000_00597',
+        # '--data_paths', '/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/', '/mnt/cluster/datasets/Surg_oclr_stereo/'
+    
 
 
         options.px_resample_rule_dict_scale_step = {
@@ -592,54 +605,34 @@ class Trainer:
         print("Models and tensorboard events files are saved to:\n  ", self.opt.log_dir)
         print("Training is using:\n  ", self.device)
 
-        # data
-        if self.opt.dataset == 'DynaSCARED':
-            assert self.opt.data_path == '/mnt/cluster/datasets/Surg_oclr_stereo/', f"data_path {self.opt.data_path} is not correct"
-            datasets_dict = {self.opt.dataset: datasets.DynaSCAREDRAWDataset}
-            fpath = os.path.join(os.path.dirname(__file__), "splits", self.opt.dataset, "{}.txt")
-            fpath_train = fpath.format(f"train{self.opt.split_appendix}")
-            fpath_val = fpath.format(f"val{self.opt.split_appendix}")
-            assert self.opt.split_appendix in ['',] or '_CaToTi' in self.opt.split_appendix, f"split_appendix {self.opt.split_appendix} is not correct"
-        elif self.opt.dataset == 'endovis':
-            assert self.opt.data_path == '/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/', f"data_path {self.opt.data_path} is not correct"
-            datasets_dict = {self.opt.dataset: datasets.SCAREDRAWDataset}
-            fpath = os.path.join(os.path.dirname(__file__), "splits", self.opt.dataset, "{}_files.txt")
-            assert self.opt.split_appendix == '', "split_appendix should be empty for endovis"
-            fpath_train = fpath.format(f"train{self.opt.split_appendix}")
-            fpath_val = fpath.format(f"val{self.opt.split_appendix}")
-        elif self.opt.dataset == 'StereoMIS':
-            assert self.opt.data_path == '/mnt/nct-zfs/TCO-All/SharedDatasets/StereoMIS_DARES_test/', f"data_path {self.opt.data_path} is not correct"
-            datasets_dict = {self.opt.dataset: datasets.StereoMISDataset}
-            fpath = os.path.join(os.path.dirname(__file__), "splits", self.opt.dataset, "{}_files.txt")
-            fpath_train = fpath.format(f"train{self.opt.split_appendix}")
-            fpath_val = fpath.format(f"val{self.opt.split_appendix}")
-            import warnings
-            warnings.warn(f"Using StereoMIS dataset with split_appendix {self.opt.split_appendix}")
+        # Multi-dataset loading
+        print("Loading datasets...")
+        
+        if len(self.opt.dataset_configs) == 1:
+            # Single dataset mode (existing logic)
+            config = self.opt.dataset_configs[0]
+            self._load_single_dataset(config)
         else:
-            raise ValueError(f"Unknown dataset: {self.opt.dataset} {self.opt.data_path}")
-        self.dataset = datasets_dict[self.opt.dataset]
-
-        train_filenames = readlines(fpath_train)
-        val_filenames = readlines(fpath_val)
-        img_ext = '.png'  
-
-        num_train_samples = len(train_filenames)
+            # Multi-dataset mode
+            self._load_multi_datasets()
+        
+        # Calculate total samples and steps
+        if isinstance(self.train_dataset, ConcatDataset):
+            num_train_samples = sum(len(dataset) for dataset in self.train_dataset.datasets)
+        else:
+            num_train_samples = len(self.train_dataset)
+        
         self.num_total_steps = num_train_samples // self.opt.batch_size * self.opt.num_epochs
-
-        train_dataset = self.dataset(
-            self.opt.data_path, train_filenames, self.opt.height, self.opt.width,
-            # self.opt.frame_ids, 4, is_train=True, img_ext=img_ext)
-            self.opt.frame_ids, 4, is_train=True, img_ext=img_ext, of_samples=self.opt.of_samples, of_samples_num=self.opt.of_samples_num)
+        
+        # Create data loaders
         self.train_loader = DataLoader(
-            train_dataset, self.opt.batch_size, True,
+            self.train_dataset, self.opt.batch_size, True,
             num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
-        val_dataset = self.dataset(
-            self.opt.data_path, val_filenames, self.opt.height, self.opt.width,
-            # self.opt.frame_ids, 4, is_train=False, img_ext=img_ext)
-            self.opt.frame_ids, 4, is_train=False, img_ext=img_ext, of_samples=self.opt.of_samples, of_samples_num=self.opt.of_samples_num)
+        
         self.val_loader = DataLoader(
-            val_dataset, self.opt.batch_size, False,
+            self.val_dataset, self.opt.batch_size, False,
             num_workers=1, pin_memory=True, drop_last=True)
+        
         self.val_iter = iter(self.val_loader)
 
         self.writers = {}
@@ -700,12 +693,124 @@ class Trainer:
 
         print("Using dataset:\n  ", self.opt.dataset)
         print("There are {:d} training items and {:d} validation items\n".format(
-            len(train_dataset), len(val_dataset)))
+            len(self.train_dataset), len(self.val_dataset)))
 
         self.save_opts()
         # ipdb.set_trace()
-        self.train_dataset = train_dataset
-        self.val_dataset = val_dataset
+
+    def _load_single_dataset(self, config):
+        """Load single dataset (existing logic)"""
+        dataset_name = config['dataset']
+        split_appendix = config['split_appendix']
+        data_path = config['data_path']
+        
+        # Validate data path
+        if dataset_name == 'DynaSCARED':
+            assert data_path == '/mnt/cluster/datasets/Surg_oclr_stereo/', f"data_path {data_path} is not correct"
+            datasets_dict = {dataset_name: datasets.DynaSCAREDRAWDataset}
+            fpath = os.path.join(os.path.dirname(__file__), "splits", dataset_name, "{}.txt")
+            fpath_train = fpath.format(f"train{split_appendix}")
+            fpath_val = fpath.format(f"val{split_appendix}")
+            assert split_appendix in ['',] or '_CaToTi' in split_appendix, f"split_appendix {split_appendix} is not correct"
+        elif dataset_name == 'endovis':
+            assert data_path == '/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/', f"data_path {data_path} is not correct"
+            datasets_dict = {dataset_name: datasets.SCAREDRAWDataset}
+            fpath = os.path.join(os.path.dirname(__file__), "splits", dataset_name, "{}_files.txt")
+            assert split_appendix == '', "split_appendix should be empty for endovis"
+            fpath_train = fpath.format(f"train{split_appendix}")
+            fpath_val = fpath.format(f"val{split_appendix}")
+        elif dataset_name == 'StereoMIS':
+            assert data_path == '/mnt/nct-zfs/TCO-All/SharedDatasets/StereoMIS_DARES_test/', f"data_path {data_path} is not correct"
+            datasets_dict = {dataset_name: datasets.StereoMISDataset}
+            fpath = os.path.join(os.path.dirname(__file__), "splits", dataset_name, "{}_files.txt")
+            fpath_train = fpath.format(f"train{split_appendix}")
+            fpath_val = fpath.format(f"val{split_appendix}")
+            import warnings
+            warnings.warn(f"Using StereoMIS dataset with split_appendix {split_appendix}")
+        else:
+            raise ValueError(f"Unknown dataset: {dataset_name} {data_path}")
+        
+        self.dataset = datasets_dict[dataset_name]
+        
+        train_filenames = readlines(fpath_train)
+        val_filenames = readlines(fpath_val)
+        img_ext = '.png'
+        
+        self.train_dataset = self.dataset(
+            data_path, train_filenames, self.opt.height, self.opt.width,
+            self.opt.frame_ids, 4, is_train=True, img_ext=img_ext, 
+            of_samples=self.opt.of_samples, of_samples_num=self.opt.of_samples_num)
+        
+        self.val_dataset = self.dataset(
+            data_path, val_filenames, self.opt.height, self.opt.width,
+            self.opt.frame_ids, 4, is_train=False, img_ext=img_ext, 
+            of_samples=self.opt.of_samples, of_samples_num=self.opt.of_samples_num)
+
+    def _load_multi_datasets(self):
+        """Load multiple datasets and combine them"""
+        from torch.utils.data import ConcatDataset
+        
+        train_datasets = []
+        val_datasets = []
+        
+        for config in self.opt.dataset_configs:
+            dataset_name = config['dataset']
+            split_appendix = config['split_appendix']
+            data_path = config['data_path']
+            
+            print(f"Loading {dataset_name} from {data_path} with split {split_appendix}")
+            
+            # Load dataset (similar to single dataset logic)
+            if dataset_name == 'DynaSCARED':
+                dataset_class = datasets.DynaSCAREDRAWDataset
+                fpath = os.path.join(os.path.dirname(__file__), "splits", dataset_name, "{}.txt")
+                fpath_train = fpath.format(f"train{split_appendix}")
+                fpath_val = fpath.format(f"val{split_appendix}")
+            elif dataset_name == 'endovis':
+                dataset_class = datasets.SCAREDRAWDataset
+                fpath = os.path.join(os.path.dirname(__file__), "splits", dataset_name, "{}_files.txt")
+                fpath_train = fpath.format(f"train{split_appendix}")
+                fpath_val = fpath.format(f"val{split_appendix}")
+            elif dataset_name == 'StereoMIS':
+                dataset_class = datasets.StereoMISDataset
+                fpath = os.path.join(os.path.dirname(__file__), "splits", dataset_name, "{}_files.txt")
+                fpath_train = fpath.format(f"train{split_appendix}")
+                fpath_val = fpath.format(f"val{split_appendix}")
+            else:
+                raise ValueError(f"Unknown dataset: {dataset_name}")
+            
+            train_filenames = readlines(fpath_train)
+            val_filenames = readlines(fpath_val)
+            img_ext = '.png'
+            
+            # Create datasets
+            train_dataset = dataset_class(
+                data_path, train_filenames, self.opt.height, self.opt.width,
+                self.opt.frame_ids, 4, is_train=True, img_ext=img_ext,
+                of_samples=self.opt.of_samples, of_samples_num=self.opt.of_samples_num)
+            
+            val_dataset = dataset_class(
+                data_path, val_filenames, self.opt.height, self.opt.width,
+                self.opt.frame_ids, 4, is_train=False, img_ext=img_ext,
+                of_samples=self.opt.of_samples, of_samples_num=self.opt.of_samples_num)
+            
+            train_datasets.append(train_dataset)
+            val_datasets.append(val_dataset)
+        
+        # Combine datasets
+        self.train_dataset = ConcatDataset(train_datasets)
+        self.val_dataset = ConcatDataset(val_datasets)
+
+        # hard code load gt_pose flag for all datasets
+        self.train_dataset.load_gt_poses = True
+        self.val_dataset.load_gt_poses = True
+        
+        print(f"Combined {len(train_datasets)} datasets:")
+        for i, config in enumerate(self.opt.dataset_configs):
+            print(f"  {config['dataset']}: {len(train_datasets[i])} train samples, {len(val_datasets[i])} val samples")
+
+
+
 
     def initialize_epropnp(self):
         '''
@@ -3541,7 +3646,6 @@ if __name__ == "__main__":
     pix_coords = project3d(cam_points, K, T)
     print(pix_coords.shape)
     pix_coords_dbg = pix_coords.view(batch_size, -1, 2).permute(0, 2, 1)
-    print(pix_coords_dbg[0,:,:600])
     print(pix_coords_dbg[0,:,::640])
 
 

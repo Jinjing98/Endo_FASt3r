@@ -259,6 +259,26 @@ class MonodepthOptions:
                                  help="dataset to train on",
                                  default="endovis",
                                  choices=["endovis","DynaSCARED","Hamlyn","StereoMIS", "kitti", "kitti_odom", "kitti_depth", "kitti_test"])
+        
+        # Enhanced dataset arguments for multiple datasets
+        self.parser.add_argument("--datasets",
+                                 type=str,
+                                 nargs='+',  # Allow multiple values
+                                 help="list of datasets to train on",
+                                 default=None,
+                                 choices=["endovis", "DynaSCARED", "Hamlyn", "StereoMIS", "kitti", "kitti_odom", "kitti_depth", "kitti_test"])
+        
+        self.parser.add_argument("--split_appendixes",
+                                 type=str,
+                                 nargs='+',  # Allow multiple values
+                                 help="list of split appendixes corresponding to each dataset",
+                                 default=None)
+        
+        self.parser.add_argument("--data_paths",
+                                 type=str,
+                                 nargs='+',  # Allow multiple values
+                                 help="list of data paths corresponding to each dataset",
+                                 default=None)
         self.parser.add_argument("--png",
                                  help="if set, trains from raw KITTI png files (instead of jpgs)",
                                  action="store_true")
@@ -522,6 +542,37 @@ class MonodepthOptions:
 
     def parse(self):
         self.options = self.parser.parse_args()
+        
+        # Handle multiple datasets
+        if hasattr(self.options, 'datasets') and self.options.datasets is not None:
+            # Multi-dataset mode
+            if len(self.options.datasets) != len(self.options.split_appendixes):
+                raise ValueError(f"Number of datasets ({len(self.options.datasets)}) must match number of split_appendixes ({len(self.options.split_appendixes)})")
+            
+            if len(self.options.datasets) != len(self.options.data_paths):
+                raise ValueError(f"Number of datasets ({len(self.options.datasets)}) must match number of data_paths ({len(self.options.data_paths)})")
+            
+            # Create dataset configuration list
+            self.options.dataset_configs = []
+            for i, dataset in enumerate(self.options.datasets):
+                config = {
+                    'dataset': dataset,
+                    'split_appendix': self.options.split_appendixes[i],
+                    'data_path': self.options.data_paths[i]
+                }
+                self.options.dataset_configs.append(config)
+            
+            print(f"Multi-dataset training configured:")
+            for i, config in enumerate(self.options.dataset_configs):
+                print(f"  Dataset {i+1}: {config['dataset']}, Split: {config['split_appendix']}, Path: {config['data_path']}")
+        else:
+            # Single dataset mode (backward compatibility)
+            self.options.dataset_configs = [{
+                'dataset': self.options.dataset,
+                'split_appendix': self.options.split_appendix,
+                'data_path': self.options.data_path
+            }]
+        
         return self.options
     
     def parse_notebook(self, args):
