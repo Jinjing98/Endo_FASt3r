@@ -172,8 +172,12 @@ class MonoDataset(data.Dataset):
         # print('components:', folder_components)
         # print(f'sequence: {sequence}, keyframe: {keyframe}')
         if self.dataset_name == 'StereoMIS':
-            inputs["sequence"] = torch.from_numpy(np.array(int(sequence[-1])))
-            inputs["keyframe"] = torch.from_numpy(np.array(int(keyframe[-1])))
+            SM_sequence_place_holder_Seq = 0
+            SM_sequence_place_holder_KF = 0
+            # inputs["sequence"] = torch.from_numpy(np.array(int(sequence[-1])))
+            # inputs["keyframe"] = torch.from_numpy(np.array(int(keyframe[-1])))
+            inputs["sequence"] = torch.from_numpy(np.array(SM_sequence_place_holder_Seq))
+            inputs["keyframe"] = torch.from_numpy(np.array(SM_sequence_place_holder_KF))
         else:
             inputs["sequence"] = torch.from_numpy(np.array(int(sequence)))
             inputs["keyframe"] = torch.from_numpy(np.array(int(keyframe)))  
