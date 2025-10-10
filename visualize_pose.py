@@ -34,7 +34,7 @@ def compute_scale(gtruth, pred):
     scale = np.sum(gtruth[:, :3, 3] * pred[:, :3, 3]) / np.sum(pred[:, :3, 3] ** 2)
 
     print('scale: ', scale)
-    # hard_code_scale = -0.236
+    # hard_code_scale = -0.04#36
     # print('hard_code_scale: ', hard_code_scale)
     # scale = hard_code_scale
 

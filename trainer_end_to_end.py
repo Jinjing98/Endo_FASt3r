@@ -140,7 +140,7 @@ class Trainer:
 
             # # big step might lead to inf?
             options.frame_ids = [0, -1, 1]
-            options.frame_ids = [0, -3, 3]
+            # options.frame_ids = [0, -3, 3]
             # options.frame_ids = [0, -14, 14]
 
             # # # # not okay to use: we did not adjust the init_K accordingly yet
@@ -239,9 +239,21 @@ class Trainer:
 
             # # motion_flow net predict all nan after grads update when the there is no scene dynamics?
 
-            options.datasets = ['endovis', 'DynaSCARED']
-            options.split_appendixes = ['', '_CaToTi000']
-            options.data_paths = ['/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/', '/mnt/cluster/datasets/Surg_oclr_stereo/']
+            options.datasets = [
+                                # 'endovis', 
+                                'DynaSCARED',
+                                # 'StereoMIS',
+                                ]
+            options.split_appendixes = [
+                                        # '', 
+                                        '_CaToTi000',
+                                        # '',
+                                        ]
+            options.data_paths = [
+                # '/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/', 
+                '/mnt/cluster/datasets/Surg_oclr_stereo/',
+                # '/mnt/nct-zfs/TCO-All/SharedDatasets/StereoMIS_DARES_test/',
+                ]
             options.dataset_configs = [{'dataset': options.datasets[i],
                                        'split_appendix': options.split_appendixes[i],
                                        'data_path': options.data_paths[i]} for i in range(len(options.datasets))]
@@ -1097,7 +1109,8 @@ class Trainer:
 
             self.set_train()
             if self.opt.freeze_as_much_debug:
-                self.freeze_params(keys = ['depth_model', 'pose', 'transform_encoder'])#debug only
+                pass
+                # self.freeze_params(keys = ['depth_model', 'pose', 'transform_encoder'])#debug only
             outputs, losses = self.process_batch(inputs) # img_warped_from_pose_flow saved as "color"; img_warped_from_optic_flow saved as "registration"
 
             # Scale loss by accumulate_steps for gradient accumulation
@@ -2919,7 +2932,8 @@ class Trainer:
                 # register for debug monitoring
                 
                 # the 1st reporj_loss: main aim: enforce proper AF learning when everything defautl as it is.
-                if self.opt.reproj_supervised_which == "color_MotionCorrected" and self.opt.enable_motion_computation:
+                if self.opt.reproj_supervised_which in ["color_MotionCorrected", "color_MotionCorrected_motiononly"] \
+                    and self.opt.enable_motion_computation:
                     reproj_loss_supervised_tgt_color = outputs[("color_MotionCorrected", frame_id, scale)]
                 elif self.opt.reproj_supervised_which == "color":
                     reproj_loss_supervised_tgt_color = outputs[("color", frame_id, scale)] 
@@ -2938,10 +2952,23 @@ class Trainer:
                 occu_mask_backward = outputs[("occu_mask_backward", 0, frame_id)].detach()
                 valid_mask = occu_mask_backward
 
+                # if motion only, only supervise the motion area
+                if self.opt.reproj_supervised_which == "color_MotionCorrected_motiononly" and self.opt.enable_motion_computation:
+                    assert 0,f'not working...'
+                    motion_area_mask = outputs[("motion_mask_backward", 0, frame_id)].detach() < 0.5
+                    if self.opt.enable_mutual_motion:
+                        motion_area_mask = motion_area_mask | (outputs[("motion_mask_s2t_backward", 0, frame_id)].detach() < 0.5)
+                    valid_mask = valid_mask * motion_area_mask.float()
+                    # percentage of valid px
+                    valid_percentage = valid_mask.sum() / (valid_mask.numel() + 1e-6)
+                    print(f'////valid_percentage: {valid_percentage}')
+
+
+                denom_safe = torch.clamp(valid_mask.sum(), min=1e-6)
                 loss_reprojection += (
-                    self.compute_reprojection_loss(reproj_loss_supervised_tgt_color, reproj_loss_supervised_signal_color) * valid_mask).sum() / valid_mask.sum()  
+                    self.compute_reprojection_loss(reproj_loss_supervised_tgt_color, reproj_loss_supervised_signal_color) * valid_mask).sum() / denom_safe
                 loss_transform += (
-                    torch.abs(outputs[("refined", scale, frame_id)] - outputs[("registration", 0, frame_id)].detach()).mean(1, True) * valid_mask).sum() / valid_mask.sum()
+                    torch.abs(outputs[("refined", scale, frame_id)] - outputs[("registration", 0, frame_id)].detach()).mean(1, True) * valid_mask).sum() / denom_safe
                 loss_cvt += get_smooth_bright(
                     outputs[("transform", "high", scale, frame_id)], inputs[("color", 0, 0)], outputs[("registration", scale, frame_id)].detach(), valid_mask)
 
@@ -2994,8 +3021,9 @@ class Trainer:
                         valid_mask2 = (motion_mask_backward > 0.5).float()
 
                     if self.opt.use_loss_reproj2_nomotion:
+                        denom_safe2 = torch.clamp(valid_mask2.sum(), min=1e-6)
                         loss2_reprojection += (
-                            self.compute_reprojection_loss(reproj_loss2_supervised_tgt_color, reproj_loss2_supervised_signal_color) * valid_mask2).sum() / valid_mask2.sum()  
+                            self.compute_reprojection_loss(reproj_loss2_supervised_tgt_color, reproj_loss2_supervised_signal_color) * valid_mask2).sum() / denom_safe2 
                         
                     #compute motion mask reg loss
                     if self.opt.use_loss_motion_mask_reg and scale == 0:

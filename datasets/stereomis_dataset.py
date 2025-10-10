@@ -14,8 +14,8 @@ class StereoMISDataset(SCAREDDataset):
         super(StereoMISDataset, self).__init__(*args, **kwargs)
         self.reset_dataset_name()
 
-        self.load_gt_poses = True # will enable register_gt_traj_dict and load gt_abs_poses when get_item
-        # self.load_gt_poses = False
+        self.load_gt_poses = True # enable during trn. will enable register_gt_traj_dict and load gt_abs_poses when get_item
+        # self.load_gt_poses = False # disble when offline eval SM3
 
         # register gt_traj for get_gt_poses
         # self.traj_data_root = '/mnt/cluster/datasets/SCARED/'

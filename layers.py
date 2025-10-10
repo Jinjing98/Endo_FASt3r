@@ -319,7 +319,7 @@ def get_smooth_bright(transform, target, pred, occu_mask):
     grad_transform_x *= mask_x
     grad_transform_y *= mask_y
     
-    return (grad_transform_x.sum() / mask_x.sum() + grad_transform_y.sum() / mask_y.sum())
+    return (grad_transform_x.sum() / mask_x.sum() + grad_transform_y.sum() / (mask_y.sum() + 1e-6))
 
 
 def get_smooth_registration(position):

@@ -1,4 +1,52 @@
+we decided to always fzD and telling the story.
+learn how to distill pose net properly!
+
+10.oct
+datamixing for pose:
+-add static frame with limited scene dynamics is bad. depth even deteriated?
+-small_static_frame_with_high_dyn_N_moving_frame_ONLY_fzD: limited generalization to SCARED
+-small_static_frame_with_high_dyn_N_moving_frame_ONLY_unfzD: gets insane for all cases   (extreme sensitive depth with limited data)
+-big_seqSM_ONLY_unfzD: Terrible DepthNPose---mostly static_not_good; mostly breathing:assume bad_img_with_all_scene_moving are bad data need to be cleaned.
+
+resume: /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/new_batch/b3accu4_scaredSM_MonFast3r_trainedNfzD
+112063 b3accu4_scaredExcelSM_MonFast3r_trainedNfzD
+111969 b3accu4_DS100_MonFast3r_trainedNfzD: our design help to learn 0 pose; cause severe pose forgetting?
+con: OF for static cam despite with fzD
+
+112001 b3accu4_scaredDS100_MonFast3r_trainedNufzD: resume trained depth.
+if 112001 not works on SM3 and scared12:
+ try fzD
+ or try replaceDS100 with SM_fixed_excel(all excel)
+
+Con: 
+1. fzD is important for proper pose learning.
+2. mixture 
+
+
 08.oct 
+almost no motion predicted for SM and SCARED: dataset issue?
+is it a good strategy to predict motion flow based on imgs?
+SM dataset limited cam motion? bigger step size? eg. 4?
+SM dataset limited scene motion? add dynascared in trn?
+to_try:
+    resume depth but not fz.
+    compute MF only in motion area? (enforce proper pose flow)---debug with dynascared.---start try on mix--not a good strategy:AF nets etc rely on this critical loss, while it can be nan 
+    eval performance of 111634 with longer trn
+hyper: weight of the two term. (things gets unstable when no motion in trn data)
+
+111839 b3accu4_SM_MonFast3r_scratchD
+111840 b3accu4_SM_MonFast3r_scratchD_step4
+111842(not starting yet) b3accu4_scaredSM_MonFast3r_scratchD
+
+mix 3 datasets or increase SM step size
+superviseMotionOnly(cause nan in flow??)
+111699 debug_b3accu1_MIX_seperateResnet_scratchD_superviseMotionOnly: investgate motion_only_area_for_MF_learning effect
+111688 debug_b1accu4_SM_MonFast3r_scratchD_s4_noraft: debug if SM data need bigger cam motion to learn scene motion and cam pose.
+111683 b3accu4_scaredSMDS_MonFast3r_scratchD
+X111671 debug_b3accu4_SM_MonFast3r_scratchD: do not predict proper depth for SM data
+111634 b3accu4_scaredSM_MonFast3r_trainedNfzD
+111635 b3accu4_scaredSM_MonFast3r_scratchD
+
 
 111629 b3accu4_SM_MonFast3r_trainedNfzD
 111628 b3accu4_SM_MonFast3r_scratchD
