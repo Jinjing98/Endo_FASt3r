@@ -294,10 +294,21 @@ class Trainer:
             assert self.opt.enable_motion_computation, "enable_motion_computation must be True when ignore_motion_area_at_calib is True"
 
         from datetime import datetime
-        # Current timestamp without year: month-day-hour-minute-second
-        timestamp = datetime.now().strftime("%m%d-%H%M%S")
         
-        self.log_path = os.path.join(self.opt.log_dir, self.opt.model_name, timestamp)
+        # Handle log path for resume training
+        if self.opt.resume_training and self.opt.load_weights_folder and not self.opt.new_tensorboard:
+            # Use the same log path as the original training (default behavior)
+            self.log_path = self.opt.load_weights_folder
+            print(f"Resuming tensorboard logging in existing directory: {self.log_path}")
+        else:
+            # Create new log directory with timestamp
+            timestamp = datetime.now().strftime("%m%d-%H%M%S")
+            self.log_path = os.path.join(self.opt.log_dir, self.opt.model_name, timestamp)
+            if self.opt.resume_training and self.opt.new_tensorboard:
+                print(f"Creating new tensorboard logging directory (--new_tensorboard specified): {self.log_path}")
+            else:
+                print(f"Creating new tensorboard logging directory: {self.log_path}")
+        
         os.makedirs(self.log_path, exist_ok=True)
 
         # checking height and width are multiples of 32
@@ -612,6 +623,10 @@ class Trainer:
 
         if self.opt.load_weights_folder is not None:
             self.load_model()
+        
+        # Handle resume training
+        if self.opt.resume_training:
+            self.resume_training()
 
         print("Training model named:\n  ", self.opt.model_name)
         print("Models and tensorboard events files are saved to:\n  ", self.opt.log_dir)
@@ -1062,10 +1077,16 @@ class Trainer:
     def train(self):
         """Run the entire training pipeline
         """
-        self.epoch = 0
-        self.step = 0
-        self.start_time = time.time()
-        for self.epoch in range(self.opt.num_epochs):
+        # Initialize training state if not resuming
+        if not hasattr(self, 'epoch') or self.epoch is None:
+            self.epoch = 0
+        if not hasattr(self, 'step') or self.step is None:
+            self.step = 0
+        if not hasattr(self, 'start_time') or self.start_time is None:
+            self.start_time = time.time()
+        
+        # Start training from the current epoch
+        for self.epoch in range(self.epoch, self.opt.num_epochs):
 
             self.run_epoch(self.epoch)
             if (self.epoch + 1) % self.opt.save_frequency == 0:
@@ -3623,8 +3644,28 @@ class Trainer:
                 to_save['use_stereo'] = self.opt.use_stereo
             torch.save(to_save, save_path)
 
+        # Save optimizer states
         save_path = os.path.join(save_folder, "{}.pth".format("adam"))
         torch.save(self.model_optimizer.state_dict(), save_path)
+        
+        save_path = os.path.join(save_folder, "{}.pth".format("adam_0"))
+        torch.save(self.model_optimizer_0.state_dict(), save_path)
+        
+        # Save scheduler states
+        save_path = os.path.join(save_folder, "{}.pth".format("scheduler"))
+        torch.save(self.model_lr_scheduler.state_dict(), save_path)
+        
+        save_path = os.path.join(save_folder, "{}.pth".format("scheduler_0"))
+        torch.save(self.model_lr_scheduler_0.state_dict(), save_path)
+        
+        # Save training progress
+        training_progress = {
+            'epoch': self.epoch,
+            'step': self.step,
+            'start_time': self.start_time
+        }
+        save_path = os.path.join(save_folder, "{}.pth".format("training_progress"))
+        torch.save(training_progress, save_path)
 
     def load_model(self):
         """Load model(s) from disk
@@ -3652,6 +3693,114 @@ class Trainer:
             # self.model_optimizer.load_state_dict(optimizer_dict)
         # else:
         print("Adam is randomly initialized")
+
+    def resume_training(self):
+        """Resume training from a previously trained model directory
+        """
+        if not self.opt.load_weights_folder:
+            raise ValueError("--load_weights_folder must be specified when using --resume_training")
+        
+        self.opt.load_weights_folder = os.path.expanduser(self.opt.load_weights_folder)
+        
+        # Find the latest checkpoint or specific epoch
+        models_dir = os.path.join(self.opt.load_weights_folder, "models")
+        if not os.path.exists(models_dir):
+            raise ValueError(f"Models directory not found: {models_dir}")
+        
+        # Find available checkpoints
+        available_epochs = []
+        for item in os.listdir(models_dir):
+            if item.startswith("weights_") and os.path.isdir(os.path.join(models_dir, item)):
+                try:
+                    epoch = int(item.split("_")[1])
+                    available_epochs.append(epoch)
+                except (ValueError, IndexError):
+                    continue
+        
+        if not available_epochs:
+            raise ValueError(f"No valid checkpoints found in {models_dir}")
+        
+        # Select epoch to resume from
+        if self.opt.resume_from_epoch is not None:
+            if self.opt.resume_from_epoch not in available_epochs:
+                raise ValueError(f"Epoch {self.opt.resume_from_epoch} not found. Available epochs: {sorted(available_epochs)}")
+            resume_epoch = self.opt.resume_from_epoch
+        else:
+            resume_epoch = max(available_epochs)
+        
+        print(f"Resuming training from epoch {resume_epoch}")
+        
+        # Load checkpoint
+        checkpoint_dir = os.path.join(models_dir, f"weights_{resume_epoch}")
+        
+        # Load all models
+        for model_name, model in self.models.items():
+            model_path = os.path.join(checkpoint_dir, f"{model_name}.pth")
+            if os.path.exists(model_path):
+                print(f"Loading {model_name} weights...")
+                model_dict = model.state_dict()
+                pretrained_dict = torch.load(model_path)
+                pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
+                model_dict.update(pretrained_dict)
+                model.load_state_dict(model_dict)
+            else:
+                print(f"Warning: {model_name}.pth not found in checkpoint, skipping...")
+        
+        # Load optimizer states
+        optimizer_path = os.path.join(checkpoint_dir, "adam.pth")
+        if os.path.exists(optimizer_path):
+            print("Loading main optimizer state...")
+            self.model_optimizer.load_state_dict(torch.load(optimizer_path))
+        
+        optimizer_0_path = os.path.join(checkpoint_dir, "adam_0.pth")
+        if os.path.exists(optimizer_0_path):
+            print("Loading optimizer_0 state...")
+            self.model_optimizer_0.load_state_dict(torch.load(optimizer_0_path))
+        
+        # Load scheduler states
+        scheduler_path = os.path.join(checkpoint_dir, "scheduler.pth")
+        if os.path.exists(scheduler_path):
+            print("Loading main scheduler state...")
+            self.model_lr_scheduler.load_state_dict(torch.load(scheduler_path))
+        
+        scheduler_0_path = os.path.join(checkpoint_dir, "scheduler_0.pth")
+        if os.path.exists(scheduler_0_path):
+            print("Loading scheduler_0 state...")
+            self.model_lr_scheduler_0.load_state_dict(torch.load(scheduler_0_path))
+        
+        # Load training progress
+        progress_path = os.path.join(checkpoint_dir, "training_progress.pth")
+        if os.path.exists(progress_path):
+            print("Loading training progress...")
+            training_progress = torch.load(progress_path)
+            self.epoch = training_progress['epoch']
+            self.step = training_progress['step']
+            self.start_time = training_progress['start_time']
+            print(f"Resumed from epoch {self.epoch}, step {self.step}")
+        else:
+            # Fallback: set epoch and step based on checkpoint
+            self.epoch = resume_epoch
+            self.step = resume_epoch * (len(self.train_dataset) // self.opt.batch_size)
+            print(f"Training progress not found, setting epoch to {self.epoch}, step to {self.step}")
+        
+        print("Training resumed successfully!")
+
+    def find_latest_checkpoint(self, models_dir):
+        """Find the latest checkpoint in the models directory
+        """
+        available_epochs = []
+        for item in os.listdir(models_dir):
+            if item.startswith("weights_") and os.path.isdir(os.path.join(models_dir, item)):
+                try:
+                    epoch = int(item.split("_")[1])
+                    available_epochs.append(epoch)
+                except (ValueError, IndexError):
+                    continue
+        
+        if not available_epochs:
+            return None
+        
+        return max(available_epochs)
 
 
 

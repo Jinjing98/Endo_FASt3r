@@ -462,6 +462,19 @@ class MonodepthOptions:
                                  type=str,
                                  help="models to load",
                                  default=["position_encoder", "position"])
+        self.parser.add_argument("--resume_training",
+                                 help="resume training from a previously trained model directory",
+                                 action="store_true")
+        self.parser.add_argument("--resume_from_epoch",
+                                 type=int,
+                                 help="specific epoch to resume from (if not specified, resumes from latest)",
+                                 default=None)
+        self.parser.add_argument("--resume_tensorboard",
+                                 help="continue tensorboard logging in the same directory (default: True when resuming)",
+                                 action="store_true")
+        self.parser.add_argument("--new_tensorboard",
+                                 help="create new tensorboard logging directory even when resuming",
+                                 action="store_true")
         
         # OPTICAL FLOW options
         self.parser.add_argument("--use_raft_flow",
