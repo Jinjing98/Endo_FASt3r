@@ -1,3 +1,12 @@
+12.oct
+112429 b3accu4_correctedExcelSM_MonFast3r_trainedNfzD
+
+1. model compress
+2. reattention offline/during_trn
+3. train with SM_excel_correct
+
+resume the model
+
 we decided to always fzD and telling the story.
 learn how to distill pose net properly!
 
@@ -8,8 +17,9 @@ datamixing for pose:
 -small_static_frame_with_high_dyn_N_moving_frame_ONLY_unfzD: gets insane for all cases   (extreme sensitive depth with limited data)
 -big_seqSM_ONLY_unfzD: Terrible DepthNPose---mostly static_not_good; mostly breathing:assume bad_img_with_all_scene_moving are bad data need to be cleaned.
 
+112163: b3accu4_ExcelSM_MonFast3r_trainedNfzD---trained with wrong SM excel ...
 resume: /mnt/nct-zfs/TCO-Test/jinjingxu/exps/train/mvp3r/results/unisfm/new_batch/b3accu4_scaredSM_MonFast3r_trainedNfzD
-112063 b3accu4_scaredExcelSM_MonFast3r_trainedNfzD
+112063 b3accu4_scaredExcelSM_MonFast3r_trainedNfzD---trained with wrong SM excel ...
 111969 b3accu4_DS100_MonFast3r_trainedNfzD: our design help to learn 0 pose; cause severe pose forgetting?
 con: OF for static cam despite with fzD
 

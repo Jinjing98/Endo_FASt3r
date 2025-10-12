@@ -71,7 +71,7 @@ class Trainer:
 
             # options.pose_model_type = "geoaware_pnet"
             # options.pose_model_type = "posetr_net"
-            options.pose_model_type = "separate_resnet"
+            # options.pose_model_type = "separate_resnet"
             # options.model_name = "debug_tr_posenet"
 
 
@@ -132,14 +132,14 @@ class Trainer:
 
             options.of_samples = True
             # options.of_samples_num = 100
-            options.of_samples_num = 8
-            options.of_samples_num = 2
+            # options.of_samples_num = 8
+            # options.of_samples_num = 2
             # options.of_samples_num = 1
             # options.is_train = True
             # options.is_train = False # no augmentation
 
             # # big step might lead to inf?
-            options.frame_ids = [0, -1, 1]
+            # options.frame_ids = [0, -1, 1]
             # options.frame_ids = [0, -3, 3]
             # options.frame_ids = [0, -14, 14]
 
@@ -199,6 +199,8 @@ class Trainer:
 
             # # # debug trained fast3r (understand its learned scale)
             # options.pose_model_type = "endofast3r_pose_trained_dbg"
+            # options.pose_model_type = "endofast3r"
+            # options.use_raft_flow = True
             # options.depth_model_type = "endofast3r_depth_trained_dbg" #critical! we better init with optimized DAM
             # options.gt_metric_rel_pose_as_estimates_debug = True
             options.min_depth = 0.1 # bigger safer
@@ -241,18 +243,19 @@ class Trainer:
 
             options.datasets = [
                                 # 'endovis', 
-                                'DynaSCARED',
-                                # 'StereoMIS',
+                                # 'DynaSCARED',
+                                'StereoMIS',
                                 ]
             options.split_appendixes = [
                                         # '', 
-                                        '_CaToTi000',
-                                        # '',
+                                        # '_CaToTi000',
+                                        # '_CaToTi100',
+                                        '_offline',
                                         ]
             options.data_paths = [
                 # '/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/', 
-                '/mnt/cluster/datasets/Surg_oclr_stereo/',
-                # '/mnt/nct-zfs/TCO-All/SharedDatasets/StereoMIS_DARES_test/',
+                # '/mnt/cluster/datasets/Surg_oclr_stereo/',
+                '/mnt/nct-zfs/TCO-All/SharedDatasets/StereoMIS_DARES_test/',
                 ]
             options.dataset_configs = [{'dataset': options.datasets[i],
                                        'split_appendix': options.split_appendixes[i],
@@ -635,6 +638,7 @@ class Trainer:
         # Multi-dataset loading
         print("Loading datasets...")
         
+
         if len(self.opt.dataset_configs) == 1:
             # Single dataset mode (existing logic)
             config = self.opt.dataset_configs[0]
@@ -653,11 +657,12 @@ class Trainer:
         
         # Create data loaders
         self.train_loader = DataLoader(
-            self.train_dataset, self.opt.batch_size, True,
+            self.train_dataset, self.opt.batch_size, 
+            shuffle=True,
             num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
         
         self.val_loader = DataLoader(
-            self.val_dataset, self.opt.batch_size, False,
+            self.val_dataset, self.opt.batch_size, shuffle=False,
             num_workers=1, pin_memory=True, drop_last=True)
         
         self.val_iter = iter(self.val_loader)
@@ -718,7 +723,10 @@ class Trainer:
         self.depth_metric_names = [
             "de/abs_rel", "de/sq_rel", "de/rms", "de/log_rms", "da/a1", "da/a2", "da/a3"]
 
-        print("Using dataset:\n  ", self.opt.dataset)
+        # print("Using dataset:\n  ", self.opt.dataset)
+        print("Using dataset:\n  ")
+        for config in self.opt.dataset_configs:
+            print(f"  {config['dataset']}: {config['split_appendix']}, {config['data_path']}")
         print("There are {:d} training items and {:d} validation items\n".format(
             len(self.train_dataset), len(self.val_dataset)))
 

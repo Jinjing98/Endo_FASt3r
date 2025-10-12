@@ -252,7 +252,9 @@ class MonodepthOptions:
                                  default="",
                                  choices=["", "_CaToTi000", 
                                           "_CaToTi011",
+                                          "_CaToTi001",
                                           "_CaToTi010", #debug if tool move too fast break flow
+                                          "_offline",
                                           ])
         self.parser.add_argument("--num_layers",
                                  type=int,
@@ -520,7 +522,7 @@ class MonodepthOptions:
             "--eval_split_appendix",
             type=str,
             default="",
-            choices=["", "_CaToTi000", "_CaToTi011", "1", "2", "000_00597", '3'],
+            choices=["", "_CaToTi000", "_CaToTi011", "1", "2", "000_00597", '3', '_offline'],
             help=(
                 "Appendix to the eval split. Options:\n"
                 "  Endovis pose: 1, 2, (scared_pose_seq)\n"
@@ -534,6 +536,10 @@ class MonodepthOptions:
         )
 
         self.parser.add_argument('--eval_model_appendix', type=str, default='')
+
+        self.parser.add_argument("--plot_xyz_rpy",
+                                 help="if set, plots x,y,z,roll,pitch,yaw over time",
+                                 action="store_true")
 
         self.parser.add_argument("--save_pred_disps",
                                  help="if set saves predicted disparities",
@@ -595,5 +601,10 @@ class MonodepthOptions:
     
     def parse_notebook(self, args):
         self.options = self.parser.parse_args(args)
+        if not hasattr(self.options, 'dataset_configs'):
+            #construct config
+            self.options.dataset_configs = [{'dataset': self.options.dataset,
+                                       'split_appendix': self.options.split_appendix,
+                                       'data_path': self.options.data_path}]
         return self.options
 
