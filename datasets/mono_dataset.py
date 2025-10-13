@@ -410,6 +410,8 @@ class MonoDataset(data.Dataset):
                 trajs_dict[folder] = traj
                 # print(f"Loaded trajectory for {folder}: {len(traj)} poses")
             else:
+                import warnings
+                # warnings.warn(f'Trajectory file {traj_path} does not exist for {folder}')
                 assert 0, f'Trajectory file {traj_path} does not exist for {folder}'
         
         print(f"Successfully loaded {len([v for v in trajs_dict.values() if v is not None])} trajectories")

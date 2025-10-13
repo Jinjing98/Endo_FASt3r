@@ -414,6 +414,9 @@ class MonodepthOptions:
                                           "pcrnet",
                                           "posetr_net"
                                           ])
+        self.parser.add_argument("--freeze_posetr_encoder",
+                                 help="if set, freezes the pose encoder of posetr_net(feature_extractor.patch_embed, feature_extractor.enc_blocks)",
+                                 action="store_true")
         
         self.parser.add_argument("--depth_model_type",
                                  type=str,
@@ -522,7 +525,7 @@ class MonodepthOptions:
             "--eval_split_appendix",
             type=str,
             default="",
-            choices=["", "_CaToTi000", "_CaToTi011", "1", "2", "000_00597", '3', '_offline'],
+            # choices=["", "_CaToTi000", "_CaToTi011", "1", "2", "000_00597", '3', '_offline'],
             help=(
                 "Appendix to the eval split. Options:\n"
                 "  Endovis pose: 1, 2, (scared_pose_seq)\n"

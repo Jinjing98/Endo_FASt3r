@@ -21,6 +21,7 @@ our_local_poses = np.load(our_path, fix_imports=True, encoding='latin1')["data"]
 if opt.dataset == 'StereoMIS':
     # conduct inverse for the gt_poses
     # the issue of fast3r provided npz format?
+    # SM gt npz saved in meter format
     gt_local_poses = np.linalg.inv(gt_local_poses)
     gt_local_poses[:, :3, 3] *= 1000
 

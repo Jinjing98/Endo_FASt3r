@@ -601,21 +601,22 @@ class Trainer:
 
         #///////////params stats//////////
         # report for total num of params and trainable params for each model in self.models
+        # Each parameter is a 32-bit float, which is 4 bytes.
+        bytes_per_param = 4
+
         for model_name, model in self.models.items():
             print(f"Model: {model_name}")
             total_params = sum(p.numel() for p in model.parameters())
             total_params_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
             # show in MB
-            print(f"  Total params: {total_params} ({total_params / 1024 / 1024:.2f} MB)")
-            print(f"  Total params trainable: {total_params_trainable} ({total_params_trainable / 1024 / 1024:.2f} MB)")
+            print(f"  Total params: {total_params} ({total_params * bytes_per_param/ 1024 / 1024 :.2f} MB)")
+            print(f"  Total params trainable: {total_params_trainable} ({total_params_trainable * bytes_per_param / 1024 / 1024:.2f} MB)")
             # print(f"  Total params non-trainable: {(total_params - total_params_trainable) / 1024 / 1024:.2f} MB")
         # sum over all the models
         total_params = sum(sum(p.numel() for p in model.parameters()) for model in self.models.values())
         total_params_trainable = sum(sum(p.numel() for p in model.parameters() if p.requires_grad) for model in self.models.values())
-        print(f"Total params: {total_params} ({total_params / 1024 / 1024:.2f} MB)")
-        print(f"Total params trainable: {total_params_trainable} ({total_params_trainable / 1024 / 1024:.2f} MB)")
-
-
+        print(f"Total params: {total_params} ({total_params * bytes_per_param / 1024 / 1024:.2f} MB)")
+        print(f"Total params trainable: {total_params_trainable} ({total_params_trainable * bytes_per_param / 1024 / 1024:.2f} MB)")
 
         self.model_optimizer = optim.Adam(self.parameters_to_train, self.opt.learning_rate)
         self.model_lr_scheduler = optim.lr_scheduler.StepLR(self.model_optimizer, self.opt.scheduler_step_size, 0.1)
@@ -995,6 +996,16 @@ class Trainer:
             for param in self.models[key].parameters():
                 param.requires_grad = False
 
+
+    def freeze_all_params(self, modules=[]):
+        for module in modules:
+            try:
+                for n, param in module.named_parameters():
+                    param.requires_grad = False
+            except AttributeError:
+                # module is directly a parameter
+                module.requires_grad = False
+
     def set_train(self):
         """Convert all models to training mode
         # motion flow net is trainable druing train(); OF is not trainable 
@@ -1026,14 +1037,11 @@ class Trainer:
         for param in self.models["pose"].parameters():
             param.requires_grad = True
         
-        # debug_only = True
-        # # freeze self.models["pose"].feature_embed.parameters()
-        # if debug_only:
-        #     for param in self.models["pose"].feature_embed.parameters():
-        #         print(f'freeze feature_embed {param}')
-        #         param.requires_grad = False
-        #         continue
-
+        # enable trainable enc_norm for best adapt with trainable decoder
+        if self.opt.pose_model_type == "posetr_net" and self.opt.freeze_posetr_encoder:
+            print('freeze posetr_net encoder...')
+            self.freeze_all_params(modules=[self.models["pose"].feature_extractor.patch_embed, 
+                                            self.models["pose"].feature_extractor.enc_blocks])
 
         for param in self.models["transform_encoder"].parameters():
             param.requires_grad = True
@@ -1606,7 +1614,7 @@ class Trainer:
         return poses_list[-1]
 
 
-
+    # @classmethod
     def predict_poses(self, inputs, outputs = {}):
         """Predict poses between input frames for monocular sequences.
         """
@@ -2385,6 +2393,7 @@ class Trainer:
         
         return outputs
 
+    # @classmethod
     def generate_motion_flow(self, inputs, outputs):
         """Generate the warped (reprojected) color images for a minibatch.
         Generated images are saved into the `outputs` dictionary.
@@ -2571,6 +2580,7 @@ class Trainer:
                 
         return outputs
 
+    # @classmethod
     def generate_depth_pred_from_disp(self, outputs):
         """Generate the warped (reprojected) color images for a minibatch.
         Generated images are saved into the `outputs` dictionary.
@@ -3651,6 +3661,7 @@ class Trainer:
                 to_save['width'] = self.opt.width
                 to_save['use_stereo'] = self.opt.use_stereo
             torch.save(to_save, save_path)
+            print(f"saved {model_name}.pth in {save_path}")
 
         # Save optimizer states
         save_path = os.path.join(save_folder, "{}.pth".format("adam"))
