@@ -335,6 +335,17 @@ class Trainer:
         self.parameters_to_train_0 = []
 
         self.device = torch.device("cpu" if self.opt.no_cuda else "cuda")
+        
+        # Initialize learnable motion mask threshold if enabled
+        if self.opt.enable_learned_motion_mask_thre_px:
+            # Initialize with the default threshold value
+            self.learned_motion_mask_thre_px = torch.nn.Parameter(
+                torch.tensor(self.opt.motion_mask_thre_px, dtype=torch.float32, device=self.device)
+            )
+            self.parameters_to_train.append(self.learned_motion_mask_thre_px)
+            print(f"Initialized learnable motion mask threshold with value: {self.opt.motion_mask_thre_px}")
+        else:
+            self.learned_motion_mask_thre_px = None
 
         self.num_scales = len(self.opt.scales)  # 4
         self.num_input_frames = len(self.opt.frame_ids)  # 3
@@ -2158,6 +2169,12 @@ class Trainer:
         static area will be set to 1, motion area will be set to 0.
         Therefor can be directly used for validness when supervise.
         '''
+        # Use learnable threshold if enabled, otherwise use the provided threshold
+        if self.opt.enable_learned_motion_mask_thre_px and self.learned_motion_mask_thre_px is not None:
+            threshold = self.learned_motion_mask_thre_px
+        else:
+            threshold = thre_px
+            
         # obtain motion mask from motion_flow:
         if detach:
             motion_mask = get_texu_mask(optic_flow.detach(), 
@@ -2184,11 +2201,17 @@ class Trainer:
         static area will be set to 1, motion area will be set to 0.
         Therefor can be directly used for validness when supervise.
         '''
+        # Use learnable threshold if enabled, otherwise use the provided threshold
+        if self.opt.enable_learned_motion_mask_thre_px and self.learned_motion_mask_thre_px is not None:
+            threshold = self.learned_motion_mask_thre_px
+        else:
+            threshold = thre_px
+            
         # obtain motion mask from motion_flow:
         if detach:
             # motion_mask = get_texu_mask(outputs[("position", 0, frame_id)].detach(), 
                                         # outputs[("pose_flow", "high", frame_id, 0)].detach())
-            motion_mask = (motion_flow.norm(dim=1, keepdim=True) <= thre_px).detach()
+            motion_mask = (motion_flow.norm(dim=1, keepdim=True) <= threshold).detach()
             motion_mask = motion_mask.float()            
         else:
             # motion_mask = get_texu_mask(outputs[("position", 0, frame_id)], 
@@ -2196,11 +2219,18 @@ class Trainer:
             mask_norm = motion_flow.norm(dim=1, keepdim=True)
             # mask_hard = (mask_norm > 0.5).float()# no grad
 
-            mask_hard = (mask_norm <= thre_px).float()# no grad
+            mask_hard = (mask_norm <= threshold).float()# no grad
             
             motion_mask = mask_hard + mask_norm - mask_norm.detach() #still binary but diffirentiable
         
         return motion_mask
+
+    def get_current_motion_mask_threshold(self):
+        """Get the current motion mask threshold value"""
+        if self.opt.enable_learned_motion_mask_thre_px and self.learned_motion_mask_thre_px is not None:
+            return self.learned_motion_mask_thre_px.item()
+        else:
+            return self.opt.motion_mask_thre_px
 
     def gen_sample_and_pose_flow(self, inputs, outputs, mesh_gird_high_res, scale, source_scale = 0, tgt_frame_id = 0, frame_id = None):
         '''
@@ -3344,6 +3374,10 @@ class Trainer:
 
         for l, v in scalers_to_log.items():
             writer.add_scalar("{}".format(l), v, self.step)
+        
+        # Log learnable motion mask threshold if enabled
+        if self.opt.enable_learned_motion_mask_thre_px and self.learned_motion_mask_thre_px is not None:
+            writer.add_scalar("motion_mask_threshold", self.learned_motion_mask_thre_px.item(), self.step)
         #
 
         # src_imgs = []
@@ -3667,6 +3701,12 @@ class Trainer:
         save_path = os.path.join(save_folder, "{}.pth".format("adam"))
         torch.save(self.model_optimizer.state_dict(), save_path)
         
+        # Save learnable motion mask threshold if enabled
+        if self.opt.enable_learned_motion_mask_thre_px and self.learned_motion_mask_thre_px is not None:
+            save_path = os.path.join(save_folder, "learned_motion_mask_thre_px.pth")
+            torch.save(self.learned_motion_mask_thre_px.state_dict(), save_path)
+            print(f"saved learned_motion_mask_thre_px.pth in {save_path}")
+        
         save_path = os.path.join(save_folder, "{}.pth".format("adam_0"))
         torch.save(self.model_optimizer_0.state_dict(), save_path)
         
@@ -3712,6 +3752,17 @@ class Trainer:
             # self.model_optimizer.load_state_dict(optimizer_dict)
         # else:
         print("Adam is randomly initialized")
+        
+        # Load learnable motion mask threshold if enabled and exists
+        if self.opt.enable_learned_motion_mask_thre_px and self.learned_motion_mask_thre_px is not None:
+            threshold_path = os.path.join(self.opt.load_weights_folder, "learned_motion_mask_thre_px.pth")
+            if os.path.isfile(threshold_path):
+                print("Loading learned motion mask threshold")
+                threshold_dict = torch.load(threshold_path)
+                self.learned_motion_mask_thre_px.load_state_dict(threshold_dict)
+                print(f"Loaded learned motion mask threshold: {self.learned_motion_mask_thre_px.item():.4f}")
+            else:
+                print("No learned motion mask threshold found, using initialized value")
 
     def resume_training(self):
         """Resume training from a previously trained model directory

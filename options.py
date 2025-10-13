@@ -101,7 +101,9 @@ class MonodepthOptions:
                                  help="only used when non_soft, by far only used when compute binary mask, smaller, more aggressive(safe), threshold for motion mask, if flow norm is less than this, set motion mask to 1",
                                  default=3,
                                  choices=[3, 1,])
-
+        self.parser.add_argument("--enable_learned_motion_mask_thre_px",
+                                 help="if set, uses learned motion mask threshold",
+                                 action="store_true")
 
         self.parser.add_argument("--use_loss_reproj2_nomotion",
                                  help="used to addtionally supervise the pose flow to be effective---imporant to get good pose when eval!",
