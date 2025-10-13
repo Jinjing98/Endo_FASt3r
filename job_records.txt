@@ -1,3 +1,7 @@
+13.oct
+113422: b3accu4_scaredcorrectedExcelSM_posetr_fzenc_trainedNfzD: expect not as good as big endofast3r mix trained model.
+113424: b3accu4_scared_posetr_fzenc_trainedNfzD: (scared only). base model. expect have to work!!
+
 12.oct
 112429 b3accu4_correctedExcelSM_MonFast3r_trainedNfzD
 

@@ -4,6 +4,7 @@ import os
 import torch
 import networks
 import numpy as np
+import time
 
 from torch.utils.data import DataLoader
 from layers import transformation_from_parameters
@@ -98,22 +99,22 @@ def compute_ate(gtruth_xyz, pred_xyz_o):
     # Optimize the scaling factor
     scale = np.sum(gtruth_xyz * pred_xyz) / np.sum(pred_xyz ** 2)
     alignment_error = pred_xyz * scale - gtruth_xyz
+
     rmse = np.sqrt(np.sum(alignment_error ** 2)) / gtruth_xyz.shape[0]
+
     return rmse
 
 
 def compute_re(gtruth_r, pred_r):
+    """Compute rotation error given abs rotation of gt traj and esti traj (both starting with id rot)"""
     RE = 0
-    gt = gtruth_r
-    pred = pred_r
-    for gt_pose, pred_pose in zip(gt, pred):
+    for gt_pose, pred_pose in zip(gtruth_r, pred_r):
         # Residual matrix to which we compute angle's sin and cos
         R = gt_pose @ np.linalg.inv(pred_pose)
         s = np.linalg.norm([R[0, 1] - R[1, 0],
                             R[1, 2] - R[2, 1],
                             R[0, 2] - R[2, 0]])
         c = np.trace(R) - 1
-        # Note: we actually compute double of cos and sin, but arctan2 is invariant to scale
         RE += np.arctan2(s, c)
 
     return RE / gtruth_r.shape[0]
@@ -138,6 +139,17 @@ def create_pose_model(opt, device, model_root=None):
         return create_posetr_net_model(opt, device, model_root)
     else:
         raise ValueError(f"Unsupported pose_model_type: {pose_model_type}")
+
+def create_depth_model(opt, device, model_root):
+    """Create depth model"""
+    DAM_trained_path = os.path.join(model_root, "depth_model.pth")
+    assert os.path.exists(DAM_trained_path), f"Depth model not found at {DAM_trained_path}"
+    depth_model = networks.Endo_FASt3r_depth()
+    depth_model.load_state_dict(torch.load(DAM_trained_path))
+    depth_model.to(device)
+    depth_model.eval()
+    print(f"Loaded depth model from {DAM_trained_path}")
+    return depth_model
 
 def create_endofast3r_model(opt, device, model_root):
     """Create EndoFASt3r model"""
@@ -289,6 +301,130 @@ def create_separate_resnet_model(opt, device, model_root):
 
  
 
+def predict_pose_for_model_iterative(pose_model, depth_model,pose_model_type, inputs, device, opt=None):
+    """Predict pose based on different pose_model_type implementations"""
+    
+    if pose_model_type in ["endofast3r", "endofast3r_pose_trained_dbg", "uni_reloc3r"]:
+        # These models use the same interface: view1, view2 -> _, pose2
+        view1 = {'img': prepare_images(inputs[("color", 1, 0)], device, size=512, Ks=None)}
+        view2 = {'img': prepare_images(inputs[("color", 0, 0)], device, size=512, Ks=None)}
+
+        # # do forward inference to get pose_flow, optic_flow
+        # # compute motion_flow based on pose_flow
+        # # compute mask based on motion flow
+
+        # outputs = depth_model(inputs["color", 0, 0])
+
+        # # extend the depth prediction for srcs
+        # for frame_id in opt.frame_ids[1:]:
+        #     outputs_i = depth_model(inputs["color", frame_id, 0])
+        #     # for scale in Trainer.opt.scales:
+        #         # outputs["disp", scale, frame_id] = outputs_i["disp", scale]
+        
+        # from trainer_end_to_end import Trainer
+
+        # outputs.update(Trainer.generate_depth_pred_from_disp(outputs))
+
+        # outputs.update(Trainer.predict_poses(inputs, outputs))# img is warp from optic_flow, save as "registration" 
+
+        # # img is warp from pose_flow('sample'), save as "color"
+        # # motion masks is computed below
+        # # outputs.update(Trainer.generate_images_pred(inputs, outputs)) # break down and put depth early before predict poses
+
+        # # if Trainer.opt.use_MF_network:
+        # #     outputs.update(Trainer.generate_images_pred(inputs, outputs))
+        # #     outputs.update(Trainer.predict_motion_flow_with_MF_net(inputs, outputs))
+        # # else:
+        # #     outputs.update(Trainer.generate_motion_flow(inputs, outputs)) 
+
+        # outputs.update(Trainer.generate_motion_flow(inputs, outputs)) 
+        # assert 0
+
+
+        # conduct 2nd reound pose estimation considering given motion mask
+        print('Vanilla pose2:')
+        print(view1['img'].shape)
+        print(inputs['sequence'])
+        print(inputs['keyframe'])
+        print(inputs['frame_id'])
+        #load mask1_path
+        import cv2
+        seq_name = f'fixedCam1_fixedTool0_fixedTissue1'
+        mask1_path = os.path.join(opt.data_path, 
+                                 'train',
+                                 seq_name, 
+                                 str(inputs['keyframe'].item()).zfill(5),
+                                 f"tool_motion_mask_{str(inputs['frame_id'].item()+1)}.png",
+                                 )
+        mask2_path = os.path.join(opt.data_path, 
+                                 'train',
+                                 seq_name, 
+                                 str(inputs['keyframe'].item()).zfill(5),
+                                 f"tool_motion_mask_{str(inputs['frame_id'].item())}.png",
+                                 )
+        assert os.path.exists(mask1_path), f'Mask path {mask1_path} does not exist'
+        assert os.path.exists(mask2_path), f'Mask path {mask2_path} does not exist'
+        resize_h, resize_w = 410, 512 #follow how prepare img process
+        mask1 = cv2.imread(mask1_path, cv2.IMREAD_GRAYSCALE)
+        mask1 = cv2.resize(mask1, (resize_w, resize_h), interpolation=cv2.INTER_LINEAR)
+        mask1 = mask1.astype(np.float32) / 255.0
+        print('mask1 max:', mask1.max(), 'min:', mask1.min())
+        mask1 = torch.from_numpy(mask1).to(device)
+        mask1 = mask1.unsqueeze(0).unsqueeze(0)
+        mask2 = cv2.imread(mask2_path, cv2.IMREAD_GRAYSCALE)
+        mask2 = cv2.resize(mask2, (resize_w, resize_h), interpolation=cv2.INTER_LINEAR)
+        mask2 = mask2.astype(np.float32) / 255.0
+        mask2 = torch.from_numpy(mask2).to(device)
+        mask2 = mask2.unsqueeze(0).unsqueeze(0)
+        print(mask1.shape)
+        print(mask2.shape)
+        # crop from center so that the height is 400
+        mask1 = mask1[:, :, (resize_h-400)//2:(resize_h-400)//2+400, :]
+        mask2 = mask2[:, :, (resize_h-400)//2:(resize_h-400)//2+400, :]
+
+        import torch.nn.functional as F
+        resized_h, resized_w = mask1.shape[-2:]
+        resized_h = int(resized_h / 16)
+        resized_w = int(resized_w / 16)
+        mask1 = F.interpolate(mask1, size=(resized_h, resized_w), mode='nearest')
+        mask2 = F.interpolate(mask2, size=(resized_h, resized_w), mode='nearest')
+        mask1 = mask1.permute(0, 2, 3, 1).contiguous().flatten(1,2)
+        # mask1: B 1 H W -> B H*W 1
+        mask2 = mask2.permute(0, 2, 3, 1).contiguous().flatten(1,2)
+
+        # convert to inverse mask
+        mask1 = 1-mask1
+        mask2 = 1-mask2
+
+        # mask1 = None
+        # mask2 = None
+
+        _, pose2 = pose_model(view1, view2, mask1, mask2, return_attn=False)
+        print('Mask refined pose2:')
+        print(pose2["pose"])
+
+        return pose2["pose"]
+    # elif pose_model_type in ["posetr_net"]:
+    #     # These models use the same interface: view1, view2 -> _, pose2
+    #     view1 = {'img': inputs[("color", 1, 0)] }
+    #     view2 = {'img': inputs[("color", 0, 0)] }
+    #     _, pose2 = pose_model(view1, view2)
+    #     return pose2["pose"]
+    
+    # elif pose_model_type == "separate_resnet":
+    #     # Separate ResNet uses encoder + decoder
+    #     pose_inputs = [pose_model['encoder'](torch.cat([inputs[("color", 1, 0)], inputs[("color", 0, 0)]], 1))]
+    #     axisangle, translation = pose_model['decoder'](pose_inputs)
+        
+    #     # Convert to transformation matrix
+    #     from layers import transformation_from_parameters
+    #     pose_matrix = transformation_from_parameters(axisangle[:, 0], translation[:, 0])
+    #     return pose_matrix
+    
+    else:
+        raise ValueError(f"Unsupported pose_model_type for evaluation: {pose_model_type}")
+
+
 def predict_pose_for_model(pose_model, pose_model_type, inputs, device, opt=None):
     """Predict pose based on different pose_model_type implementations"""
     
@@ -297,6 +433,7 @@ def predict_pose_for_model(pose_model, pose_model_type, inputs, device, opt=None
         view1 = {'img': prepare_images(inputs[("color", 1, 0)], device, size=512, Ks=None)}
         view2 = {'img': prepare_images(inputs[("color", 0, 0)], device, size=512, Ks=None)}
         _, pose2 = pose_model(view1, view2)
+
         return pose2["pose"]
     elif pose_model_type in ["posetr_net"]:
         # These models use the same interface: view1, view2 -> _, pose2
@@ -410,17 +547,17 @@ def predict_pose_for_model(pose_model, pose_model_type, inputs, device, opt=None
 #     else:
 #         raise ValueError(f"pose_model_type {pose_model_type} does not require depth input.")
 
-def compute_rpe_translation(gt_poses, pred_poses, delta=1):
+def compute_rpe_translation(gt_poses, pred_poses):
     """Compute Relative Pose Error for translation"""
     rpe_trans = []
     
-    for i in range(len(gt_poses) - delta):
+    for i in range(len(gt_poses) - 1):
         # Ground truth relative pose
-        gt_rel = np.linalg.inv(gt_poses[i]) @ gt_poses[i + delta]
+        gt_rel = np.linalg.inv(gt_poses[i]) @ gt_poses[i + 1]
         gt_trans = gt_rel[:3, 3]
         
         # Predicted relative pose
-        pred_rel = np.linalg.inv(pred_poses[i]) @ pred_poses[i + delta]
+        pred_rel = np.linalg.inv(pred_poses[i]) @ pred_poses[i + 1]
         pred_trans = pred_rel[:3, 3]
         
         # Translation error
@@ -429,25 +566,40 @@ def compute_rpe_translation(gt_poses, pred_poses, delta=1):
     
     return np.array(rpe_trans)
 
-def compute_rpe_rotation(gt_poses, pred_poses, delta=1):
+def construct_poses(positions, rotations):
+    """Construct pose matrices from positions and rotations"""
+    poses = []
+    for pos, rot in zip(positions, rotations):
+        pose = np.eye(4)
+        pose[:3, 3] = pos
+        pose[:3, :3] = rot
+        poses.append(pose)
+    return np.array(poses)
+
+def compute_rpe_rotation(gt_poses, pred_poses):
     """Compute Relative Pose Error for rotation"""
     rpe_rot = []
+    assert len(gt_poses) == len(pred_poses), "gt_poses and pred_poses must have the same length"
+    assert len(gt_poses) > 1, "gt_poses and pred_poses must have at least 2 frames"
     
-    for i in range(len(gt_poses) - delta):
+    for i in range(len(gt_poses) - 1):
         # Ground truth relative pose
-        gt_rel = np.linalg.inv(gt_poses[i]) @ gt_poses[i + delta]
+        gt_rel = np.linalg.inv(gt_poses[i]) @ gt_poses[i + 1]
         gt_rot = gt_rel[:3, :3]
         
         # Predicted relative pose
-        pred_rel = np.linalg.inv(pred_poses[i]) @ pred_poses[i + delta]
+        pred_rel = np.linalg.inv(pred_poses[i]) @ pred_poses[i + 1]
         pred_rot = pred_rel[:3, :3]
         
         # Rotation error (angle between rotation matrices)
         R = gt_rot @ np.linalg.inv(pred_rot)
-        trace = np.trace(R)
-        angle = np.arccos(np.clip((trace - 1) / 2, -1, 1))
+        s = np.linalg.norm([R[0, 1] - R[1, 0],
+                            R[1, 2] - R[2, 1],
+                            R[0, 2] - R[2, 0]])
+        c = np.trace(R) - 1
+        angle = np.arctan2(s, c)
         rpe_rot.append(angle)
-    
+
     return np.array(rpe_rot)
 
 def evaluate(opt, model_root=None, depth_model=None):
@@ -469,7 +621,7 @@ def evaluate(opt, model_root=None, depth_model=None):
         assert NotImplementedError("StereoMIS is not supported for pose evaluation yet")
     elif opt.dataset == 'DynaSCARED':
         # use the 100_300 test traj!
-        assert opt.eval_split_appendix in ['000_00597'], "eval_split_appendix can be case_scene format when eval pose for DynaSCARED"
+        # assert opt.eval_split_appendix in ['000_00597'], "eval_split_appendix can be case_scene format when eval pose for DynaSCARED"
         assert NotImplementedError("DynaSCARED is not supported for pose evaluation yet")
         assert opt.data_path == '/mnt/cluster/datasets/Surg_oclr_stereo/', f"data_path {opt.data_path} is not correct"
     else:
@@ -527,13 +679,27 @@ def evaluate(opt, model_root=None, depth_model=None):
 
         opt.frame_ids = [0, 1]  # pose network only takes two frames as input
 
+        # Initialize timing variables
+        inference_times = []
+        total_start_time = time.time()
+        
         with torch.no_grad():
             for inputs in dataloader:
                 for key, ipt in inputs.items():
                     inputs[key] = ipt.to(device)
-
+                
                 try:
+                    # Time the inference
+                    if opt.report_inference_speed:
+                        inference_start = time.time()
+                    
                     pose_matrix = predict_pose_for_model(pose_model, pose_model_type, inputs, device, opt)
+                    
+                    # Record inference time
+                    if opt.report_inference_speed:
+                        inference_end = time.time()
+                        inference_times.append(inference_end - inference_start)
+
                     pred_poses.append(pose_matrix.cpu().numpy())
                     
                 except NotImplementedError as e:
@@ -546,6 +712,23 @@ def evaluate(opt, model_root=None, depth_model=None):
                     raise
 
         pred_poses = np.concatenate(pred_poses)
+        
+        # Report inference timing if requested
+        if opt.report_inference_speed:
+            total_end_time = time.time()
+            total_time = total_end_time - total_start_time
+            
+            print("\n" + "="*60)
+            print("INFERENCE SPEED REPORT")
+            print("="*60)
+            print(f"Total inference time: {total_time:.4f} seconds")
+            print(f"Number of frames processed: {len(inference_times)}")
+            print(f"Average time per frame: {np.mean(inference_times):.4f} seconds")
+            print(f"Frames per second (FPS): {1.0/np.mean(inference_times):.2f}")
+            print(f"Min inference time: {np.min(inference_times):.4f} seconds")
+            print(f"Max inference time: {np.max(inference_times):.4f} seconds")
+            print(f"Std deviation: {np.std(inference_times):.4f} seconds")
+            print("="*60)
         
         # Save predictions for future use
         np.savez_compressed(os.path.join(os.path.dirname(__file__), "splits", opt.dataset, "pred_pose_sq{}.npz".format(opt.eval_split_appendix)), data=np.array(pred_poses))
@@ -560,14 +743,42 @@ def evaluate(opt, model_root=None, depth_model=None):
         gt_local_poses = np.load(gt_path, fix_imports=True, encoding='latin1')["data"]
         # scale the translation with 1000
         gt_local_poses[:, :3, 3] = gt_local_poses[:, :3, 3] * 1000
+
+        # test on more than seq3: online generate and write the rel_gt.npz by loading with the dataset
+        # iterate over to get GT rel poses
+        gt_local_poses = []
+        for i, inputs in enumerate(dataloader):
+            if i == 0:
+                gt_local_poses.append(inputs[("gt_c2w_poses", 0)].squeeze().cpu().numpy())
+            gt_local_pose = inputs[("gt_c2w_poses", 1)].squeeze()
+            gt_local_poses.append(gt_local_pose.cpu().numpy())
+        # gt_rel_poses = [np.linalg.inv(gt_local_poses[i+1]) @ gt_local_poses[i] for i in range(len(gt_local_poses) - 1)]
+        gt_rel_poses = [np.linalg.inv(gt_local_poses[i]) @ gt_local_poses[i+1] for i in range(len(gt_local_poses) - 1)]
+        gt_local_poses = np.array(gt_rel_poses)
+        print(f"Loaded {len(gt_local_poses)} rel gt poses")
+        assert os.path.exists(os.path.join(os.path.dirname(__file__), "splits", opt.dataset))
+        # scale down 1000 as meter to be consistent with format in fas3r gt npz
+        gt_local_poses_meter = gt_local_poses.copy()
+        gt_local_poses_meter[:, :3, 3] = gt_local_poses_meter[:, :3, 3] / 1000
+        np.savez_compressed(os.path.join(os.path.dirname(__file__), "splits", opt.dataset, "gt_poses_sq{}.npz".format(opt.eval_split_appendix)), 
+        data=np.array(gt_local_poses_meter))
+
     elif opt.dataset == 'DynaSCARED':
         # For DynaSCARED, we need to load the dataset to get ground truth poses
         dataset = DynaSCAREDRAWDataset(opt.data_path, filenames, opt.height, opt.width,
                                 [0, 1], 4, is_train=False)
         assert len(dataset.trajs_dict) == 1, f"Number of trajectories {len(dataset.trajs_dict)} does not match number of predictions {len(pred_poses)}"
         gt_local_poses = dataset.trajs_dict[list(dataset.trajs_dict.keys())[0]]
-        print(f"Loaded {len(gt_local_poses)} gt poses")
-
+        print(f"Loaded {len(gt_local_poses)} abs gt poses")
+        # convert to rel poses
+        # gt_rel_poses = [np.linalg.inv(np.linalg.inv(gt_local_poses[i]) @ gt_local_poses[i + 1]) for i in range(len(gt_local_poses) - 1)]
+        gt_rel_poses = [np.linalg.inv(gt_local_poses[i+1]) @ gt_local_poses[i] for i in range(len(gt_local_poses) - 1)]
+        gt_local_poses = np.array(gt_rel_poses)
+        print(f"Loaded {len(gt_local_poses)} rel gt poses")
+        # save under splits for later plot_vis_traj in consistent manner
+        assert os.path.exists(os.path.join(os.path.dirname(__file__), "splits", opt.dataset))
+        np.savez_compressed(os.path.join(os.path.dirname(__file__), "splits", opt.dataset, "gt_poses_sq{}.npz".format(opt.eval_split_appendix)), data=np.array(gt_local_poses))
+    
     else:
         assert False, "Unknown dataset: {opt.dataset}"
 
@@ -578,47 +789,68 @@ def evaluate(opt, model_root=None, depth_model=None):
     def compute_metrics(gt_local_poses, pred_poses, track_length):
         ates = []
         res = []
+        rpes_trans = []
+        rpes_rot = []
         num_frames = gt_local_poses.shape[0]
-        # Use consistent values
-        # track_length = 5
-        delta = track_length - 1  # delta = 4
+        
+        assert len(gt_local_poses) == len(pred_poses), f'len(gt_local_poses): {len(gt_local_poses)}, len(pred_poses): {len(pred_poses)}'
 
         for i in range(0, num_frames - 1):
-            local_xyzs = np.array(dump_xyz(pred_poses[i:i + track_length - 1]))
-            gt_local_xyzs = np.array(dump_xyz(gt_local_poses[i:i + track_length - 1]))
-            local_rs = np.array(dump_r(pred_poses[i:i + track_length - 1]))
-            gt_rs = np.array(dump_r(gt_local_poses[i:i + track_length - 1]))
+            end_id = i + (track_length - 1)
 
-            ates.append(compute_ate(gt_local_xyzs, local_xyzs))
-            res.append(compute_re(local_rs, gt_rs))
+            # optinal fix for short track length
+            # gurantten reasonable metrics with other vairient track_length
+            # if end_id > len(pred_poses):
+                # break
+            
+            pred_abs_xyzs = np.array(dump_xyz(pred_poses[i:i + track_length - 1]))
+            gt_abs_xyzs = np.array(dump_xyz(gt_local_poses[i:i + track_length - 1]))
+            esti_abs_rs = np.array(dump_r(pred_poses[i:i + track_length - 1]))
+            gt_abs_rs = np.array(dump_r(gt_local_poses[i:i + track_length - 1]))
 
-        # RPE metrics (new)
-        # TODO: SCALE the esti
-        # rpe_trans = compute_rpe_translation(gt_local_poses, pred_poses, delta=delta)
-        # rpe_rot = compute_rpe_rotation(gt_local_poses, pred_poses, delta=delta)
-        
+
+            ates.append(compute_ate(gt_abs_xyzs, pred_abs_xyzs))
+            res.append(compute_re(gt_abs_rs, esti_abs_rs))#
+
+            # RPE metrics (new)
+            # construct gt_abs_poses from gt_abs_xyzs and gt_abs_rs
+            if end_id > len(pred_poses):
+                continue
+
+            gt_abs_poses = construct_poses(gt_abs_xyzs, gt_abs_rs)
+            esti_abs_poses = construct_poses(pred_abs_xyzs, esti_abs_rs)
+            esti_snipt_scale = np.sum(gt_abs_poses[:, :3, 3] * esti_abs_poses[:, :3, 3]) / np.sum(esti_abs_poses[:, :3, 3] ** 2)
+            esti_abs_poses_scale = esti_abs_poses.copy()
+            esti_abs_poses_scale[:, :3, 3] = esti_abs_poses_scale[:, :3, 3] * esti_snipt_scale
+
+            rpes_trans.append(compute_rpe_translation(gt_abs_poses, esti_abs_poses_scale))
+            rpes_rot.append(compute_rpe_rotation(gt_abs_poses, esti_abs_poses))
+            
 
         # Print results
         print("\n" + "="*60)
         print("EVALUATION RESULTS GIVEN TRACK LENGTH = {}".format(track_length))
+        print('NUM OF SNIPPETS IN COMPUTATION: {}'.format(len(ates)))
         print("="*60)
         
         print(f"\nAbsolute Trajectory Error (ATE):")
         print(f"   Mean: {np.mean(ates):.8f}, Std: {np.std(ates):.8f}")
         print(f"\nRotation Error (RE):")
         print(f"   Mean: {np.mean(res):.8f}, Std: {np.std(res):.8f}")
-        
-        # print(f"\nRelative Pose Error - Translation (RPE-T):")
-        # print(f"   Delta={delta}: Mean: {np.mean(rpe_trans):.8f}, Std: {np.std(rpe_trans):.8f}")
-        # print(f"\nRelative Pose Error - Rotation (RPE-R):")
-        # print(f"   Delta={delta}: Mean: {np.mean(rpe_rot):.8f}, Std: {np.std(rpe_rot):.8f}")
+
+        print(f"\nRelative Pose Error - Translation (RPE-T):")
+        print(f"   Mean: {np.mean(rpes_trans):.8f}, Std: {np.std(rpes_trans):.8f}")
+        print(f"\nRelative Pose Error - Rotation (RPE-R):")
+        print(f"   Mean: {np.mean(rpes_rot):.8f}, Std: {np.std(rpes_rot):.8f}")
         
         print("="*60)
 
-
-    compute_metrics(gt_local_poses, pred_poses, track_length=len(pred_poses))
     compute_metrics(gt_local_poses, pred_poses, track_length=5)
-    compute_metrics(gt_local_poses, pred_poses, track_length=2)
+    # compute_metrics(gt_local_poses, pred_poses, track_length=len(pred_poses)+1)
+
+    # the rpe_trans and rpe_rot would be double of its ate_trans and are, as are compute will be devied with 2 in this case; the ate and are shoudl be not be trusted thereafter.
+    # ate and are deteriated to be rpe_trans and rpe_rot.
+    # compute_metrics(gt_local_poses, pred_poses, track_length=2) 
 
 if __name__ == "__main__":
     options = MonodepthOptions()

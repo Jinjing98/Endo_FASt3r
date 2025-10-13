@@ -14,6 +14,9 @@ class MonodepthOptions:
         self.parser.add_argument("--skip_inference",
                                  help="if set skips inference",
                                  action="store_true")
+        self.parser.add_argument("--report_inference_speed",
+                                 help="if set reports inference speed timing",
+                                 action="store_true")
         
         # dataset options
         self.parser.add_argument("--of_samples",
