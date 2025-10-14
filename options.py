@@ -113,6 +113,9 @@ class MonodepthOptions:
                                  type=float,
                                  help="weight for the reprojection loss",
                                  default=1.0)
+        self.parser.add_argument("--enable_learned_loss_reproj2_nomotion_weight",
+                                 help="if set, uses learned loss reproj2_nomotion_weight",
+                                 action="store_true")
 
         self.parser.add_argument("--reproj2_supervised_with_which",
                                  type=str,

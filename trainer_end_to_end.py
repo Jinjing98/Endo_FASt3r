@@ -346,6 +346,17 @@ class Trainer:
             print(f"Initialized learnable motion mask threshold with value: {self.opt.motion_mask_thre_px}")
         else:
             self.learned_motion_mask_thre_px = None
+            
+        # Initialize learnable loss_reproj2_nomotion_weight if enabled
+        if self.opt.enable_learned_loss_reproj2_nomotion_weight:
+            # Initialize with the default weight value
+            self.learned_loss_reproj2_nomotion_weight = torch.nn.Parameter(
+                torch.tensor(self.opt.loss_reproj2_nomotion_weight, dtype=torch.float32, device=self.device)
+            )
+            self.parameters_to_train.append(self.learned_loss_reproj2_nomotion_weight)
+            print(f"Initialized learnable loss_reproj2_nomotion_weight with value: {self.opt.loss_reproj2_nomotion_weight}")
+        else:
+            self.learned_loss_reproj2_nomotion_weight = None
 
         self.num_scales = len(self.opt.scales)  # 4
         self.num_input_frames = len(self.opt.frame_ids)  # 3
@@ -2232,6 +2243,33 @@ class Trainer:
         else:
             return self.opt.motion_mask_thre_px
 
+    def get_current_loss_reproj2_nomotion_weight(self):
+        """Get the current loss_reproj2_nomotion_weight value"""
+        if self.opt.enable_learned_loss_reproj2_nomotion_weight and self.learned_loss_reproj2_nomotion_weight is not None:
+            return self.learned_loss_reproj2_nomotion_weight.item()
+        else:
+            return self.opt.loss_reproj2_nomotion_weight
+
+    def print_learnable_parameters_status(self):
+        """Print the current status of all learnable parameters"""
+        print("\n" + "="*60)
+        print("LEARNABLE PARAMETERS STATUS")
+        print("="*60)
+        
+        # Motion mask threshold
+        if self.opt.enable_learned_motion_mask_thre_px and self.learned_motion_mask_thre_px is not None:
+            print(f"Motion mask threshold: {self.learned_motion_mask_thre_px.item():.4f} (learnable)")
+        else:
+            print(f"Motion mask threshold: {self.opt.motion_mask_thre_px} (fixed)")
+        
+        # Loss weight
+        if self.opt.enable_learned_loss_reproj2_nomotion_weight and self.learned_loss_reproj2_nomotion_weight is not None:
+            print(f"Loss reproj2_nomotion weight: {self.learned_loss_reproj2_nomotion_weight.item():.4f} (learnable)")
+        else:
+            print(f"Loss reproj2_nomotion weight: {self.opt.loss_reproj2_nomotion_weight} (fixed)")
+        
+        print("="*60)
+
     def gen_sample_and_pose_flow(self, inputs, outputs, mesh_gird_high_res, scale, source_scale = 0, tgt_frame_id = 0, frame_id = None):
         '''
         only udpate the samples and pose_flow:
@@ -3203,7 +3241,12 @@ class Trainer:
                             + weights[2] * loss_reg_dice) / 2.0 )
 
             if self.opt.use_loss_reproj2_nomotion:
-                loss += self.opt.loss_reproj2_nomotion_weight * loss2_reprojection / 2.0
+                # Use learnable weight if enabled, otherwise use the provided weight
+                if self.opt.enable_learned_loss_reproj2_nomotion_weight and self.learned_loss_reproj2_nomotion_weight is not None:
+                    weight = self.learned_loss_reproj2_nomotion_weight
+                else:
+                    weight = self.opt.loss_reproj2_nomotion_weight
+                loss += weight * loss2_reprojection / 2.0
 
             if self.opt.use_R_reg:
                 loss += self.opt.R_reg_weight * loss_R_reg
@@ -3378,6 +3421,10 @@ class Trainer:
         # Log learnable motion mask threshold if enabled
         if self.opt.enable_learned_motion_mask_thre_px and self.learned_motion_mask_thre_px is not None:
             writer.add_scalar("motion_mask_threshold", self.learned_motion_mask_thre_px.item(), self.step)
+        
+        # Log learnable loss_reproj2_nomotion_weight if enabled
+        if self.opt.enable_learned_loss_reproj2_nomotion_weight and self.learned_loss_reproj2_nomotion_weight is not None:
+            writer.add_scalar("loss_reproj2_nomotion_weight", self.learned_loss_reproj2_nomotion_weight.item(), self.step)
         #
 
         # src_imgs = []
@@ -3704,8 +3751,14 @@ class Trainer:
         # Save learnable motion mask threshold if enabled
         if self.opt.enable_learned_motion_mask_thre_px and self.learned_motion_mask_thre_px is not None:
             save_path = os.path.join(save_folder, "learned_motion_mask_thre_px.pth")
-            torch.save(self.learned_motion_mask_thre_px.state_dict(), save_path)
+            torch.save(self.learned_motion_mask_thre_px, save_path)
             print(f"saved learned_motion_mask_thre_px.pth in {save_path}")
+        
+        # Save learnable loss_reproj2_nomotion_weight if enabled
+        if self.opt.enable_learned_loss_reproj2_nomotion_weight and self.learned_loss_reproj2_nomotion_weight is not None:
+            save_path = os.path.join(save_folder, "learned_loss_reproj2_nomotion_weight.pth")
+            torch.save(self.learned_loss_reproj2_nomotion_weight, save_path)
+            print(f"saved learned_loss_reproj2_nomotion_weight.pth in {save_path}")
         
         save_path = os.path.join(save_folder, "{}.pth".format("adam_0"))
         torch.save(self.model_optimizer_0.state_dict(), save_path)
@@ -3758,11 +3811,25 @@ class Trainer:
             threshold_path = os.path.join(self.opt.load_weights_folder, "learned_motion_mask_thre_px.pth")
             if os.path.isfile(threshold_path):
                 print("Loading learned motion mask threshold")
-                threshold_dict = torch.load(threshold_path)
-                self.learned_motion_mask_thre_px.load_state_dict(threshold_dict)
+                loaded_threshold = torch.load(threshold_path)
+                self.learned_motion_mask_thre_px.data = loaded_threshold.data
                 print(f"Loaded learned motion mask threshold: {self.learned_motion_mask_thre_px.item():.4f}")
             else:
                 print("No learned motion mask threshold found, using initialized value")
+        
+        # Load learnable loss_reproj2_nomotion_weight if enabled and exists
+        if self.opt.enable_learned_loss_reproj2_nomotion_weight and self.learned_loss_reproj2_nomotion_weight is not None:
+            weight_path = os.path.join(self.opt.load_weights_folder, "learned_loss_reproj2_nomotion_weight.pth")
+            if os.path.isfile(weight_path):
+                print("Loading learned loss_reproj2_nomotion_weight")
+                loaded_weight = torch.load(weight_path)
+                self.learned_loss_reproj2_nomotion_weight.data = loaded_weight.data
+                print(f"Loaded learned loss_reproj2_nomotion_weight: {self.learned_loss_reproj2_nomotion_weight.item():.4f}")
+            else:
+                print("No learned loss_reproj2_nomotion_weight found, using initialized value")
+        
+        # Print learnable parameters status
+        self.print_learnable_parameters_status()
 
     def resume_training(self):
         """Resume training from a previously trained model directory
@@ -3838,6 +3905,38 @@ class Trainer:
             print("Loading scheduler_0 state...")
             self.model_lr_scheduler_0.load_state_dict(torch.load(scheduler_0_path))
         
+        # Load learnable motion mask threshold if enabled and exists
+        if self.opt.enable_learned_motion_mask_thre_px and self.learned_motion_mask_thre_px is not None:
+            threshold_path = os.path.join(checkpoint_dir, "learned_motion_mask_thre_px.pth")
+            if os.path.exists(threshold_path):
+                print("Loading learned motion mask threshold from checkpoint...")
+                loaded_threshold = torch.load(threshold_path)
+                self.learned_motion_mask_thre_px.data = loaded_threshold.data
+                print(f"Loaded learned motion mask threshold: {self.learned_motion_mask_thre_px.item():.4f}")
+            else:
+                print("No learned motion mask threshold found in checkpoint, using initialized value")
+        else:
+            # Check if checkpoint has learnable threshold but current run doesn't enable it
+            threshold_path = os.path.join(checkpoint_dir, "learned_motion_mask_thre_px.pth")
+            if os.path.exists(threshold_path):
+                print("Warning: Checkpoint contains learned motion mask threshold but --enable_learned_motion_mask_thre_px is not enabled in current run")
+        
+        # Load learnable loss_reproj2_nomotion_weight if enabled and exists
+        if self.opt.enable_learned_loss_reproj2_nomotion_weight and self.learned_loss_reproj2_nomotion_weight is not None:
+            weight_path = os.path.join(checkpoint_dir, "learned_loss_reproj2_nomotion_weight.pth")
+            if os.path.exists(weight_path):
+                print("Loading learned loss_reproj2_nomotion_weight from checkpoint...")
+                loaded_weight = torch.load(weight_path)
+                self.learned_loss_reproj2_nomotion_weight.data = loaded_weight.data
+                print(f"Loaded learned loss_reproj2_nomotion_weight: {self.learned_loss_reproj2_nomotion_weight.item():.4f}")
+            else:
+                print("No learned loss_reproj2_nomotion_weight found in checkpoint, using initialized value")
+        else:
+            # Check if checkpoint has learnable weight but current run doesn't enable it
+            weight_path = os.path.join(checkpoint_dir, "learned_loss_reproj2_nomotion_weight.pth")
+            if os.path.exists(weight_path):
+                print("Warning: Checkpoint contains learned loss_reproj2_nomotion_weight but --enable_learned_loss_reproj2_nomotion_weight is not enabled in current run")
+        
         # Load training progress
         progress_path = os.path.join(checkpoint_dir, "training_progress.pth")
         if os.path.exists(progress_path):
@@ -3854,6 +3953,9 @@ class Trainer:
             print(f"Training progress not found, setting epoch to {self.epoch}, step to {self.step}")
         
         print("Training resumed successfully!")
+        
+        # Print learnable parameters status
+        self.print_learnable_parameters_status()
 
     def find_latest_checkpoint(self, models_dir):
         """Find the latest checkpoint in the models directory
