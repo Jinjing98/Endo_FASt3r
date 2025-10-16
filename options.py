@@ -540,10 +540,15 @@ class MonodepthOptions:
         #                          choices=[
         #                             "eigen", "eigen_benchmark", "benchmark", "odom_9", "odom_10", "endovis", "DynaSCARED"],
         #                          help="which split to run eval on")
+        
+        self.parser.add_argument("--save_poses_root",
+                                 type=str,
+                                 help="root directory to save the poses, default is saving under splits/<dataset>",
+                                 default=None)
         self.parser.add_argument(
             "--eval_split_appendix",
             type=str,
-            default="",
+            default='',
             # choices=["", "_CaToTi000", "_CaToTi011", "1", "2", "000_00597", '3', '_offline'],
             help=(
                 "Appendix to the eval split. Options:\n"
@@ -558,6 +563,11 @@ class MonodepthOptions:
         )
 
         self.parser.add_argument('--eval_model_appendix', type=str, default='')
+
+        # path used for batch eval of poses
+        self.parser.add_argument("--excel_root", type=str, help="root directory to the excel files")
+        self.parser.add_argument("--excel_name", type=str, help="name of the excel file")
+
 
         self.parser.add_argument("--plot_xyz_rpy",
                                  help="if set, plots x,y,z,roll,pitch,yaw over time",

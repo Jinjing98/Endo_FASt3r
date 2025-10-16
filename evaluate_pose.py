@@ -602,6 +602,20 @@ def compute_rpe_rotation(gt_poses, pred_poses):
 
     return np.array(rpe_rot)
 
+#extract info from constructed eval_split_appendix
+def gen_filenames_from_eval_split_appendix(eval_split_appendix, include_last_frame=True):
+    # current only support for StereoMIS
+    print(f"eval_split_appendix: {eval_split_appendix}")
+    assert eval_split_appendix.startswith('P'), "only support for StereoMIS eval_split_appendix starting with 3"
+    start_idx = eval_split_appendix.split('_')[-2]
+    end_idx_cutoff = eval_split_appendix.split('_')[-1]
+    video = '_'.join(eval_split_appendix.split('_')[:-2])
+    print(f"video: {video}, start_idx: {start_idx}, end_idx_cutoff: {end_idx_cutoff}")
+    filenames = []
+    for i in range(int(start_idx), int(end_idx_cutoff) + (1 if include_last_frame else 0)):
+        filenames.append(f"{video}/keyframe1 {i:06d} l")
+    return filenames
+
 def evaluate(opt, model_root=None, depth_model=None):
     """Evaluate odometry on the SCARED dataset
     """
@@ -612,31 +626,32 @@ def evaluate(opt, model_root=None, depth_model=None):
         "Cannot find a folder at {}".format(model_root)
 
     if opt.dataset == 'endovis':
-        assert opt.eval_split_appendix in ['1','2'], "eval_split_appendix should be empty for endovis"
+        # assert opt.eval_split_appendix in ['1','2'], "eval_split_appendix should be empty for endovis"
         assert opt.data_path == '/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/', f"data_path {opt.data_path} is not correct"
     elif opt.dataset == 'StereoMIS':
-        # /mnt/nct-zfs/TCO-All/SharedDatasets/StereoMIS_DARES_test/
-        # assert opt.eval_split_appendix == '', "eval_split_appendix should be empty for StereoMIS"
         assert opt.data_path == '/mnt/nct-zfs/TCO-All/SharedDatasets/StereoMIS_DARES_test/', f"data_path {opt.data_path} is not correct"
         assert NotImplementedError("StereoMIS is not supported for pose evaluation yet")
     elif opt.dataset == 'DynaSCARED':
-        # use the 100_300 test traj!
-        # assert opt.eval_split_appendix in ['000_00597'], "eval_split_appendix can be case_scene format when eval pose for DynaSCARED"
         assert NotImplementedError("DynaSCARED is not supported for pose evaluation yet")
         assert opt.data_path == '/mnt/cluster/datasets/Surg_oclr_stereo/', f"data_path {opt.data_path} is not correct"
     else:
         raise ValueError(f"Unknown dataset: {opt.dataset}")
 
-    fpath = os.path.join(os.path.dirname(__file__), "splits", opt.dataset, "test_files_sequence{}.txt".format(opt.eval_split_appendix))
-    filenames = readlines(fpath)
+
+    if opt.excel_root is not None and opt.excel_name is not None:
+        assert opt.dataset == 'StereoMIS', "only support for StereoMIS dataset"
+        filenames = gen_filenames_from_eval_split_appendix(opt.eval_split_appendix)
+    else:       
+        fpath = os.path.join(os.path.dirname(__file__), "splits", opt.dataset, "test_files_sequence{}.txt".format(opt.eval_split_appendix))
+        filenames = readlines(fpath)
 
     # Check if skip_inference is enabled
     skip_inference = opt.skip_inference#getattr(opt, 'skip_inference', False)
     
     # Load pre-computed predictions
-    pred_poses_root = os.path.join(os.path.dirname(__file__), "splits", opt.dataset) if self.opt.save_poses_root is None else self.opt.save_poses_root
+    pred_poses_root = os.path.join(os.path.dirname(__file__), "splits", opt.dataset) if opt.save_poses_root is None else opt.save_poses_root
     os.makedirs(pred_poses_root, exist_ok=True)
-    
+
     pred_poses_path = os.path.join(pred_poses_root, "pred_pose_sq{}{}.npz".format(opt.eval_split_appendix, opt.eval_model_appendix))
     
     if skip_inference:
@@ -651,7 +666,8 @@ def evaluate(opt, model_root=None, depth_model=None):
         
     else:
 
-        assert not os.path.exists(pred_poses_path), f"Predictions already exist at {pred_poses_path}, please set another eval_split_appendix or eval_model_appendix"
+        # comment out to overwrite the existing predictions
+        # assert not os.path.exists(pred_poses_path), f"Predictions already exist at {pred_poses_path}, please set another eval_split_appendix or eval_model_appendix"
 
         # Original inference pipeline
         # data
@@ -672,9 +688,16 @@ def evaluate(opt, model_root=None, depth_model=None):
         
         # Create pose model based on pose_model_type
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        pose_model = create_pose_model(opt, device, model_root)
-        pose_model.cuda()
-        pose_model.eval()
+        
+        # Check if model is pre-loaded
+        if hasattr(opt, 'pre_loaded_model') and opt.pre_loaded_model is not None:
+            print("Using pre-loaded model...")
+            pose_model = opt.pre_loaded_model
+        else:
+            print("Loading model...")
+            pose_model = create_pose_model(opt, device, model_root)
+            pose_model.cuda()
+            pose_model.eval()
 
         pred_poses = []
         pose_model_type = getattr(opt, 'pose_model_type', 'endofast3r')
@@ -753,6 +776,8 @@ def evaluate(opt, model_root=None, depth_model=None):
             # scale the translation with 1000
             gt_local_poses[:, :3, 3] = gt_local_poses[:, :3, 3] * 1000
         else:
+            
+            save_gt_poses_path = os.path.join(pred_poses_root, "gt_poses_sq{}.npz".format(opt.eval_split_appendix))
 
             # test on more than seq3: online generate and write the rel_gt.npz by loading with the dataset
             # iterate over to get GT rel poses
@@ -770,8 +795,10 @@ def evaluate(opt, model_root=None, depth_model=None):
             # scale down 1000 as meter to be consistent with format in fas3r gt npz
             gt_local_poses_meter = gt_local_poses.copy()
             gt_local_poses_meter[:, :3, 3] = gt_local_poses_meter[:, :3, 3] / 1000
-            np.savez_compressed(os.path.join(os.path.dirname(__file__), "splits", opt.dataset, "gt_poses_sq{}.npz".format(opt.eval_split_appendix)), 
-            data=np.array(gt_local_poses_meter))
+            # np.savez_compressed(os.path.join(os.path.dirname(__file__), "splits", opt.dataset, "gt_poses_sq{}.npz".format(opt.eval_split_appendix)), 
+            # data=np.array(gt_local_poses_meter))
+            np.savez_compressed(save_gt_poses_path, data=np.array(gt_local_poses_meter))
+            print(f"Saved gt poses to {save_gt_poses_path}")
 
     elif opt.dataset == 'DynaSCARED':
         # For DynaSCARED, we need to load the dataset to get ground truth poses
@@ -855,12 +882,26 @@ def evaluate(opt, model_root=None, depth_model=None):
         
         print("="*60)
 
-    compute_metrics(gt_local_poses, pred_poses, track_length=5)
-    # compute_metrics(gt_local_poses, pred_poses, track_length=len(pred_poses)+1)
+        return ates, res, rpes_trans, rpes_rot
 
-    # the rpe_trans and rpe_rot would be double of its ate_trans and are, as are compute will be devied with 2 in this case; the ate and are shoudl be not be trusted thereafter.
-    # ate and are deteriated to be rpe_trans and rpe_rot.
-    # compute_metrics(gt_local_poses, pred_poses, track_length=2) 
+    metrics_dict = {}
+    track_lengths = [
+        5, # default track length
+        # len(pred_poses)+1, # for endovis, use all frames for evaluation
+        2, # for stereoMIS, only use 2 frames for evaluation
+    ]
+
+    for track_length in track_lengths:
+        metrics_dict[track_length] = compute_metrics(gt_local_poses, pred_poses, track_length=track_length)
+        # compute_metrics(gt_local_poses, pred_poses, track_length=5)
+    
+        # compute_metrics(gt_local_poses, pred_poses, track_length=len(pred_poses)+1)
+
+        # the rpe_trans and rpe_rot would be double of its ate_trans and are, as are compute will be devied with 2 in this case; the ate and are shoudl be not be trusted thereafter.
+        # ate and are deteriated to be rpe_trans and rpe_rot.
+        # compute_metrics(gt_local_poses, pred_poses, track_length=2) 
+    
+    return metrics_dict
 
 if __name__ == "__main__":
     options = MonodepthOptions()

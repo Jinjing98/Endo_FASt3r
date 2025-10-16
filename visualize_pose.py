@@ -10,12 +10,17 @@ opt = MonodepthOptions().parse()
 
 # load data from file
 # you replace this using with open
-gt_path = os.path.join(os.path.dirname(__file__), "splits", opt.dataset, "gt_poses_sq{}.npz".format(opt.eval_split_appendix))
+gt_path = os.path.join(os.path.dirname(__file__), "splits", opt.dataset, "gt_poses_sq{}.npz".format(opt.eval_split_appendix)) if opt.save_poses_root is None else os.path.join(opt.save_poses_root, "gt_poses_sq{}.npz".format(opt.eval_split_appendix))
+
+# gt_path = os.path.join(os.path.dirname(__file__), "splits", opt.dataset, "gt_poses_sq{}.npz".format(opt.eval_split_appendix))
+
 gt_local_poses = np.load(gt_path, fix_imports=True, encoding='latin1')["data"]
 
 # our_path = os.path.join(os.path.dirname(__file__), "splits", opt.dataset, "pred_pose_sq{}.npz".format(opt.eval_split_appendix))
+
 our_path = os.path.join(os.path.dirname(__file__), "splits", opt.dataset, "pred_pose_sq{}{}.npz".format(opt.eval_split_appendix, 
-                                                                                                        opt.eval_model_appendix))
+                                                                                                        opt.eval_model_appendix)) if opt.save_poses_root is None else \
+                                                                                                            os.path.join(opt.save_poses_root, "pred_pose_sq{}{}.npz".format(opt.eval_split_appendix, opt.eval_model_appendix))
 our_local_poses = np.load(our_path, fix_imports=True, encoding='latin1')["data"]
 
 if opt.dataset == 'StereoMIS':
