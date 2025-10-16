@@ -214,9 +214,9 @@ class CroCoV2FeatureExtractor(nn.Module):
         final_output.append((f1, f2))
         for blk in self.dec_blocks:
             # img1 side
-            f1, _ = blk(*final_output[-1][::+1], pos1, pos2)
+            f1, _, *attn1 = blk(*final_output[-1][::+1], pos1, pos2)
             # img2 side
-            f2, _ = blk(*final_output[-1][::-1], pos2, pos1)
+            f2, _, *attn2 = blk(*final_output[-1][::-1], pos2, pos1)
             # store the result
             final_output.append((f1, f2))
 

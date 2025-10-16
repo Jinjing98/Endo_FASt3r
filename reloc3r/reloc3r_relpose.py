@@ -135,8 +135,33 @@ class Reloc3rRelpose(nn.Module):
 
         return (shape1, shape2), (feat1, feat2), (pos1, pos2)
 
-    def _decoder(self, f1, pos1, f2, pos2):
+    # def _decoder(self, f1, pos1, f2, pos2):
+    #     final_output = [(f1, f2)]  # before projection
+
+    #     # project to decoder dim
+    #     f1 = self.decoder_embed(f1)
+    #     f2 = self.decoder_embed(f2)
+
+    #     final_output.append((f1, f2))
+    #     for blk in self.dec_blocks:
+    #         # img1 side
+    #         f1, _ = blk(*final_output[-1][::+1], pos1, pos2)
+    #         # img2 side
+    #         f2, _ = blk(*final_output[-1][::-1], pos2, pos1)
+    #         # store the result
+    #         final_output.append((f1, f2))
+
+    #     # normalize last output
+    #     del final_output[1]  # duplicate with final_output[0]
+    #     final_output[-1] = tuple(map(self.dec_norm, final_output[-1]))
+    #     return zip(*final_output)
+
+    def _decoder(self, f1, pos1, f2, pos2, mask1=None, mask2=None, return_attn=False):
+        '''
+        adapt from src: https://github.dev/Inception3D/Easi3R
+        '''
         final_output = [(f1, f2)]  # before projection
+        attention_maps = []
 
         # project to decoder dim
         f1 = self.decoder_embed(f1)
@@ -144,26 +169,45 @@ class Reloc3rRelpose(nn.Module):
 
         final_output.append((f1, f2))
         for blk in self.dec_blocks:
+        # for i, (blk1, blk2) in enumerate(zip(self.dec_blocks, self.dec_blocks2)):
             # img1 side
-            f1, _ = blk(*final_output[-1][::+1], pos1, pos2)
+            f1, _, *self_attn1_cross_attn1 = blk(*final_output[-1][::+1], pos1, pos2, mask1, mask2, None, return_attn=return_attn) # mask1, mask2, mask1
             # img2 side
-            f2, _ = blk(*final_output[-1][::-1], pos2, pos1)
+            # f2, _, self_attn2, cross_attn2 = blk(*final_output[-1][::-1], pos2, pos1, None, None, None, return_attn=return_attn) # mask2, mask1, mask2
+            f2, _, *self_attn2_cross_attn2 = blk(*final_output[-1][::-1], pos2, pos1, mask2, mask1, None, return_attn=return_attn) # mask2, mask1, mask2
+
             # store the result
             final_output.append((f1, f2))
+
+            if return_attn:
+                attention_maps.append((self_attn1_cross_attn1, self_attn2_cross_attn2))
+
 
         # normalize last output
         del final_output[1]  # duplicate with final_output[0]
         final_output[-1] = tuple(map(self.dec_norm, final_output[-1]))
-        return zip(*final_output)
+
+        # return zip(*final_output)
+
+        if return_attn:
+            return zip(*final_output), zip(*attention_maps)
+        else:
+            return zip(*final_output)
+
 
     def _downstream_head(self, decout, img_shape):
         B, S, D = decout[-1].shape
         return self.head(decout, img_shape)
 
-    def forward(self, view1, view2):
+    def forward(self, view1, view2, mask1=None, mask2=None, return_attn=False):
         (shape1, shape2), (feat1, feat2), (pos1, pos2) = self._encoder(view1, view2)  # B,S,D
 
-        dec1, dec2 = self._decoder(feat1, pos1, feat2, pos2)
+        dec1, dec2 = self._decoder(feat1, pos1, feat2, pos2, mask1, mask2, return_attn=False)
+
+        # print('return attn:', return_attn)
+        # print('dtype dec1:', type(dec1))
+        # print('dtype dec2:', type(dec2))
+        
         # for tok in dec2:
         #     print("tok in dec2",tok.float().shape) 
         # print("len of dec2",len(dec2))

@@ -91,7 +91,30 @@ class Attention(nn.Module):
         self.proj_drop = nn.Dropout(proj_drop)
         self.rope = rope 
 
-    def forward(self, x, xpos):
+    # def forward(self, x, xpos):
+    #     B, N, C = x.shape
+
+    #     qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).transpose(1,3)
+    #     q, k, v = [qkv[:,:,i] for i in range(3)]
+    #     # q,k,v = qkv.unbind(2)  # make torchscript happy (cannot use tensor as tuple)
+               
+    #     if self.rope is not None:
+    #         q = self.rope(q, xpos)
+    #         k = self.rope(k, xpos)
+               
+    #     attn = (q @ k.transpose(-2, -1)) * self.scale
+    #     attn = attn.softmax(dim=-1)
+    #     attn = self.attn_drop(attn)
+
+    #     x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+    #     x = self.proj(x)
+    #     x = self.proj_drop(x)
+    #     return x
+
+    def forward(self, x, xpos, xmask=None, return_attn=False):
+        '''
+        src: https://github.dev/Inception3D/Easi3R
+        '''
         B, N, C = x.shape
 
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).transpose(1,3)
@@ -103,13 +126,25 @@ class Attention(nn.Module):
             k = self.rope(k, xpos)
                
         attn = (q @ k.transpose(-2, -1)) * self.scale
+        attn_before_softmax = attn.detach().clone()
+
         attn = attn.softmax(dim=-1)
         attn = self.attn_drop(attn)
+
+        # apply mask
+        if xmask is not None:
+            qmask = xmask.unsqueeze(1)  # [1, 1, 576, 1]
+            kmask = xmask.permute(0, 2, 1).unsqueeze(1)  # [1, 1, 1, 576]
+            attention_mask = ((qmask < 0.5) & (kmask > 0.5))
+            attn = torch.where(attention_mask, 0.0, attn)
 
         x = (attn @ v).transpose(1, 2).reshape(B, N, C)
         x = self.proj(x)
         x = self.proj_drop(x)
-        return x
+        if return_attn:
+            return x, attn_before_softmax
+        else:
+            return x
 
 class Block(nn.Module):
 
@@ -146,7 +181,35 @@ class CrossAttention(nn.Module):
         
         self.rope = rope
         
-    def forward(self, query, key, value, qpos, kpos):
+    # def forward(self, query, key, value, qpos, kpos):
+    #     B, Nq, C = query.shape
+    #     Nk = key.shape[1]
+    #     Nv = value.shape[1]
+        
+    #     q = self.projq(query).reshape(B,Nq,self.num_heads, C// self.num_heads).permute(0, 2, 1, 3)
+    #     k = self.projk(key).reshape(B,Nk,self.num_heads, C// self.num_heads).permute(0, 2, 1, 3)
+    #     v = self.projv(value).reshape(B,Nv,self.num_heads, C// self.num_heads).permute(0, 2, 1, 3)
+        
+    #     if self.rope is not None:
+    #         q = self.rope(q, qpos)
+    #         k = self.rope(k, kpos)
+            
+    #     attn = (q @ k.transpose(-2, -1)) * self.scale
+    #     attn = attn.softmax(dim=-1)
+    #     attn = self.attn_drop(attn)
+
+    #     x = (attn @ v).transpose(1, 2).reshape(B, Nq, C)
+    #     x = self.proj(x)
+    #     x = self.proj_drop(x)
+    #     return x
+
+    def forward(self, query, key, value, qpos, kpos, qmask=None, kmask=None):
+        '''
+        adapt from src: https://github.dev/Inception3D/Easi3R
+        while we conduct strict mask:
+            attention_mask = ((qmask < 0.5) | (kmask < 0.5))
+        
+        '''
         B, Nq, C = query.shape
         Nk = key.shape[1]
         Nv = value.shape[1]
@@ -160,13 +223,22 @@ class CrossAttention(nn.Module):
             k = self.rope(k, kpos)
             
         attn = (q @ k.transpose(-2, -1)) * self.scale
+        attn_before_softmax = attn.detach().clone()
+
         attn = attn.softmax(dim=-1)
         attn = self.attn_drop(attn)
+
+        if qmask is not None and kmask is not None:
+            qmask = qmask.unsqueeze(1)  # [1, 1, 576, 1]
+            kmask = kmask.permute(0, 2, 1).unsqueeze(1)  # [1, 1, 1, 576]
+            # attention_mask = ((qmask < 0.5) & (kmask > 0.5))
+            attention_mask = ((qmask < 0.5) | (kmask < 0.5))
+            attn = torch.where(attention_mask, 0.0, attn)
 
         x = (attn @ v).transpose(1, 2).reshape(B, Nq, C)
         x = self.proj(x)
         x = self.proj_drop(x)
-        return x
+        return x, attn_before_softmax
 
 class DecoderBlock(nn.Module):
 
@@ -183,14 +255,26 @@ class DecoderBlock(nn.Module):
         self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
         self.norm_y = norm_layer(dim) if norm_mem else nn.Identity()
 
-    def forward(self, x, y, xpos, ypos):
-        x = x + self.drop_path(self.attn(self.norm1(x), xpos))
-        y_ = self.norm_y(y)
-        x = x + self.drop_path(self.cross_attn(self.norm2(x), y_, y_, xpos, ypos))
-        x = x + self.drop_path(self.mlp(self.norm3(x)))
-        return x, y
+    # def forward(self, x, y, xpos, ypos):
+    #     x = x + self.drop_path(self.attn(self.norm1(x), xpos))
+    #     y_ = self.norm_y(y)
+    #     x = x + self.drop_path(self.cross_attn(self.norm2(x), y_, y_, xpos, ypos))
+    #     x = x + self.drop_path(self.mlp(self.norm3(x)))
+    #     return x, y
             
-        
+    def forward(self, x, y, xpos, ypos, xmask =None, ymask =None, self_mask =None, return_attn=False):
+        '''
+        src: https://github.dev/Inception3D/Easi3R
+        '''
+        x_, *self_attn = self.attn(self.norm1(x), xpos, xmask=self_mask, return_attn=return_attn)
+        x = x + self.drop_path(x_)
+        y_ = self.norm_y(y)
+        # always return cros attn
+        cross_attn_output, cross_attn = self.cross_attn(self.norm2(x), y_, y_, xpos, ypos, qmask=xmask, kmask=ymask)
+        x = x + self.drop_path(cross_attn_output)
+        x = x + self.drop_path(self.mlp(self.norm3(x)))
+        return x, y, self_attn, cross_attn
+
 # patch embedding
 class PositionGetter(object):
     """ return positions of patches """
