@@ -634,8 +634,10 @@ def evaluate(opt, model_root=None, depth_model=None):
     skip_inference = opt.skip_inference#getattr(opt, 'skip_inference', False)
     
     # Load pre-computed predictions
-    pred_poses_path = os.path.join(os.path.dirname(__file__), "splits", opt.dataset, 
-                                    "pred_pose_sq{}{}.npz".format(opt.eval_split_appendix, opt.eval_model_appendix))
+    pred_poses_root = os.path.join(os.path.dirname(__file__), "splits", opt.dataset) if self.opt.save_poses_root is None else self.opt.save_poses_root
+    os.makedirs(pred_poses_root, exist_ok=True)
+    
+    pred_poses_path = os.path.join(pred_poses_root, "pred_pose_sq{}{}.npz".format(opt.eval_split_appendix, opt.eval_model_appendix))
     
     if skip_inference:
         print("-> Skipping inference, loading pre-computed trajectory estimates")
