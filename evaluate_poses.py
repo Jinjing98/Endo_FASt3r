@@ -70,12 +70,12 @@ def compute_average_metrics(metrics_all_seqs):
 
         float_digits = 4
         print('ate_mean_mean: {:.{}f}'.format(np.mean(metrics["ate_mean"]), float_digits))
-        print('ate_std_mean: {:.{}f}'.format(np.mean(metrics["ate_std"]), float_digits))
         print('re_mean_mean: {:.{}f}'.format(np.mean(metrics["re_mean"]), float_digits))
-        print('re_std_mean: {:.{}f}'.format(np.mean(metrics["re_std"]), float_digits))
         print('rpe_trans_mean_mean: {:.{}f}'.format(np.mean(metrics["rpe_trans_mean"]), float_digits))
-        print('rpe_trans_std_mean: {:.{}f}'.format(np.mean(metrics["rpe_trans_std"]), float_digits))
         print('rpe_rot_mean_mean: {:.{}f}'.format(np.mean(metrics["rpe_rot_mean"]), float_digits))
+        print('ate_std_mean: {:.{}f}'.format(np.mean(metrics["ate_std"]), float_digits))
+        print('re_std_mean: {:.{}f}'.format(np.mean(metrics["re_std"]), float_digits))
+        print('rpe_trans_std_mean: {:.{}f}'.format(np.mean(metrics["rpe_trans_std"]), float_digits))
         print('rpe_rot_std_mean: {:.{}f}'.format(np.mean(metrics["rpe_rot_std"]), float_digits))
 
     return average_metrics

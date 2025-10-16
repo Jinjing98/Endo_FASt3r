@@ -667,7 +667,7 @@ def evaluate(opt, model_root=None, depth_model=None):
     else:
 
         # comment out to overwrite the existing predictions
-        # assert not os.path.exists(pred_poses_path), f"Predictions already exist at {pred_poses_path}, please set another eval_split_appendix or eval_model_appendix"
+        assert not os.path.exists(pred_poses_path), f"Predictions already exist at {pred_poses_path}, please set another eval_split_appendix or eval_model_appendix"
 
         # Original inference pipeline
         # data
@@ -772,33 +772,30 @@ def evaluate(opt, model_root=None, depth_model=None):
     elif opt.dataset == 'StereoMIS':
         if opt.eval_split_appendix == '3':
             gt_path = os.path.join(os.path.dirname(__file__), "splits", opt.dataset, "gt_poses_sq{}.npz".format(opt.eval_split_appendix))
-            gt_local_poses = np.load(gt_path, fix_imports=True, encoding='latin1')["data"]
-            # scale the translation with 1000
-            gt_local_poses[:, :3, 3] = gt_local_poses[:, :3, 3] * 1000
         else:
-            
-            save_gt_poses_path = os.path.join(pred_poses_root, "gt_poses_sq{}.npz".format(opt.eval_split_appendix))
+            # online construct the gt_poses_sq{}.npz
+            gt_path = os.path.join(pred_poses_root, "gt_poses_sq{}.npz".format(opt.eval_split_appendix))
+            if not os.path.exists(gt_path):
+                gt_local_poses = []
+                for i, inputs in enumerate(dataloader):
+                    if i == 0:
+                        gt_local_poses.append(inputs[("gt_c2w_poses", 0)].squeeze().cpu().numpy())
+                    gt_local_pose = inputs[("gt_c2w_poses", 1)].squeeze()
+                    gt_local_poses.append(gt_local_pose.cpu().numpy())
+                # gt_rel_poses = [np.linalg.inv(gt_local_poses[i+1]) @ gt_local_poses[i] for i in range(len(gt_local_poses) - 1)]
+                gt_rel_poses = [np.linalg.inv(gt_local_poses[i]) @ gt_local_poses[i+1] for i in range(len(gt_local_poses) - 1)]
+                gt_local_poses = np.array(gt_rel_poses)
+                print(f"Loaded {len(gt_local_poses)} rel gt poses")
+                assert os.path.exists(os.path.join(os.path.dirname(__file__), "splits", opt.dataset))
+                # scale down 1000 as meter to be consistent with format in fas3r gt npz
+                gt_local_poses_meter = gt_local_poses.copy()
+                gt_local_poses_meter[:, :3, 3] = gt_local_poses_meter[:, :3, 3] / 1000
+                np.savez_compressed(gt_path, data=np.array(gt_local_poses_meter))
+                print(f"Saved gt poses to {gt_path}") 
 
-            # test on more than seq3: online generate and write the rel_gt.npz by loading with the dataset
-            # iterate over to get GT rel poses
-            gt_local_poses = []
-            for i, inputs in enumerate(dataloader):
-                if i == 0:
-                    gt_local_poses.append(inputs[("gt_c2w_poses", 0)].squeeze().cpu().numpy())
-                gt_local_pose = inputs[("gt_c2w_poses", 1)].squeeze()
-                gt_local_poses.append(gt_local_pose.cpu().numpy())
-            # gt_rel_poses = [np.linalg.inv(gt_local_poses[i+1]) @ gt_local_poses[i] for i in range(len(gt_local_poses) - 1)]
-            gt_rel_poses = [np.linalg.inv(gt_local_poses[i]) @ gt_local_poses[i+1] for i in range(len(gt_local_poses) - 1)]
-            gt_local_poses = np.array(gt_rel_poses)
-            print(f"Loaded {len(gt_local_poses)} rel gt poses")
-            assert os.path.exists(os.path.join(os.path.dirname(__file__), "splits", opt.dataset))
-            # scale down 1000 as meter to be consistent with format in fas3r gt npz
-            gt_local_poses_meter = gt_local_poses.copy()
-            gt_local_poses_meter[:, :3, 3] = gt_local_poses_meter[:, :3, 3] / 1000
-            # np.savez_compressed(os.path.join(os.path.dirname(__file__), "splits", opt.dataset, "gt_poses_sq{}.npz".format(opt.eval_split_appendix)), 
-            # data=np.array(gt_local_poses_meter))
-            np.savez_compressed(save_gt_poses_path, data=np.array(gt_local_poses_meter))
-            print(f"Saved gt poses to {save_gt_poses_path}")
+        gt_local_poses = np.load(gt_path, fix_imports=True, encoding='latin1')["data"]
+        # scale the translation with 1000
+        gt_local_poses[:, :3, 3] = gt_local_poses[:, :3, 3] * 1000
 
     elif opt.dataset == 'DynaSCARED':
         # For DynaSCARED, we need to load the dataset to get ground truth poses
@@ -837,8 +834,9 @@ def evaluate(opt, model_root=None, depth_model=None):
 
             # optinal fix for short track length
             # gurantten reasonable metrics with other vairient track_length
-            # if end_id > len(pred_poses):
-                # break
+            # the keep the consistent stats when track_length is 5, while support reasonable stats when track_lenght is traj_len+1
+            if end_id > len(pred_poses) and track_length !=5 :
+                break
             
             pred_abs_xyzs = np.array(dump_xyz(pred_poses[i:i + track_length - 1]))
             gt_abs_xyzs = np.array(dump_xyz(gt_local_poses[i:i + track_length - 1]))
@@ -870,15 +868,16 @@ def evaluate(opt, model_root=None, depth_model=None):
         print('NUM OF SNIPPETS IN COMPUTATION: {}'.format(len(ates)))
         print("="*60)
         
-        print(f"\nAbsolute Trajectory Error (ATE):")
-        print(f"   Mean: {np.mean(ates):.8f}, Std: {np.std(ates):.8f}")
-        print(f"\nRotation Error (RE):")
-        print(f"   Mean: {np.mean(res):.8f}, Std: {np.std(res):.8f}")
+        float_digits = 4
+        print(f"Absolute Trajectory Error (ATE):")
+        print(f"   Mean: {np.mean(ates):.{float_digits}f}, Std: {np.std(ates):.{float_digits}f}")
+        print(f"Rotation Error (RE):")
+        print(f"   Mean: {np.mean(res):.{float_digits}f}, Std: {np.std(res):.{float_digits}f}")
 
-        print(f"\nRelative Pose Error - Translation (RPE-T):")
-        print(f"   Mean: {np.mean(rpes_trans):.8f}, Std: {np.std(rpes_trans):.8f}")
-        print(f"\nRelative Pose Error - Rotation (RPE-R):")
-        print(f"   Mean: {np.mean(rpes_rot):.8f}, Std: {np.std(rpes_rot):.8f}")
+        print(f"Relative Pose Error - Translation (RPE-T):")
+        print(f"   Mean: {np.mean(rpes_trans):.{float_digits}f}, Std: {np.std(rpes_trans):.{float_digits}f}")
+        print(f"Relative Pose Error - Rotation (RPE-R):")
+        print(f"   Mean: {np.mean(rpes_rot):.{float_digits}f}, Std: {np.std(rpes_rot):.{float_digits}f}")
         
         print("="*60)
 
@@ -887,8 +886,8 @@ def evaluate(opt, model_root=None, depth_model=None):
     metrics_dict = {}
     track_lengths = [
         5, # default track length
-        # len(pred_poses)+1, # for endovis, use all frames for evaluation
-        2, # for stereoMIS, only use 2 frames for evaluation
+        len(pred_poses)+1, # for endovis, use all frames for evaluation
+        # 2, # for stereoMIS, only use 2 frames for evaluation
     ]
 
     for track_length in track_lengths:

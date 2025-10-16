@@ -543,7 +543,7 @@ class MonodepthOptions:
         
         self.parser.add_argument("--save_poses_root",
                                  type=str,
-                                 help="root directory to save the poses, default is saving under splits/<dataset>",
+                                 help="root directory to save the poses, default None is saving under splits/<dataset>",
                                  default=None)
         self.parser.add_argument(
             "--eval_split_appendix",
