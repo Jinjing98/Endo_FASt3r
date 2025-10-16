@@ -374,3 +374,11 @@ class Endo_FASt3r_depth(nn.Module):
         If you want to do extra processing, you can do it here.
         """
         return self.model_depth(pixel_values)
+
+if __name__ == "__main__":
+    model = Endo_FASt3r_depth()
+    print(model)
+    pixel_values = torch.randn(1, 3, 256, 320)
+    outputs = model(pixel_values)
+    for key, value in outputs.items():
+        print(key, value.shape)
