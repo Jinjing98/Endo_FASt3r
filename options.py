@@ -40,7 +40,10 @@ class MonodepthOptions:
         self.parser.add_argument("--enable_motion_computation",
                                  help="it will compute: motion_flow, pose_flow, motion_mask, color_motion_warped",
                                  action="store_true")
-        
+        self.parser.add_argument("--disable_grad_from_color_when_compute_color_motioncorrected",
+                                 help="hope to reduce leak",
+                                 action="store_true")
+
         self.parser.add_argument("--use_MF_network",
                                  help="if set, uses MF network",
                                  action="store_true")
@@ -109,6 +112,14 @@ class MonodepthOptions:
                                  help="used to addtionally supervise the pose flow to be effective---imporant to get good pose when eval!",
                                  action="store_true")
         
+        self.parser.add_argument("--loss_reproj_weight",
+                                 type=float,
+                                 help="weight for the reprojection loss for full frame---dft use",
+                                 default=1.0)
+        self.parser.add_argument("--enable_learned_loss_reproj_weight",
+                                 help="if set, uses learned loss reproj_fullframe_weight",
+                                 action="store_true")
+
         self.parser.add_argument("--loss_reproj2_nomotion_weight",
                                  type=float,
                                  help="weight for the reprojection loss",

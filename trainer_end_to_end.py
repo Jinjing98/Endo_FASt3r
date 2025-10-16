@@ -133,7 +133,7 @@ class Trainer:
             options.of_samples = True
             # options.of_samples_num = 100
             # options.of_samples_num = 8
-            # options.of_samples_num = 2
+            options.of_samples_num = 2
             # options.of_samples_num = 1
             # options.is_train = True
             # options.is_train = False # no augmentation
@@ -346,7 +346,18 @@ class Trainer:
             print(f"Initialized learnable motion mask threshold with value: {self.opt.motion_mask_thre_px}")
         else:
             self.learned_motion_mask_thre_px = None
-            
+        
+        # Initialize learnable loss_reproj_weight if enabled
+        if self.opt.enable_learned_loss_reproj_weight:
+            # Initialize with the default weight value
+            self.learned_loss_reproj_weight = torch.nn.Parameter(
+                torch.tensor(self.opt.loss_reproj_weight, dtype=torch.float32, device=self.device)
+            )
+            self.parameters_to_train.append(self.learned_loss_reproj_weight)
+            print(f"Initialized learnable loss_reproj_weight with value: {self.opt.loss_reproj_weight}")
+        else:
+            self.learned_loss_reproj_weight = None
+
         # Initialize learnable loss_reproj2_nomotion_weight if enabled
         if self.opt.enable_learned_loss_reproj2_nomotion_weight:
             # Initialize with the default weight value
@@ -2096,7 +2107,8 @@ class Trainer:
                         # it also significantly affect depth:  it will enforce dy area to be extremely deep---reasonable. but not correct
                         # here the major aim is still supervise pose_flow properly in a full frame regime, we already indirectly supervised MF by reused the OF net.
                         outputs[("color_MotionCorrected", f_i, scale)] = self.spatial_transform(
-                            outputs[("color", f_i, 0)],
+                            outputs[("color", f_i, 0)] if not self.opt.disable_grad_from_color_when_compute_color_motioncorrected \
+                                else outputs[("color", f_i, 0)].detach(),
                             outputs[("motion_flow", "high", f_i, scale)].detach(), 
                             )       
 
@@ -2262,6 +2274,11 @@ class Trainer:
         else:
             print(f"Motion mask threshold: {self.opt.motion_mask_thre_px} (fixed)")
         
+        if self.opt.enable_learned_loss_reproj_weight and self.learned_loss_reproj_weight is not None:
+            print(f"Loss reproj weight: {self.learned_loss_reproj_weight.item():.4f} (learnable)")
+        else:
+            print(f"Loss reproj weight: {self.opt.loss_reproj_weight} (fixed)")
+
         # Loss weight
         if self.opt.enable_learned_loss_reproj2_nomotion_weight and self.learned_loss_reproj2_nomotion_weight is not None:
             print(f"Loss reproj2_nomotion weight: {self.learned_loss_reproj2_nomotion_weight.item():.4f} (learnable)")
@@ -3039,7 +3056,8 @@ class Trainer:
                 # register for debug monitoring
                 
                 # the 1st reporj_loss: main aim: enforce proper AF learning when everything defautl as it is.
-                if self.opt.reproj_supervised_which in ["color_MotionCorrected", "color_MotionCorrected_motiononly"] \
+                if self.opt.reproj_supervised_which in ["color_MotionCorrected", \
+                    "color_MotionCorrected_motiononly"] \
                     and self.opt.enable_motion_computation:
                     reproj_loss_supervised_tgt_color = outputs[("color_MotionCorrected", frame_id, scale)]
                 elif self.opt.reproj_supervised_which == "color":
@@ -3059,16 +3077,16 @@ class Trainer:
                 occu_mask_backward = outputs[("occu_mask_backward", 0, frame_id)].detach()
                 valid_mask = occu_mask_backward
 
-                # if motion only, only supervise the motion area
-                if self.opt.reproj_supervised_which == "color_MotionCorrected_motiononly" and self.opt.enable_motion_computation:
-                    assert 0,f'not working...'
-                    motion_area_mask = outputs[("motion_mask_backward", 0, frame_id)].detach() < 0.5
-                    if self.opt.enable_mutual_motion:
-                        motion_area_mask = motion_area_mask | (outputs[("motion_mask_s2t_backward", 0, frame_id)].detach() < 0.5)
-                    valid_mask = valid_mask * motion_area_mask.float()
-                    # percentage of valid px
-                    valid_percentage = valid_mask.sum() / (valid_mask.numel() + 1e-6)
-                    print(f'////valid_percentage: {valid_percentage}')
+                # # if motion only, only supervise the motion area
+                # if self.opt.reproj_supervised_which == "color_MotionCorrected_motiononly" and self.opt.enable_motion_computation:
+                #     assert 0,f'not working...'
+                #     motion_area_mask = outputs[("motion_mask_backward", 0, frame_id)].detach() < 0.5
+                #     if self.opt.enable_mutual_motion:
+                #         motion_area_mask = motion_area_mask | (outputs[("motion_mask_s2t_backward", 0, frame_id)].detach() < 0.5)
+                #     valid_mask = valid_mask * motion_area_mask.float()
+                #     # percentage of valid px
+                #     valid_percentage = valid_mask.sum() / (valid_mask.numel() + 1e-6)
+                #     print(f'////valid_percentage: {valid_percentage}')
 
 
                 denom_safe = torch.clamp(valid_mask.sum(), min=1e-6)
@@ -3218,7 +3236,13 @@ class Trainer:
             norm_disp = disp / (mean_disp + 1e-7)
             smooth_loss = get_smooth_loss(norm_disp, color)
 
-            loss += loss_reprojection / 2.0
+            if self.opt.enable_learned_loss_reproj_weight and self.learned_loss_reproj_weight is not None:
+                weight_reproj = self.learned_loss_reproj_weight
+            else:
+                weight_reproj = self.opt.loss_reproj_weight
+
+            loss += weight_reproj * loss_reprojection / 2.0
+            # loss += loss_reprojection / 2.0
             loss += self.opt.transform_constraint * (loss_transform / 2.0)
             loss += self.opt.transform_smoothness * (loss_cvt / 2.0) 
             loss += self.opt.disparity_smoothness * smooth_loss / (2 ** scale)
@@ -3425,6 +3449,9 @@ class Trainer:
         # Log learnable loss_reproj2_nomotion_weight if enabled
         if self.opt.enable_learned_loss_reproj2_nomotion_weight and self.learned_loss_reproj2_nomotion_weight is not None:
             writer.add_scalar("loss_reproj2_nomotion_weight", self.learned_loss_reproj2_nomotion_weight.item(), self.step)
+        
+        if self.opt.enable_learned_loss_reproj_weight and self.learned_loss_reproj_weight is not None:
+            writer.add_scalar("loss_reproj_weight", self.learned_loss_reproj_weight.item(), self.step)
         #
 
         # src_imgs = []
@@ -3760,6 +3787,12 @@ class Trainer:
             torch.save(self.learned_loss_reproj2_nomotion_weight, save_path)
             print(f"saved learned_loss_reproj2_nomotion_weight.pth in {save_path}")
         
+        # Save learnable loss_reproj_weight if enabled
+        if self.opt.enable_learned_loss_reproj_weight and self.learned_loss_reproj_weight is not None:
+            save_path = os.path.join(save_folder, "learned_loss_reproj_weight.pth")
+            torch.save(self.learned_loss_reproj_weight, save_path)
+            print(f"saved learned_loss_reproj_weight.pth in {save_path}")
+        
         save_path = os.path.join(save_folder, "{}.pth".format("adam_0"))
         torch.save(self.model_optimizer_0.state_dict(), save_path)
         
@@ -3936,7 +3969,24 @@ class Trainer:
             weight_path = os.path.join(checkpoint_dir, "learned_loss_reproj2_nomotion_weight.pth")
             if os.path.exists(weight_path):
                 print("Warning: Checkpoint contains learned loss_reproj2_nomotion_weight but --enable_learned_loss_reproj2_nomotion_weight is not enabled in current run")
-        
+
+        # Load learnable loss_reproj_weight if enabled and exists
+        if self.opt.enable_learned_loss_reproj_weight and self.learned_loss_reproj_weight is not None:
+            weight_path = os.path.join(checkpoint_dir, "learned_loss_reproj_weight.pth")
+            if os.path.exists(weight_path):
+                print("Loading learned loss_reproj_weight from checkpoint...")
+                loaded_weight = torch.load(weight_path)
+                self.learned_loss_reproj_weight.data = loaded_weight.data
+                print(f"Loaded learned loss_reproj_weight: {self.learned_loss_reproj_weight.item():.4f}")
+            else:
+                print("No learned loss_reproj_weight found in checkpoint, using initialized value")
+        else:
+            # Check if checkpoint has learnable weight but current run doesn't enable it
+            weight_path = os.path.join(checkpoint_dir, "learned_loss_reproj_weight.pth")
+            if os.path.exists(weight_path):
+                print("Warning: Checkpoint contains learned loss_reproj_weight but --enable_learned_loss_reproj_weight is not enabled in current run")
+
+
         # Load training progress
         progress_path = os.path.join(checkpoint_dir, "training_progress.pth")
         if os.path.exists(progress_path):
