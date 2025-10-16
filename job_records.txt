@@ -1,6 +1,27 @@
+varient1(soft mask): 
+113718 b3accu4_scaredcorrectedExcelSM_posetr_fzenc_trainedNfzD_learnedMskTrePx1_learnedlossR2Weight1_softMsk
+--wait, can not compare yet
+
+113715 b3accu4_scaredcorrectedExcelSM_posetr_fzenc_trainedNfzD_learnedMskTrePx1_learnedlossR2Weight1: baseline
+113895 b3accu4_scaredcorrectedExcelSM_posetr_fzenc_trainedNfzD_learnedMskTrePx1_learnedlossR2Weight1_reproj2only:
+-expect w/o loss1, loss2 itself is good itself (support us traning with dynamic data)
+-todo: if above not work, try 1e-2 learnable regularization on l1 
+113898 b3accu4_scaredcorrectedExcelSM_posetr_fzenc_trainedNfzD_dft_DAonly 
+-dft baseline: reproj_supervised_which: color; loss_reproj2_nomotion_weight 0.0 
+
+
+
+
+trn on endofast3r:
+113716 b3accu4_scaredcorrectedExcelSM_posetr_MonFast3r_trainedNfzD_learnedMskTrePx1_learnedlossR2Weight1: 113715 for fast3r
+-cancelled, No need
+
 13.oct
 113422: b3accu4_scaredcorrectedExcelSM_posetr_fzenc_trainedNfzD: expect not as good as big endofast3r mix trained model.
+-do not proper estimate motion when cam moves.
+-leaking confirmed with trn moving img. cancel
 113424: b3accu4_scared_posetr_fzenc_trainedNfzD: (scared only). base model. expect have to work!!
+-looks good and stable for SM, continue
 
 12.oct
 112429 b3accu4_correctedExcelSM_MonFast3r_trainedNfzD

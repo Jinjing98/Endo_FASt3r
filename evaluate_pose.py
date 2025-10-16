@@ -633,13 +633,14 @@ def evaluate(opt, model_root=None, depth_model=None):
     # Check if skip_inference is enabled
     skip_inference = opt.skip_inference#getattr(opt, 'skip_inference', False)
     
+    # Load pre-computed predictions
+    pred_poses_path = os.path.join(os.path.dirname(__file__), "splits", opt.dataset, 
+                                    "pred_pose_sq{}{}.npz".format(opt.eval_split_appendix, opt.eval_model_appendix))
+    
     if skip_inference:
         print("-> Skipping inference, loading pre-computed trajectory estimates")
         
-        # Load pre-computed predictions
-        pred_poses_path = os.path.join(os.path.dirname(__file__), "splits", opt.dataset, 
-                                       "pred_pose_sq{}{}.npz".format(opt.eval_split_appendix, opt.eval_model_appendix))
-        
+
         if not os.path.exists(pred_poses_path):
             raise FileNotFoundError(f"Pre-computed predictions not found at {pred_poses_path}. Please run inference first or disable skip_inference.")
         
@@ -647,6 +648,9 @@ def evaluate(opt, model_root=None, depth_model=None):
         print(f"Loaded {len(pred_poses)} pre-computed pose predictions from {pred_poses_path}")
         
     else:
+
+        assert not os.path.exists(pred_poses_path), f"Predictions already exist at {pred_poses_path}, please set another eval_split_appendix or eval_model_appendix"
+
         # Original inference pipeline
         # data
         if opt.dataset == 'DynaSCARED':
@@ -731,37 +735,41 @@ def evaluate(opt, model_root=None, depth_model=None):
             print("="*60)
         
         # Save predictions for future use
-        np.savez_compressed(os.path.join(os.path.dirname(__file__), "splits", opt.dataset, "pred_pose_sq{}.npz".format(opt.eval_split_appendix)), data=np.array(pred_poses))
-        print(f"Saved predictions to splits/{opt.dataset}/pred_pose_sq{opt.eval_split_appendix}.npz")
+        np.savez_compressed(
+            pred_poses_path,
+            data=np.array(pred_poses))
+        print(f"Saved predictions to {pred_poses_path}")
 
     # Load ground truth poses (same for both inference and skip_inference)
     if opt.dataset == 'endovis':
         gt_path = os.path.join(os.path.dirname(__file__), "splits", opt.dataset, "gt_poses_sq{}.npz".format(opt.eval_split_appendix))
         gt_local_poses = np.load(gt_path, fix_imports=True, encoding='latin1')["data"]
     elif opt.dataset == 'StereoMIS':
-        gt_path = os.path.join(os.path.dirname(__file__), "splits", opt.dataset, "gt_poses_sq{}.npz".format(opt.eval_split_appendix))
-        gt_local_poses = np.load(gt_path, fix_imports=True, encoding='latin1')["data"]
-        # scale the translation with 1000
-        gt_local_poses[:, :3, 3] = gt_local_poses[:, :3, 3] * 1000
+        if opt.eval_split_appendix == '3':
+            gt_path = os.path.join(os.path.dirname(__file__), "splits", opt.dataset, "gt_poses_sq{}.npz".format(opt.eval_split_appendix))
+            gt_local_poses = np.load(gt_path, fix_imports=True, encoding='latin1')["data"]
+            # scale the translation with 1000
+            gt_local_poses[:, :3, 3] = gt_local_poses[:, :3, 3] * 1000
+        else:
 
-        # test on more than seq3: online generate and write the rel_gt.npz by loading with the dataset
-        # iterate over to get GT rel poses
-        gt_local_poses = []
-        for i, inputs in enumerate(dataloader):
-            if i == 0:
-                gt_local_poses.append(inputs[("gt_c2w_poses", 0)].squeeze().cpu().numpy())
-            gt_local_pose = inputs[("gt_c2w_poses", 1)].squeeze()
-            gt_local_poses.append(gt_local_pose.cpu().numpy())
-        # gt_rel_poses = [np.linalg.inv(gt_local_poses[i+1]) @ gt_local_poses[i] for i in range(len(gt_local_poses) - 1)]
-        gt_rel_poses = [np.linalg.inv(gt_local_poses[i]) @ gt_local_poses[i+1] for i in range(len(gt_local_poses) - 1)]
-        gt_local_poses = np.array(gt_rel_poses)
-        print(f"Loaded {len(gt_local_poses)} rel gt poses")
-        assert os.path.exists(os.path.join(os.path.dirname(__file__), "splits", opt.dataset))
-        # scale down 1000 as meter to be consistent with format in fas3r gt npz
-        gt_local_poses_meter = gt_local_poses.copy()
-        gt_local_poses_meter[:, :3, 3] = gt_local_poses_meter[:, :3, 3] / 1000
-        np.savez_compressed(os.path.join(os.path.dirname(__file__), "splits", opt.dataset, "gt_poses_sq{}.npz".format(opt.eval_split_appendix)), 
-        data=np.array(gt_local_poses_meter))
+            # test on more than seq3: online generate and write the rel_gt.npz by loading with the dataset
+            # iterate over to get GT rel poses
+            gt_local_poses = []
+            for i, inputs in enumerate(dataloader):
+                if i == 0:
+                    gt_local_poses.append(inputs[("gt_c2w_poses", 0)].squeeze().cpu().numpy())
+                gt_local_pose = inputs[("gt_c2w_poses", 1)].squeeze()
+                gt_local_poses.append(gt_local_pose.cpu().numpy())
+            # gt_rel_poses = [np.linalg.inv(gt_local_poses[i+1]) @ gt_local_poses[i] for i in range(len(gt_local_poses) - 1)]
+            gt_rel_poses = [np.linalg.inv(gt_local_poses[i]) @ gt_local_poses[i+1] for i in range(len(gt_local_poses) - 1)]
+            gt_local_poses = np.array(gt_rel_poses)
+            print(f"Loaded {len(gt_local_poses)} rel gt poses")
+            assert os.path.exists(os.path.join(os.path.dirname(__file__), "splits", opt.dataset))
+            # scale down 1000 as meter to be consistent with format in fas3r gt npz
+            gt_local_poses_meter = gt_local_poses.copy()
+            gt_local_poses_meter[:, :3, 3] = gt_local_poses_meter[:, :3, 3] / 1000
+            np.savez_compressed(os.path.join(os.path.dirname(__file__), "splits", opt.dataset, "gt_poses_sq{}.npz".format(opt.eval_split_appendix)), 
+            data=np.array(gt_local_poses_meter))
 
     elif opt.dataset == 'DynaSCARED':
         # For DynaSCARED, we need to load the dataset to get ground truth poses
