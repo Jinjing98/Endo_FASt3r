@@ -273,7 +273,7 @@ class MonodepthOptions:
                                           "_CaToTi011",
                                           "_CaToTi001",
                                           "_CaToTi010", #debug if tool move too fast break flow
-                                          "_offline",
+                                          "_4cases_trn",
                                           ])
         self.parser.add_argument("--num_layers",
                                  type=int,
@@ -443,6 +443,7 @@ class MonodepthOptions:
                                  default="dam",
                                  choices=["dam", 
                                           "endofast3r_depth_trained_dbg",
+                                          "unisfm_depth",
                                           ])        
          #pcrnet arch:
         self.parser.add_argument("--pcrnet_max_iteration",

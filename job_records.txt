@@ -1,3 +1,7 @@
+134377 b3accu4_scared_resnet_VdamsRelativeNufzD_dft_DAonly  #get a good depth model with consisten video depth
+134378 b3accu4_scared_resnet_VdamsMetricNufzD_dft_DAonly  #get a good depth model with consisten video depth
+
+
 varient1(soft mask): 
 113718 b3accu4_scaredcorrectedExcelSM_posetr_fzenc_trainedNfzD_learnedMskTrePx1_learnedlossR2Weight1_softMsk
 --wait, can not compare yet

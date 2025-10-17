@@ -28,6 +28,7 @@ import torchvision.transforms as tvf
 from PIL import Image
 from utils import color_to_cv_img, gray_to_cv_img, flow_to_cv_img
 from networks.utils.endofas3r_data_utils import prepare_images, resize_pil_image
+from unisfm.models.unisfmlearner_depth import UnisfmLearner_depth
 
 
 
@@ -153,9 +154,9 @@ class Trainer:
             # options.height = 192
             # options.width = 192
 
-            options.dataset = "StereoMIS"
-            options.data_path = "/mnt/nct-zfs/TCO-All/SharedDatasets/StereoMIS_DARES_test/"
-            options.split_appendix = ""
+            # options.dataset = "StereoMIS"
+            # options.data_path = "/mnt/nct-zfs/TCO-All/SharedDatasets/StereoMIS_DARES_test/"
+            # options.split_appendix = ""
 
             # options.dataset = "endovis"
             # options.data_path = "/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/"
@@ -241,25 +242,25 @@ class Trainer:
 
             # # motion_flow net predict all nan after grads update when the there is no scene dynamics?
 
-            options.datasets = [
-                                # 'endovis', 
-                                # 'DynaSCARED',
-                                'StereoMIS',
-                                ]
-            options.split_appendixes = [
-                                        # '', 
-                                        # '_CaToTi000',
-                                        # '_CaToTi100',
-                                        '_offline',
-                                        ]
-            options.data_paths = [
-                # '/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/', 
-                # '/mnt/cluster/datasets/Surg_oclr_stereo/',
-                '/mnt/nct-zfs/TCO-All/SharedDatasets/StereoMIS_DARES_test/',
-                ]
-            options.dataset_configs = [{'dataset': options.datasets[i],
-                                       'split_appendix': options.split_appendixes[i],
-                                       'data_path': options.data_paths[i]} for i in range(len(options.datasets))]
+            # options.datasets = [
+            #                     # 'endovis', 
+            #                     # 'DynaSCARED',
+            #                     'StereoMIS',
+            #                     ]
+            # options.split_appendixes = [
+            #                             # '', 
+            #                             # '_CaToTi000',
+            #                             # '_CaToTi100',
+            #                             '_offline',
+            #                             ]
+            # options.data_paths = [
+            #     # '/mnt/nct-zfs/TCO-All/SharedDatasets/SCARED_Images_Resized/', 
+            #     # '/mnt/cluster/datasets/Surg_oclr_stereo/',
+            #     '/mnt/nct-zfs/TCO-All/SharedDatasets/StereoMIS_DARES_test/',
+            #     ]
+            # options.dataset_configs = [{'dataset': options.datasets[i],
+            #                            'split_appendix': options.split_appendixes[i],
+            #                            'data_path': options.data_paths[i]} for i in range(len(options.datasets))]
 
         # '--datasets', 'endovis', 'DynaSCARED',
         # '--split_appendixes', '', '000_00597',
@@ -395,6 +396,24 @@ class Trainer:
             depth_model.load_state_dict({k: v for k, v in depth_model_dict.items() if k in model_dict})
             self.models["depth_model"] = depth_model
             print('loaded endofast3r_depth_trained_dbg depth model...')
+        elif self.opt.depth_model_type == "unisfm_depth":
+            pretrained_checkpoint_path='/mnt/cluster/workspaces/jinjingxu/proj/UniSfMLearner/submodule/Video-Depth-Anything/checkpoints/video_depth_anything_vits.pth'
+            metric_pretrained_checkpoint_path='/mnt/cluster/workspaces/jinjingxu/proj/UniSfMLearner/submodule/Video-Depth-Anything/checkpoints/metric_video_depth_anything_vits.pth'
+            metric=False # befar we use metric false model
+            # metric=True # befar we use metric false model
+            if metric:
+                checkpoint_path = metric_pretrained_checkpoint_path
+            else:
+                checkpoint_path = pretrained_checkpoint_path
+
+            self.models["depth_model"] = UnisfmLearner_depth(encoder='vits', 
+            metric=metric,
+            checkpoint_path=checkpoint_path
+            )
+            print('loaded unisfm_depth depth model with pretrained checkpoint from', checkpoint_path)
+
+            # self.models["depth_model"].load_state_dict(torch.load(f"{AF_PRETRAINED_ROOT}/depth_model.pth"))
+            # print('loaded unisfm_depth depth model...')
         else:
             assert 0, "Unknown depth model type: " + self.opt.depth_model_type
         self.models["depth_model"].to(self.device)
