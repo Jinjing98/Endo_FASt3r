@@ -111,6 +111,11 @@ class MonodepthOptions:
         self.parser.add_argument("--use_loss_reproj2_nomotion",
                                  help="used to addtionally supervise the pose flow to be effective---imporant to get good pose when eval!",
                                  action="store_true")
+        self.parser.add_argument("--loss_reproj2_motion_mask_type",
+                                 type=str,
+                                 help="type of motion mask  applyed to loss_reproj2",
+                                 default="learned",
+                                 choices=["onthefly_monov2", "learned"])
         
         self.parser.add_argument("--loss_reproj_weight",
                                  type=float,
@@ -269,12 +274,14 @@ class MonodepthOptions:
                                  type=str,
                                  help="appendix to the split: DynaSCARED",
                                  default="",
-                                 choices=["", "_CaToTi000", 
-                                          "_CaToTi011",
-                                          "_CaToTi001",
-                                          "_CaToTi010", #debug if tool move too fast break flow
-                                          "_4cases_trn",
-                                          ])
+                                #  choices=["", "_CaToTi000", 
+                                #           "_CaToTi011",
+                                #           "_CaToTi001",
+                                #           "_CaToTi010", #debug if tool move too fast break flow
+                                #           "_4cases_trn",
+                                #           ]
+                                          
+                                          )
         self.parser.add_argument("--num_layers",
                                  type=int,
                                  help="number of resnet layers",

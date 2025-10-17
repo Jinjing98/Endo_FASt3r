@@ -3154,9 +3154,32 @@ class Trainer:
                         else:
                             raise ValueError(f"Invalid reproj2_supervised_with_which: {self.opt.reproj2_supervised_with_which}")
                     
-                    motion_mask_backward = outputs[("motion_mask_backward", 0, frame_id)].detach()
+                    if self.opt.loss_reproj2_motion_mask_type == "onthefly_monov2":
+                        # compute on the fly: valid area: reproj_err_pose < reproj_err_vanilla
+                        reproj_err_pose = self.compute_reprojection_loss(
+                            outputs[("color", frame_id, scale)].detach(), 
+                                                # reproj_loss2_supervised_signal_color.detach(),
+                                                inputs[("color", 0, 0)],
+                                                )
+                        reproj_err_vanilla = self.compute_reprojection_loss(inputs[("color", frame_id, 0)],#.detach(),
+                                                inputs[("color", 0, 0)],
+                                                )
+                        # valid_threshold = 0.0001# be more strict
+                        # motion_mask_backward = (reproj_err_pose <= torch.clamp(reproj_err_vanilla-valid_threshold, min=0)).float()
+                        motion_mask_backward = (reproj_err_pose <= reproj_err_vanilla).float()
+                        print('update the motion_mask in outputs for monitoring')
+                        outputs[("motion_mask_backward", 0, frame_id)] = motion_mask_backward # monitor in the vis for trn quality...
+                        # print(f'reproj_err_pose max min {frame_id} {scale}: ', reproj_err_pose.max(), reproj_err_pose.min())
+                        # print(f'reproj_err_vanilla max min {frame_id} {scale}: ', reproj_err_vanilla.max(), reproj_err_vanilla.min())
+                        # print(' motion_mask_backward: ', motion_mask_backward.shape)
+
+                    elif self.opt.loss_reproj2_motion_mask_type == "learned":
+                        motion_mask_backward = outputs[("motion_mask_backward", 0, frame_id)].detach()
+                    else:
+                        raise ValueError(f"Invalid loss_reproj2_motion_mask_type: {self.opt.loss_reproj2_motion_mask_type}")
                     
                     if self.opt.enable_mutual_motion:
+                        assert 0,f'not implemented the monov2 yet '
                         # computational expensive but safer
                         motion_mask_s2t_backward = outputs[("motion_mask_s2t_backward", 0, frame_id)].detach()
                         # conver to binary if it was soft motion mask: this is critical for soft motion mask regularization loss
