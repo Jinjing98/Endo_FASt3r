@@ -36,10 +36,10 @@ class SCAREDDataset(MonoDataset):
 
 
 class SCAREDRAWDataset(SCAREDDataset):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, load_gt_poses=True, **kwargs):
         super(SCAREDRAWDataset, self).__init__(*args, **kwargs)
 
-        self.load_gt_poses = True # will enable register_gt_traj_dict and load gt_abs_poses when get_item
+        self.load_gt_poses = load_gt_poses # will enable register_gt_traj_dict and load gt_abs_poses when get_item
         # self.load_gt_poses = False
 
         # register gt_traj for get_gt_poses
@@ -95,4 +95,4 @@ if __name__ == "__main__":
     
     # dataset[5]
     # print(dataset[0])
-    print(dataset[5][('K', 0)])
+    print(dataset[0][('K', 0)])

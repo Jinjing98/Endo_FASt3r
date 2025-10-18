@@ -90,18 +90,50 @@ def evaluate(opt):
 
         eval_filenames = readlines(fpath)
 
-        depth_model_path = os.path.join(opt.load_weights_folder, "depth_model.pth")
-        depth_model_dict = torch.load(depth_model_path)
         dataset = datasets.SCAREDRAWDataset(opt.data_path, eval_filenames,
                                            256,320,
-                                           [0], 4, is_train=False)
+                                           [0], 4, is_train=False, load_gt_poses=False)
         dataloader = DataLoader(dataset, 16, shuffle=False, num_workers=opt.num_workers,
                                 pin_memory=True, drop_last=False)
-        depth_model = networks.Endo_FASt3r_depth()
-        model_dict = depth_model.state_dict()
-        depth_model.load_state_dict({k: v for k, v in depth_model_dict.items() if k in model_dict})
-        depth_model.cuda()
-        depth_model.eval()
+        if opt.depth_model_type in ["dam", "unisfm_depth", "dam_dora"]:
+            depth_model_path = os.path.join(opt.load_weights_folder, "depth_model.pth")
+            print(f"Loading depth model from {depth_model_path}")
+            if opt.depth_model_type == "dam":
+                depth_model = networks.Endo_FASt3r_depth()
+            elif opt.depth_model_type == "dam_dora":
+                depth_model = networks.DARES()
+            elif opt.depth_model_type == "unisfm_depth":
+                from unisfm.models.unisfmlearner_depth import UnisfmLearner_depth
+                depth_model = UnisfmLearner_depth(encoder='vits', metric=False, checkpoint_path=depth_model_path)
+            else:
+                assert 0, "Unknown depth model type: " + opt.depth_model_type
+
+            model_dict = depth_model.state_dict()
+            depth_model_dict = torch.load(depth_model_path)
+            depth_model.load_state_dict({k: v for k, v in depth_model_dict.items() if k in model_dict})
+            depth_model.cuda()
+            depth_model.eval()
+        else:
+            assert opt.depth_model_type == "af_sfmlearner", "Unknown depth model type: " + opt.depth_model_type
+            # used in af sfm learner
+            encoder_path = os.path.join(opt.load_weights_folder, "encoder.pth")
+            decoder_path = os.path.join(opt.load_weights_folder, "depth.pth")
+            print(f"Loading depth encoder from {encoder_path}")
+            print(f"Loading depth decoder from {decoder_path}")
+
+            encoder_dict = torch.load(encoder_path)
+
+            encoder = networks.ResnetEncoder(opt.num_layers, False)
+            depth_decoder = networks.DepthDecoder(encoder.num_ch_enc, scales=range(4))
+
+            model_dict = encoder.state_dict()
+            encoder.load_state_dict({k: v for k, v in encoder_dict.items() if k in model_dict})
+            depth_decoder.load_state_dict(torch.load(decoder_path))
+
+            encoder.cuda()
+            encoder.eval()
+            depth_decoder.cuda()
+            depth_decoder.eval()
 
         pred_disps = []
 
@@ -118,7 +150,13 @@ def evaluate(opt):
                     # Post-processed results require each image to have two forward passes
                     input_color = torch.cat((input_color, torch.flip(input_color, [3])), 0)
 
-                output = depth_model(input_color)
+                if opt.depth_model_type in ["dam", "unisfm_depth", "dam_dora"]:
+                    output = depth_model(input_color)
+                elif opt.depth_model_type == "af_sfmlearner":
+                    output = depth_decoder(encoder(input_color))
+                else:
+                    assert 0, "Unknown depth model type: " + opt.depth_model_type
+
                 pred_disp, _ = disp_to_depth(output[("disp", 0)], opt.min_depth, opt.max_depth)
                 pred_disp = pred_disp.cpu()[:, 0].numpy()
 

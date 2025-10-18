@@ -402,23 +402,14 @@ class Trainer:
             self.models["depth_model"] = depth_model
             print('loaded endofast3r_depth_trained_dbg depth model...')
         elif self.opt.depth_model_type == "unisfm_depth":
+            # pre exp shows relative depth is much better
             pretrained_checkpoint_path='/mnt/cluster/workspaces/jinjingxu/proj/UniSfMLearner/submodule/Video-Depth-Anything/checkpoints/video_depth_anything_vits.pth'
-            metric_pretrained_checkpoint_path='/mnt/cluster/workspaces/jinjingxu/proj/UniSfMLearner/submodule/Video-Depth-Anything/checkpoints/metric_video_depth_anything_vits.pth'
-            metric=False # befar we use metric false model
-            # metric=True # befar we use metric false model
-            if metric:
-                checkpoint_path = metric_pretrained_checkpoint_path
-            else:
-                checkpoint_path = pretrained_checkpoint_path
-
+            # metric_pretrained_checkpoint_path='/mnt/cluster/workspaces/jinjingxu/proj/UniSfMLearner/submodule/Video-Depth-Anything/checkpoints/metric_video_depth_anything_vits.pth'
             self.models["depth_model"] = UnisfmLearner_depth(encoder='vits', 
-            metric=metric,
-            checkpoint_path=checkpoint_path
+            metric=False,
+            checkpoint_path=pretrained_checkpoint_path
             )
             print('loaded unisfm_depth depth model with pretrained checkpoint from', checkpoint_path)
-
-            # self.models["depth_model"].load_state_dict(torch.load(f"{AF_PRETRAINED_ROOT}/depth_model.pth"))
-            # print('loaded unisfm_depth depth model...')
         else:
             assert 0, "Unknown depth model type: " + self.opt.depth_model_type
         self.models["depth_model"].to(self.device)

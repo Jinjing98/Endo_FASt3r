@@ -451,11 +451,13 @@ class MonodepthOptions:
         
         self.parser.add_argument("--depth_model_type",
                                  type=str,
-                                 help="normal or shared",
+                                 help="dam  refer to domora_dam; af_sfmlearner refer to af_sfmlearner_depth; unisfm_depth refer to our_vdam_with_dora; dam_dora is used in dares",
                                  default="dam",
                                  choices=["dam", 
                                           "endofast3r_depth_trained_dbg",
                                           "unisfm_depth",
+                                          "af_sfmlearner",
+                                          "dam_dora",
                                           ])        
          #pcrnet arch:
         self.parser.add_argument("--pcrnet_max_iteration",
