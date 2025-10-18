@@ -47,6 +47,11 @@ class MonodepthOptions:
         self.parser.add_argument("--use_MF_network",
                                  help="if set, uses MF network",
                                  action="store_true")
+        self.parser.add_argument("--MF_network_type",
+                                 type=str,
+                                 help="type of MF network",
+                                 default="individual_flow_net",
+                                 choices=["posenet_DPThead","posenet_MLPhead","individual_flow_net"])
         self.parser.add_argument("--shared_MF_OF_network",
                                  help="if set, uses MF network",
                                  action="store_true")

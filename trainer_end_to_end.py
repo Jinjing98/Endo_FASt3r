@@ -284,6 +284,11 @@ class Trainer:
         if self.opt.pose_model_type == "pcrnet":
             assert self.opt.enable_all_depth, "enable_motion_computation must be True when pose_model_type is pcrnet"
 
+        if self.opt.use_MF_network and self.opt.MF_network_type in ["posenet_DPThead", "posenet_MLPhead"]:     
+            assert self.opt.pose_model_type == "posetr_net", "pose_model_type must be posetr_net when use_MF_network is True and MF_network_type is posenet_DPThead or posenet_MLPhead"
+
+
+
         # #/////
         # if not self.opt.debug:
         #     # update the launched job if it is on queue
@@ -434,7 +439,7 @@ class Trainer:
             print("RAFT flow estimator initialized (trainable)")
             
             # enable motion_flow_net
-            if self.opt.use_MF_network:
+            if self.opt.use_MF_network and self.opt.MF_network_type == "individual_flow_net":
                 # self.models["motion_raft_flow"] = RAFT(self.device).model
                 self.models["motion_raft_flow"] = RAFT(self.device).model if not self.opt.shared_MF_OF_network \
                     else self.models["raft_flow"]
@@ -460,7 +465,7 @@ class Trainer:
 
 
             # enable motion_flow_net
-            if self.opt.use_MF_network:
+            if self.opt.use_MF_network and self.opt.MF_network_type == "individual_flow_net":
                 if self.opt.shared_MF_OF_network:
                     self.models["motion_position_encoder"] = self.models["position_encoder"]
                 else:
@@ -545,6 +550,12 @@ class Trainer:
                     #     attention_depth=3,          # Reduced from 6
                     #     attention_num_heads=6       # Keep consistent
                     # )
+                    mm_head_dict = {
+                        "posenet_DPThead": "DPT",
+                        "posenet_MLPhead": "MLP",
+                    }
+                    posetr_mm_head = mm_head_dict.get(self.opt.MF_network_type, None)
+
                     self.models["pose"] = PoseTransformerV2(
                         img_size=(256, 320),
                         patch_size=16,
@@ -555,7 +566,7 @@ class Trainer:
                         # skip_sa_ca=True,
                         # use_vit = False,
                         embed_dim=512,              # enable when no_use_vit so that exactly resnet_seperate_embedding
-
+                        posetr_mm_head=posetr_mm_head,
                     )
 
                 print('loaded posetr_net pose model...')
@@ -1027,17 +1038,18 @@ class Trainer:
 
         # MF is not trainable during train_0()
         if self.opt.use_MF_network and not self.opt.shared_MF_OF_network:
-            if self.opt.use_raft_flow:
-                for param in self.models["motion_raft_flow"].parameters():
-                    param.requires_grad = False
-                self.models["motion_raft_flow"].eval()
-            else:
-                for param in self.models["motion_position_encoder"].parameters():
-                    param.requires_grad = False
-                for param in self.models["motion_position"].parameters():
-                    param.requires_grad = False
-                self.models["motion_position_encoder"].eval()
-                self.models["motion_position"].eval()
+            if self.opt.MF_network_type == "individual_flow_net":
+                if self.opt.use_raft_flow:
+                    for param in self.models["motion_raft_flow"].parameters():
+                        param.requires_grad = False
+                    self.models["motion_raft_flow"].eval()
+                else:
+                    for param in self.models["motion_position_encoder"].parameters():
+                        param.requires_grad = False
+                    for param in self.models["motion_position"].parameters():
+                        param.requires_grad = False
+                    self.models["motion_position_encoder"].eval()
+                    self.models["motion_position"].eval()
 
     def freeze_params(self,keys = []):
         # no grad compuation: debug only
@@ -1106,7 +1118,7 @@ class Trainer:
         self.models["transform_encoder"].train()
         self.models["transform"].train()
     
-        if self.opt.use_MF_network:
+        if self.opt.use_MF_network and self.opt.MF_network_type == "individual_flow_net":
             # it will enable the OF net when shared_MF_OF_network is on
             # we need to manually detach all the OF estimation during train() statge
             if self.opt.use_raft_flow:
@@ -1127,12 +1139,12 @@ class Trainer:
         """
         if self.opt.use_raft_flow:
             self.models["raft_flow"].eval()
-            if self.opt.use_MF_network:
+            if self.opt.use_MF_network and self.opt.MF_network_type == "individual_flow_net":
                 self.models["motion_raft_flow"].eval()
         else:
             self.models["position_encoder"].eval()
             self.models["position"].eval()
-            if self.opt.use_MF_network:
+            if self.opt.use_MF_network and self.opt.MF_network_type == "individual_flow_net":
                 self.models["motion_position_encoder"].eval()
                 self.models["motion_position"].eval()
             
@@ -1513,7 +1525,17 @@ class Trainer:
         outputs.update(self.generate_depth_pred_from_disp(outputs))
 
         if self.use_pose_net:
-            outputs.update(self.predict_poses(inputs, outputs))# img is warp from optic_flow, save as "registration" 
+            
+            # optionally inference motion mask
+
+            inference_motion_mask = self.opt.use_MF_network and \
+                    self.opt.MF_network_type in ["posenet_DPThead", "posenet_MLPhead"] and \
+                        self.opt.pose_model_type == "posetr_net"
+            if inference_motion_mask:
+                print(f'Inferece motion mask in with {self.opt.MF_network_type} in posetr_net...')
+
+            outputs.update(self.predict_poses(inputs, outputs, 
+                                              inference_motion_mask=inference_motion_mask))# img is warp from optic_flow, save as "registration" 
 
         # img is warp from pose_flow('sample'), save as "color"
         # motion masks is computed below
@@ -1523,7 +1545,13 @@ class Trainer:
 
         if self.opt.enable_motion_computation:
             if self.opt.use_MF_network:
-                outputs.update(self.predict_motion_flow_with_MF_net(inputs, outputs))
+                if self.opt.MF_network_type == "individual_flow_net":
+                    outputs.update(self.predict_motion_flow_with_MF_net(inputs, outputs))
+                elif self.opt.MF_network_type in ["posenet_DPThead", "posenet_MLPhead"]:
+                    pass
+                    # print(f'ALready Predict motion mask with {self.opt.MF_network_type} in posetr_net...')
+                else:
+                    assert 0, NotImplementedError(f"MF_network_type: {self.opt.MF_network_type} is not implemented")
             else:
                 outputs.update(self.generate_motion_flow(inputs, outputs)) 
 
@@ -1667,9 +1695,11 @@ class Trainer:
 
 
     # @classmethod
-    def predict_poses(self, inputs, outputs = {}):
+    def predict_poses(self, inputs, outputs = {}, inference_motion_mask = False):
         """Predict poses between input frames for monocular sequences.
+        inference_motion_mask only support for posetr_net
         """
+
         # outputs = {}
         if self.num_pose_frames == 2:
             pose_feats = {f_i: inputs["color_aug", f_i, 0] for f_i in self.opt.frame_ids}
@@ -1994,9 +2024,15 @@ class Trainer:
                         view2 = {'img':inputs["color_aug", 0, 0]}
                         # print('view1 shape:', view1['img'].shape)
                         # print('view2 shape:', view2['img'].shape)
-                        _ , pose2 = self.models["pose"](view1,view2)
+                        _ , pose2, *mask2 = self.models["pose"](view1,view2, inference_motion_mask=inference_motion_mask)
                         outputs[("cam_T_cam", 0, f_i)] = pose2["pose"] # we need pose tgt2src, ie: pose2to1, i.e the pose2 in breif in reloc3r model.
-
+                        if inference_motion_mask:
+                            outputs[("motion_mask_backward", 0, f_i)] = mask2[0].unsqueeze(1) if self.opt.enable_grad_flow_motion_mask else mask2[0].detach().unsqueeze(1)
+                            # outputs[("motion_mask_backward", 0, f_i)] = mask2 if self.opt.enable_grad_flow_motion_mask else mask2.detach()
+                            print('log in motion mask', ["motion_mask_backward", 0, f_i],mask2[0].shape)
+                        if self.opt.enable_mutual_motion:
+                            assert 0, "mutual motion is not implemented yet"
+                            # outputs[("motion_mask_s2t_backward", 0, f_i)]
                     elif self.opt.pose_model_type in ["endofast3r",
                                                       'endofast3r_pose_trained_dbg',
                                                       "uni_reloc3r", 
@@ -3167,11 +3203,11 @@ class Trainer:
                         # valid_threshold = 0.0001# be more strict
                         # motion_mask_backward = (reproj_err_pose <= torch.clamp(reproj_err_vanilla-valid_threshold, min=0)).float()
                         motion_mask_backward = (reproj_err_pose <= reproj_err_vanilla).float()
-                        print('update the motion_mask in outputs for monitoring')
-                        outputs[("motion_mask_backward", 0, frame_id)] = motion_mask_backward # monitor in the vis for trn quality...
+                        # print('update the motion_mask in outputs for monitoring')
+                        print(' motion_mask_backward: ', motion_mask_backward.shape)
+                        outputs[("motion_mask_backward", 0, frame_id)] = motion_mask_backward#.unsqueeze(1) # monitor in the vis for trn quality...
                         # print(f'reproj_err_pose max min {frame_id} {scale}: ', reproj_err_pose.max(), reproj_err_pose.min())
                         # print(f'reproj_err_vanilla max min {frame_id} {scale}: ', reproj_err_vanilla.max(), reproj_err_vanilla.min())
-                        # print(' motion_mask_backward: ', motion_mask_backward.shape)
 
                     elif self.opt.loss_reproj2_motion_mask_type == "learned":
                         motion_mask_backward = outputs[("motion_mask_backward", 0, frame_id)].detach()
@@ -3194,6 +3230,10 @@ class Trainer:
                         
                     #compute motion mask reg loss
                     if self.opt.use_loss_motion_mask_reg and scale == 0:
+                        if self.opt.MF_network_type in ["posenet_DPThead", "posenet_MLPhead"]:
+                            continue # there is no motion_flow under this mode
+
+
                         # optic_flow = outputs[("position", "high", 0, frame_id)]
                         # reg_tgt_flow = optic_flow # we use optic_flow as reg_tgt_flow, not good.
 
@@ -3602,6 +3642,11 @@ class Trainer:
                         outputs[("color", frame_id, s)][j].data, self.step)
                     
                     if self.opt.enable_motion_computation:
+                        if ("color_MotionCorrected", frame_id, s) not in outputs.keys():
+                            # fake empty image in outputs
+                            print(f'No color_MotionCorrected_{frame_id}_{s} in outputs, fake it')
+                            outputs[("color_MotionCorrected", frame_id, s)] = torch.zeros_like(outputs[("color", frame_id, s)][j]).expand(outputs[("color", frame_id, s)].shape[0], -1, -1, -1)
+                        
                         writer.add_image(
                             "IMG/color_MotionCorrected_{}_{}/{}".format(frame_id, s, j),
                             outputs[("color_MotionCorrected", frame_id, s)][j].data, self.step)
@@ -3620,6 +3665,12 @@ class Trainer:
                         vis_flow_func(outputs[("pose_flow", "high", frame_id, s)][j].data), self.step)
                     # add motion_flow
                     if self.opt.enable_motion_computation:
+                        if ("motion_flow", "high", frame_id, s) not in outputs.keys():
+                            # fake empty image in outputs
+                            print(f'No motion_flow_{frame_id}_{s} in outputs, fake it')
+                            outputs[("motion_flow", "high", frame_id, s)] = torch.zeros_like(outputs[("pose_flow", "high", frame_id, s)][j]).expand(outputs[("pose_flow", "high", frame_id, s)].shape[0], -1, -1, -1)
+                            # outputs[("color_MotionCorrected", frame_id, s)] = torch.zeros_like(outputs[("color", frame_id, s)][j]).expand(outputs[("color", frame_id, s)].shape[0], -1, -1, -1)
+
                         writer.add_image(
                             "FLOW/motion_flow_{}_{}/{}".format(frame_id, s, j),
                             vis_flow_func(outputs[("motion_flow", "high", frame_id, s)][j].data), self.step)

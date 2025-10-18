@@ -57,7 +57,8 @@ from models.pos_embed import RoPE2D
 from models.blocks import Block, DecoderBlock
 from models.croco_downstream import CroCoDownstreamBinocular, croco_args_from_ckpt
 from models.pos_embed import interpolate_pos_embed
-from models.head_downstream import PixelwiseTaskWithDPT
+from models.dpt_head import create_motion_mask_dpt_head
+from models.linear_head import Linear_MaskEsti
 
 class CroCoV2FeatureExtractor(nn.Module):
     def __init__(self,
@@ -948,7 +949,8 @@ class PoseTransformerV2(nn.Module):
                  norm_layer=partial(nn.LayerNorm, eps=1e-6),
                  skip_sa_ca=False,  # Skip self and cross attention
                  use_vit=True,      # Use ViT-based encoder (ViT or CroCo)
-                 croco_vit=False):  # If use_vit=True, choose CroCo v2 Small over ViT Small
+                 croco_vit=False,
+                 posetr_mm_head=None):  # If use_vit=True, choose CroCo v2 Small over ViT Small
         super().__init__()
         
         self.img_size = img_size
@@ -957,6 +959,8 @@ class PoseTransformerV2(nn.Module):
         self.skip_sa_ca = skip_sa_ca
         self.use_vit = use_vit
         self.croco_vit = croco_vit
+        self.posetr_mm_head = posetr_mm_head
+        assert self.posetr_mm_head in ["DPT", "MLP", None], "posetr_mm_head must be DPT or MLP or None"
         
         # Feature extractor selection
         if use_vit:
@@ -1045,7 +1049,17 @@ class PoseTransformerV2(nn.Module):
         
         # # Initialize weights
         # self.initialize_weights()
-    
+        if self.posetr_mm_head == "DPT":
+            self.feature_extractor.mask_conf_mode = ('sigmoid', 0, 1)
+            self.mm_head = create_motion_mask_dpt_head(net=self.feature_extractor)
+        elif self.posetr_mm_head == "MLP":
+            self.feature_extractor.mask_conf_mode = ('sigmoid', 0, 1)
+            self.mm_head = Linear_MaskEsti(net=self.feature_extractor)
+        elif self.posetr_mm_head is None:
+            self.mm_head = None
+        else:
+            assert 0, "posetr_mm_head must be DPT or MLP or None"
+
     def initialize_weights(self):
         """Initialize weights for non-pretrained parts"""
         self.apply(self._init_weights)
@@ -1059,7 +1073,7 @@ class PoseTransformerV2(nn.Module):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
     
-    def forward(self, view1, view2):
+    def forward(self, view1, view2, inference_motion_mask = False):
         """
         Forward pass for relative pose regression.
         """
@@ -1080,9 +1094,15 @@ class PoseTransformerV2(nn.Module):
                 # print(f"pos2.shape: {pos2.shape}")
                 
                 feat = dec1[-1]#2 320 512
-                # print(f"feat.shape: {feat.shape}")
                 feat = self.proj_dec_to_head(feat)
                 pose = self.pose_head(feat)  # (B, 4, 4)
+
+                if inference_motion_mask:
+                    assert self.mm_head is not None, "mm_head is required for inference_motion_mask"
+                    print('img_size:', self.img_size)#256 320
+                    print(f"feat.shape: {feat.shape}") #1 320 512
+                    mask = self.mm_head(dec1, self.img_size)['mask_conf']
+                    print(f"mask.shape: {mask.shape}")
 
 
             else:
@@ -1143,7 +1163,11 @@ class PoseTransformerV2(nn.Module):
 
         
         # Return same pose for both directions (or inverse)
-        return pose, pose
+        if inference_motion_mask:
+            return None, pose, mask
+
+        # return pose, pose
+        return None, pose
 
 if __name__ == "__main__":
     # Test different configurations
