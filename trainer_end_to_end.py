@@ -409,12 +409,10 @@ class Trainer:
             metric=False,
             checkpoint_path=pretrained_checkpoint_path
             )
-            print('loaded unisfm_depth depth model with pretrained checkpoint from', checkpoint_path)
+            print('loaded unisfm_depth depth model with pretrained checkpoint from', pretrained_checkpoint_path)
         else:
             assert 0, "Unknown depth model type: " + self.opt.depth_model_type
         self.models["depth_model"].to(self.device)
-
-
 
         self.parameters_to_train += list(filter(lambda p: p.requires_grad, self.models["depth_model"].parameters()))
 
@@ -430,7 +428,9 @@ class Trainer:
             print("RAFT flow estimator initialized (trainable)")
             
             # enable motion_flow_net
-            if self.opt.use_MF_network and self.opt.MF_network_type == "individual_flow_net":
+            # if self.opt.use_MF_network and self.opt.MF_network_type == "individual_flow_net":
+            if self.opt.use_MF_network:
+                #  and self.opt.MF_network_type == "individual_flow_net":
                 # self.models["motion_raft_flow"] = RAFT(self.device).model
                 self.models["motion_raft_flow"] = RAFT(self.device).model if not self.opt.shared_MF_OF_network \
                     else self.models["raft_flow"]
@@ -456,7 +456,9 @@ class Trainer:
 
 
             # enable motion_flow_net
-            if self.opt.use_MF_network and self.opt.MF_network_type == "individual_flow_net":
+            # if self.opt.use_MF_network and self.opt.MF_network_type == "individual_flow_net":
+            if self.opt.use_MF_network:
+                #  and self.opt.MF_network_type == "individual_flow_net":
                 if self.opt.shared_MF_OF_network:
                     self.models["motion_position_encoder"] = self.models["position_encoder"]
                 else:
@@ -1029,7 +1031,7 @@ class Trainer:
 
         # MF is not trainable during train_0()
         if self.opt.use_MF_network and not self.opt.shared_MF_OF_network:
-            if self.opt.MF_network_type == "individual_flow_net":
+            # if self.opt.MF_network_type == "individual_flow_net":
                 if self.opt.use_raft_flow:
                     for param in self.models["motion_raft_flow"].parameters():
                         param.requires_grad = False
@@ -1109,7 +1111,9 @@ class Trainer:
         self.models["transform_encoder"].train()
         self.models["transform"].train()
     
-        if self.opt.use_MF_network and self.opt.MF_network_type == "individual_flow_net":
+        # if self.opt.use_MF_network and self.opt.MF_network_type == "individual_flow_net":
+        if self.opt.use_MF_network:
+            #  and self.opt.MF_network_type == "individual_flow_net":
             # it will enable the OF net when shared_MF_OF_network is on
             # we need to manually detach all the OF estimation during train() statge
             if self.opt.use_raft_flow:
@@ -1130,12 +1134,16 @@ class Trainer:
         """
         if self.opt.use_raft_flow:
             self.models["raft_flow"].eval()
-            if self.opt.use_MF_network and self.opt.MF_network_type == "individual_flow_net":
+            # if self.opt.use_MF_network and self.opt.MF_network_type == "individual_flow_net":
+            if self.opt.use_MF_network:
+                #  and self.opt.MF_network_type == "individual_flow_net":
                 self.models["motion_raft_flow"].eval()
         else:
             self.models["position_encoder"].eval()
             self.models["position"].eval()
-            if self.opt.use_MF_network and self.opt.MF_network_type == "individual_flow_net":
+            # if self.opt.use_MF_network and self.opt.MF_network_type == "individual_flow_net":
+            if self.opt.use_MF_network:
+                #  and self.opt.MF_network_type == "individual_flow_net":
                 self.models["motion_position_encoder"].eval()
                 self.models["motion_position"].eval()
             
@@ -1439,8 +1447,10 @@ class Trainer:
 
                     # strategy 1
                     if existing_motion_mask and self.opt.ignore_motion_area_at_calib:
-                        calib_target_area = calib_target_area * outputs[("motion_mask_backward", 0, f_i)].detach()
+                        motion_mask_key = "motion_mask_backward" if self.opt.MF_network_type not in ["posenet_DPThead", "posenet_MLPhead"] else "motion_mask_backward_posenet"
+                        calib_target_area = calib_target_area * outputs[(motion_mask_key, 0, f_i)].detach()
                         if self.opt.enable_mutual_motion:
+                            assert 0, "mutual motion is not implemented yet"
                             calib_target_area = calib_target_area * outputs[("motion_mask_s2t_backward", 0, f_i)].detach()
 
                     # strategy 2: use regularizer to enforce the calib_target_area and gt_tgt have same LPIPS; and enforce the calib net only predict spec differece---reduce its capacity for color prediction.
@@ -1539,8 +1549,9 @@ class Trainer:
                 if self.opt.MF_network_type == "individual_flow_net":
                     outputs.update(self.predict_motion_flow_with_MF_net(inputs, outputs))
                 elif self.opt.MF_network_type in ["posenet_DPThead", "posenet_MLPhead"]:
-                    pass
-                    # print(f'ALready Predict motion mask with {self.opt.MF_network_type} in posetr_net...')
+                    # we collect motion_mask_backward_posenet in the predict_motion_flow_with_MF_net function
+                    outputs.update(self.predict_motion_flow_with_MF_net(inputs, outputs, 
+                                                                       skip_motion_mask_estimation=True)) # we collect motion_mask_backward_posenet in the predict_motion_flow_with_MF_net function
                 else:
                     assert 0, NotImplementedError(f"MF_network_type: {self.opt.MF_network_type} is not implemented")
             else:
@@ -2018,9 +2029,8 @@ class Trainer:
                         _ , pose2, *mask2 = self.models["pose"](view1,view2, inference_motion_mask=inference_motion_mask)
                         outputs[("cam_T_cam", 0, f_i)] = pose2["pose"] # we need pose tgt2src, ie: pose2to1, i.e the pose2 in breif in reloc3r model.
                         if inference_motion_mask:
-                            outputs[("motion_mask_backward", 0, f_i)] = mask2[0].unsqueeze(1) if self.opt.enable_grad_flow_motion_mask else mask2[0].detach().unsqueeze(1)
+                            outputs[("motion_mask_backward_posenet", 0, f_i)] = mask2[0].unsqueeze(1) if self.opt.enable_grad_flow_motion_mask else mask2[0].detach().unsqueeze(1)
                             # outputs[("motion_mask_backward", 0, f_i)] = mask2 if self.opt.enable_grad_flow_motion_mask else mask2.detach()
-                            print('log in motion mask', ["motion_mask_backward", 0, f_i],mask2[0].shape)
                         if self.opt.enable_mutual_motion:
                             assert 0, "mutual motion is not implemented yet"
                             # outputs[("motion_mask_s2t_backward", 0, f_i)]
@@ -2058,13 +2068,11 @@ class Trainer:
         return outputs
 
 
-    def predict_motion_flow_with_MF_net(self, inputs, outputs):
+    def predict_motion_flow_with_MF_net(self, inputs, outputs, skip_motion_mask_estimation=False):
         """Predict poses between input frames for monocular sequences.
         """
         if self.num_pose_frames == 2:
             # only pose_flow corrected: for self.opt.frame_ids[1:]
-            # print('Aviable keys in outputs:')
-            # print(outputs.keys())
             img_feats = {f_i: outputs[("color", f_i, 0)].detach() for f_i in self.opt.frame_ids[1:]}# only pose_flow corrected 
             img_feats[self.opt.frame_ids[0]] = inputs["color_aug", self.opt.frame_ids[0], 0] # gt tgt img
 
@@ -2073,7 +2081,6 @@ class Trainer:
             for f_i in self.opt.frame_ids[1:]:
 
                 if f_i != "s":
-
                     # position - handle both custom networks and RAFT
                     if self.opt.use_raft_flow:
                         # prepare to get motion flow (tgt_motion_status_2_src_motion_status): tgt(at tgt motion status) -> tgt_warped_from_src_with_PF(at src motion status)
@@ -2110,8 +2117,6 @@ class Trainer:
                             position_inputs_reverse = self.models["motion_position_encoder"](torch.cat(inputs_all_reverse, 1))
                             outputs_1 = self.models["motion_position"](position_inputs_reverse)
 
-                    solve_MF_issue_from_root_debug = True
-                    Solve_MF_issue_from_root_debug = False
                     for scale in self.opt.scales:
                         # check if there is nan or inf in outputs_0[("position", scale)]
                         if torch.isnan(outputs_0[("position", scale)]).any() or torch.isinf(outputs_0[("position", scale)]).any():
@@ -2124,111 +2129,50 @@ class Trainer:
                             assert 0, f"Motion_flow outputs_0[('position', scale)] contains nan or inf: {num_nan} nan, {num_inf} inf"
                             # outputs_0[("position", scale)] = torch.nan_to_num(outputs_0[("position", scale)], nan=0.0, posinf=0.0, neginf=0.0)
                         outputs[("motion_flow", f_i, scale)] = outputs_0[("position", scale)]# saves t2s flow # no grad anyway due to freeze OF net
-                        # solve MF ref issue from source
-                        # if solve_MF_issue_from_root_debug:
-                        #     mf_ref_tgt = outputs[("motion_flow", f_i, scale)]
-                        #     mf_ref_color = self.spatial_transform(
-                        #         mf_ref_tgt,
-                        #         outputs[("pose_flow", "high", f_i, scale)], #infact: tgt2src
-                        #         # outputs[("pose_flow", "high", f_i, scale)].detach(), 
-                        #         )
-                        #     outputs[("motion_flow", f_i, scale)] = mf_ref_color
 
                         outputs[("motion_flow", "high", f_i, scale)] = F.interpolate(
                             outputs[("motion_flow", f_i, scale)], [self.opt.height, self.opt.width], mode="bilinear", align_corners=True)
-                        # spatial transform
-                        # A: perferred(nosiy depth, otherwise good) --at least known to get pose properly!
-                        # infact--no any constraint--below formula always exist no matter whatever pose_flow.
-                        # outputs[("color_MotionCorrected", f_i, scale)] = self.spatial_transform(
-                        #     inputs[("color", f_i, 0)],
-                        #     outputs[("motion_flow", "high", f_i, scale)].detach() + outputs[("pose_flow", "high", f_i, scale)], 
-                        #     )
-                         # A'': motion_flow: tgt2color    pose_flow: color2src
-                         # while we need OF: tgt2src
-                        # outputs[("color_MotionCorrected", f_i, scale)] = self.spatial_transform(
-                        #     inputs[("color", f_i, 0)],
-                        #     outputs[("motion_flow", "high", f_i, scale)] + outputs[("pose_flow", "high", f_i, scale)], 
-                        #     )
-                        # B'': robust_color_corrected: _no_noisy (wrong but good trend to let pose flow learn properly--seem to bring curve downer)More robust compared to the above: depth get less affected?
-                        # it also significantly affect depth:  it will enforce dy area to be extremely deep---reasonable. but not correct
-                        # here the major aim is still supervise pose_flow properly in a full frame regime, we already indirectly supervised MF by reused the OF net.
+
                         outputs[("color_MotionCorrected", f_i, scale)] = self.spatial_transform(
                             outputs[("color", f_i, 0)] if not self.opt.disable_grad_from_color_when_compute_color_motioncorrected \
                                 else outputs[("color", f_i, 0)].detach(),
                             outputs[("motion_flow", "high", f_i, scale)].detach(), 
                             )       
 
-                        # A''': perferred(nosiy depth, otherwise good) --at least known to get pose properly!
-                        # infact--no any constraint--below formula always exist no matter whatever pose_flow.
-                        # mf_ref_color = outputs[("motion_flow", "high", f_i, scale)].detach()
-                        # # mf_ref_src = # color + s2c
-                        # mf_ref_src = self.spatial_transform(
-                        #     mf_ref_color,
-                        #     outputs[("pose_flow", "high", f_i, scale)], 
-                        #     )
-                        # outputs[("color_MotionCorrected", f_i, scale)] = self.spatial_transform(
-                        #     inputs[("color", f_i, 0)],
-                        #     # below is wrong!: the ref frame changes of motino
-                        #     # outputs[("motion_flow", "high", f_i, scale)].detach() + outputs[("pose_flow", "high", f_i, scale)], 
-                        #     mf_ref_src + outputs[("pose_flow", "high", f_i, scale)], 
-                        #     )
-
-                        # A''''
-                        # outputs[("color_MotionCorrected", f_i, scale)] = self.spatial_transform(
-                        #     inputs[("color", f_i, 0)],
-                        #     # outputs[("motion_flow", "high", f_i, scale)] + outputs[("pose_flow", "high", f_i, scale)].detach(), 
-                        #     # quick tmp fix--later deteaoe;d corrected. from define them, usage funtion.
-                        #     outputs[("motion_flow", "high", f_i, scale)] - outputs[("pose_flow", "high", f_i, scale)].detach(), 
-                        #     )
-
-                        #X: A': not known---affect pose_flow indirecly from motion_flow(computed from color img and real_img)
-                        # outputs[("color_MotionCorrected", f_i, scale)] = self.spatial_transform(
-                        #     inputs[("color", f_i, 0)],
-                        #     outputs[("motion_flow", "high", f_i, scale)] + outputs[("pose_flow", "high", f_i, scale)].detach(), 
-                        #     )
- 
-
-
-                        
-                 
-  
 
                         if self.opt.enable_mutual_motion:
                             outputs[("motion_flow_s2t", f_i, scale)] = outputs_1[("position", scale)]# no grad anyway due to freeze OF net 
-                            if solve_MF_issue_from_root_debug:
-                                pass
 
-                            
                             outputs[("motion_flow_s2t", "high", f_i, scale)] = F.interpolate(
                                 outputs[("motion_flow_s2t", f_i, scale)], [self.opt.height, self.opt.width], mode="bilinear", align_corners=True)
                     
-                        # if scale == 0:
                         # extend for muti level despite we only use level 0 for supervision
-                        if self.opt.use_soft_motion_mask:
-                            #generate from optic_flow and pose_flow
-                            outputs[("motion_mask_backward", scale, f_i)] = self.get_motion_mask_soft(
-                                optic_flow = outputs[("position", "high", scale, f_i)],
-                                pose_flow = outputs[("pose_flow", "high", f_i, scale)],
-                                detach=(not self.opt.enable_grad_flow_motion_mask), 
-                                thre_px=self.opt.motion_mask_thre_px)
-                            if self.opt.enable_mutual_motion:
-                                outputs[("motion_mask_s2t_backward", scale, f_i)] = self.get_motion_mask_soft(
-                                    optic_flow = outputs[("position_reverse","high", scale, f_i)],
-                                    pose_flow = outputs[("pose_flow_s2t", "high", f_i, scale)],
+                        if not skip_motion_mask_estimation:
+                            if self.opt.use_soft_motion_mask:
+                                #generate from optic_flow and pose_flow
+                                outputs[("motion_mask_backward", scale, f_i)] = self.get_motion_mask_soft(
+                                    optic_flow = outputs[("position", "high", scale, f_i)],
+                                    pose_flow = outputs[("pose_flow", "high", f_i, scale)],
                                     detach=(not self.opt.enable_grad_flow_motion_mask), 
                                     thre_px=self.opt.motion_mask_thre_px)
+                                if self.opt.enable_mutual_motion:
+                                    outputs[("motion_mask_s2t_backward", scale, f_i)] = self.get_motion_mask_soft(
+                                        optic_flow = outputs[("position_reverse","high", scale, f_i)],
+                                        pose_flow = outputs[("pose_flow_s2t", "high", f_i, scale)],
+                                        detach=(not self.opt.enable_grad_flow_motion_mask), 
+                                        thre_px=self.opt.motion_mask_thre_px)
 
-                        else:
-                            # generate directly from thresholding motion flow
-                            outputs[("motion_mask_backward", scale, f_i)] = self.get_motion_mask(
-                                outputs[("motion_flow", "high", f_i, scale)],
-                                detach=(not self.opt.enable_grad_flow_motion_mask), 
-                                thre_px=self.opt.motion_mask_thre_px)
-                            if self.opt.enable_mutual_motion:
-                                outputs[("motion_mask_s2t_backward", scale, f_i)] = self.get_motion_mask(
-                                    outputs[("motion_flow_s2t", "high", f_i, scale)],
+                            else:
+                                # generate directly from thresholding motion flow
+                                outputs[("motion_mask_backward", scale, f_i)] = self.get_motion_mask(
+                                    outputs[("motion_flow", "high", f_i, scale)],
                                     detach=(not self.opt.enable_grad_flow_motion_mask), 
                                     thre_px=self.opt.motion_mask_thre_px)
+                                if self.opt.enable_mutual_motion:
+                                    outputs[("motion_mask_s2t_backward", scale, f_i)] = self.get_motion_mask(
+                                        outputs[("motion_flow_s2t", "high", f_i, scale)],
+                                        detach=(not self.opt.enable_grad_flow_motion_mask), 
+                                        thre_px=self.opt.motion_mask_thre_px)
  
 
         return outputs
@@ -2525,7 +2469,7 @@ class Trainer:
         return outputs
 
     # @classmethod
-    def generate_motion_flow(self, inputs, outputs):
+    def generate_motion_flow(self, inputs, outputs, skip_motion_mask_estimation=False):
         """Generate the warped (reprojected) color images for a minibatch.
         Generated images are saved into the `outputs` dictionary.
         """
@@ -2540,39 +2484,40 @@ class Trainer:
                 # there is no grad in OF anyway in for 2nd statge traning
 
                 # if scale == 0:
-                if self.opt.use_soft_motion_mask:
-                    outputs[("motion_mask_backward", scale, frame_id)] = self.get_motion_mask_soft(
-                                                        outputs[("position", "high", scale, frame_id)], 
-                                                            outputs[("pose_flow", "high", frame_id, scale)],
-                                                            detach=(not self.opt.enable_grad_flow_motion_mask), 
-                                                            thre_px=self.opt.motion_mask_thre_px)
-                else:
-                    outputs[("motion_mask_backward", scale, frame_id)] = self.get_motion_mask(
-                                                                                    #  do not use outputs[("motion_flow", frame_id, 0)], depend on what is set to it, the grad might get lost!
-                                                                                    # use below to make sure grad exists. 
-                                                                                        - outputs[("pose_flow", "high", frame_id, scale)] + outputs[("position", "high", scale, frame_id)], # there is grad_flow here! differ from motion_flow
-                                                                                        detach=(not self.opt.enable_grad_flow_motion_mask), 
-                                                                                        thre_px=self.opt.motion_mask_thre_px)
-                
-                if self.opt.enable_mutual_motion:
-                    # compute s2t motion_flow and s2t_motion_mask
-                    # we enable grad in motion_flow, can be latered used to reg motion mask
-                    outputs[("motion_flow_s2t", "high",frame_id, scale)] = - outputs[("pose_flow_s2t", "high", frame_id, scale)] + outputs[("position_reverse", "high", scale, frame_id)]#.detach() # 
-                    # if scale == 0:
+                if not skip_motion_mask_estimation:
                     if self.opt.use_soft_motion_mask:
-                        outputs[("motion_mask_s2t_backward", scale, frame_id)] = self.get_motion_mask_soft(
-                                                    optic_flow = outputs[("position_reverse", "high", scale, frame_id)], 
-                                                            pose_flow = outputs[("pose_flow_s2t", "high", frame_id, scale)],
-                                                            detach=(not self.opt.enable_grad_flow_motion_mask), 
-                                                            thre_px=self.opt.motion_mask_thre_px)
+                        outputs[("motion_mask_backward", scale, frame_id)] = self.get_motion_mask_soft(
+                                                            outputs[("position", "high", scale, frame_id)], 
+                                                                outputs[("pose_flow", "high", frame_id, scale)],
+                                                                detach=(not self.opt.enable_grad_flow_motion_mask), 
+                                                                thre_px=self.opt.motion_mask_thre_px)
                     else:
-                        # static area will be set to 1
-                        outputs[("motion_mask_s2t_backward", scale, frame_id)] = self.get_motion_mask(
-                                                                                            # outputs[("motion_flow_s2t", frame_id, 0)], 
-                                                                                            # desipte there is grad in motion_flow, we readd for safety.
-                                                                                            motion_flow = - outputs[("pose_flow_s2t", "high", frame_id, scale)] + outputs[("position_reverse", "high", scale, frame_id)], # there is grad_flow here! differ from motion_flow
+                        outputs[("motion_mask_backward", scale, frame_id)] = self.get_motion_mask(
+                                                                                        #  do not use outputs[("motion_flow", frame_id, 0)], depend on what is set to it, the grad might get lost!
+                                                                                        # use below to make sure grad exists. 
+                                                                                            - outputs[("pose_flow", "high", frame_id, scale)] + outputs[("position", "high", scale, frame_id)], # there is grad_flow here! differ from motion_flow
                                                                                             detach=(not self.opt.enable_grad_flow_motion_mask), 
                                                                                             thre_px=self.opt.motion_mask_thre_px)
+                    
+                    if self.opt.enable_mutual_motion:
+                        # compute s2t motion_flow and s2t_motion_mask
+                        # we enable grad in motion_flow, can be latered used to reg motion mask
+                        outputs[("motion_flow_s2t", "high",frame_id, scale)] = - outputs[("pose_flow_s2t", "high", frame_id, scale)] + outputs[("position_reverse", "high", scale, frame_id)]#.detach() # 
+                        # if scale == 0:
+                        if self.opt.use_soft_motion_mask:
+                            outputs[("motion_mask_s2t_backward", scale, frame_id)] = self.get_motion_mask_soft(
+                                                        optic_flow = outputs[("position_reverse", "high", scale, frame_id)], 
+                                                                pose_flow = outputs[("pose_flow_s2t", "high", frame_id, scale)],
+                                                                detach=(not self.opt.enable_grad_flow_motion_mask), 
+                                                                thre_px=self.opt.motion_mask_thre_px)
+                        else:
+                            # static area will be set to 1
+                            outputs[("motion_mask_s2t_backward", scale, frame_id)] = self.get_motion_mask(
+                                                                                                # outputs[("motion_flow_s2t", frame_id, 0)], 
+                                                                                                # desipte there is grad in motion_flow, we readd for safety.
+                                                                                                motion_flow = - outputs[("pose_flow_s2t", "high", frame_id, scale)] + outputs[("position_reverse", "high", scale, frame_id)], # there is grad_flow here! differ from motion_flow
+                                                                                                detach=(not self.opt.enable_grad_flow_motion_mask), 
+                                                                                                thre_px=self.opt.motion_mask_thre_px)
 
                 # gen sample_motion_corrected from pose_flow and motion_flow, then sample image with sample_motion_corrected
                 # sample_motion_corrected = (outputs[("pose_flow", "high", frame_id, scale)] + outputs[("motion_flow", frame_id, scale)])#.permute(0, 2, 3, 1)
@@ -3191,17 +3136,19 @@ class Trainer:
                         reproj_err_vanilla = self.compute_reprojection_loss(inputs[("color", frame_id, 0)],#.detach(),
                                                 inputs[("color", 0, 0)],
                                                 )
-                        # valid_threshold = 0.0001# be more strict
-                        # motion_mask_backward = (reproj_err_pose <= torch.clamp(reproj_err_vanilla-valid_threshold, min=0)).float()
-                        motion_mask_backward = (reproj_err_pose <= reproj_err_vanilla).float()
+                        # valid_threshold = 0.001# be more strict
+                        # motion_mask_backward = (reproj_err_pose < torch.clamp(reproj_err_vanilla-valid_threshold, min=0)).float()
+                        # motion_mask_backward = (reproj_err_pose <= reproj_err_vanilla).float()
+                        motion_mask_backward = (reproj_err_pose < reproj_err_vanilla).float()
                         # print('update the motion_mask in outputs for monitoring')
                         print(' motion_mask_backward: ', motion_mask_backward.shape)
-                        outputs[("motion_mask_backward", 0, frame_id)] = motion_mask_backward#.unsqueeze(1) # monitor in the vis for trn quality...
+                        # outputs[("motion_mask_backward", 0, frame_id)] = motion_mask_backward#.unsqueeze(1) # monitor in the vis for trn quality...
                         # print(f'reproj_err_pose max min {frame_id} {scale}: ', reproj_err_pose.max(), reproj_err_pose.min())
                         # print(f'reproj_err_vanilla max min {frame_id} {scale}: ', reproj_err_vanilla.max(), reproj_err_vanilla.min())
 
                     elif self.opt.loss_reproj2_motion_mask_type == "learned":
-                        motion_mask_backward = outputs[("motion_mask_backward", 0, frame_id)].detach()
+                        motion_mask_key = "motion_mask_backward" if self.opt.MF_network_type not in ["posenet_DPThead", "posenet_MLPhead"] else "motion_mask_backward_posenet"
+                        motion_mask_backward = outputs[(motion_mask_key, 0, frame_id)].detach()
                     else:
                         raise ValueError(f"Invalid loss_reproj2_motion_mask_type: {self.opt.loss_reproj2_motion_mask_type}")
                     
@@ -3221,8 +3168,8 @@ class Trainer:
                         
                     #compute motion mask reg loss
                     if self.opt.use_loss_motion_mask_reg and scale == 0:
-                        if self.opt.MF_network_type in ["posenet_DPThead", "posenet_MLPhead"]:
-                            continue # there is no motion_flow under this mode
+                        # if self.opt.MF_network_type in ["posenet_DPThead", "posenet_MLPhead"]:
+                            # continue # there is no motion_flow under this mode
 
 
                         # optic_flow = outputs[("position", "high", 0, frame_id)]
@@ -3230,7 +3177,10 @@ class Trainer:
 
                         motion_flow = outputs[("motion_flow", "high", frame_id, scale)]
                         reg_tgt_flow = motion_flow.detach() # we want to make sure there is no grad in motion_flow, elsewise the motion_mask might bailan.
-                        motion_mask = outputs[("motion_mask_backward", scale, frame_id)].squeeze(1)
+                        
+                        motion_mask_key = "motion_mask_backward" if self.opt.MF_network_type not in ["posenet_DPThead", "posenet_MLPhead"] else "motion_mask_backward_posenet"
+                        
+                        motion_mask = outputs[(motion_mask_key, scale, frame_id)].squeeze(1)
 
                         # motion mask is already properly supervised in loss_reproj2
                         # here supervise motion_flow(pose_flow)? by detacch motion_mask but remain the grad for motion_flow?
@@ -3599,11 +3549,13 @@ class Trainer:
                     #/////////////EXTEND////////////////////////
                     if self.opt.enable_motion_computation:
                         # if s == s:
+                        motion_mask_key = "motion_mask_backward" if self.opt.MF_network_type not in ["posenet_DPThead", "posenet_MLPhead"] else "motion_mask_backward_posenet"
                         writer.add_image(
-                            "Other/motion_mask_backward_{}_{}/{}".format(frame_id, s, j),
-                            outputs[("motion_mask_backward", s, frame_id)][j].data, self.step)
+                            "Other/{}_{}_{}/{}".format(motion_mask_key, frame_id, s, j),
+                            outputs[(motion_mask_key, s, frame_id)][j].data, self.step)
                     
                         if self.opt.enable_mutual_motion:
+                            assert 0, "mutual motion is not implemented yet"
                             # if s == s:
                             writer.add_image(
                                 "Other/motion_mask_s2t_backward_{}_{}/{}".format(frame_id, s, j),
@@ -3716,7 +3668,9 @@ class Trainer:
                             # motion_flow_imgs.append(outputs[("motion_flow", frame_id, s)][j].data)
                             motion_flow_imgs.append(outputs[("motion_flow", "high", frame_id, s)][j].data)
                             # if s == s:
-                            motion_mask_imgs.append(outputs[("motion_mask_backward", s, frame_id)][j].data)
+                            motion_mask_key = "motion_mask_backward" if self.opt.MF_network_type not in ["posenet_DPThead", "posenet_MLPhead"] else "motion_mask_backward_posenet"
+                            print('append {} in motion_mask_imgs'.format(motion_mask_key))
+                            motion_mask_imgs.append(outputs[(motion_mask_key, s, frame_id)][j].data)
                             if self.opt.enable_mutual_motion:
                                 motion_mask_s2t_imgs.append(outputs[("motion_mask_s2t_backward", s, frame_id)][j].data)
 

@@ -1,3 +1,28 @@
+# Best Model:
+b3accu4_scaredcorrectedExcelSM_posetr_fzenc_trainedNfzD_learnedMskTrePx1_learnedlossR2Weight1_reproj2only_ontheflyMonov2
+
+
+
+114702 b3accu4_scaredcorrectedExcelSM_posetr_fzenc_trainedNfzD_learnedMskTrePx1_learnedlossR2Weight1_reproj2only_ontheflyMonov2_smallerOnly
+-update to 'reproj_err_pose < reproj_err_vanilla'
+
+# relative Vdam is better than metric one: but not as good as dares---might because: bSize, clean trn script
+114519 (compete with dares, or endofast3r dam) ours_P_trainedRes_D_vDAM_dora
+# regarding monov2 and dpt+monov2
+# monov2: cluster err. rerun for r2only
+# !!!motion is enforces from reg with motion_flow_mag!
+
+useL2
+114529 b3accu4_scaredcorrectedExcelSM_posetr_fzenc_trainedNfzD_learnedMskTrePx1_learnedlossR2Weight1_reproj2only_posenetDPThead_ontheflyMonov2
+114534 b3accu4_scaredcorrectedExcelSM_posetr_fzenc_trainedNfzD_learnedMskTrePx1_learnedlossR2Weight1_reproj2only_posenetDPThead
+114531 b3accu4_scaredcorrectedExcelSM_posetr_fzenc_trainedNfzD_learnedMskTrePx1_learnedlossR2Weight1_reproj2only_ontheflyMonov2
+# monov2: cluster err. rerun for r2+0.001_learnedr1
+# monov2: cluster err. rerun for r2+0.001_learnedr1
+# addtional useL1: enforce learned mask using r1, meanwhile try to reduce the effect on posenet
+
+
+
+
 # 114496 b3accu4_scaredcorrectedExcelSM_posetr_fzenc_trainedNfzD_learnedMskTrePx1_learnedlossR2Weight1_reproj2only_ontheflyMonov2
 # 114505 b3accu4_scaredcorrectedExcelSM_posetr_fzenc_trainedNfzD_learnedMskTrePx1_learnedlossR2Weight1_reproj2only_posenetMLPhead
 # 114507 b3accu4_scaredcorrectedExcelSM_posetr_fzenc_trainedNfzD_learnedMskTrePx1_learnedlossR2Weight1_reproj2only_posenetDPThead
